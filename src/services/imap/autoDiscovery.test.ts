@@ -43,6 +43,27 @@ describe("extractDomain", () => {
 });
 
 describe("findWellKnownProvider", () => {
+  it("returns settings for gmail.com with oauth2", () => {
+    const result = findWellKnownProvider("gmail.com");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap.gmail.com");
+    expect(result!.settings.imapPort).toBe(993);
+    expect(result!.settings.imapSecurity).toBe("ssl");
+    expect(result!.settings.smtpHost).toBe("smtp.gmail.com");
+    expect(result!.settings.smtpPort).toBe(465);
+    expect(result!.settings.smtpSecurity).toBe("ssl");
+    expect(result!.authMethods).toEqual(["oauth2", "password"]);
+    expect(result!.oauthProviderId).toBe("google");
+  });
+
+  it("returns settings for googlemail.com (gmail alias)", () => {
+    const result = findWellKnownProvider("googlemail.com");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap.gmail.com");
+    expect(result!.authMethods).toEqual(["oauth2", "password"]);
+    expect(result!.oauthProviderId).toBe("google");
+  });
+
   it("returns settings for outlook.com", () => {
     const result = findWellKnownProvider("outlook.com");
     expect(result).not.toBeNull();
@@ -140,6 +161,23 @@ describe("guessServerSettings", () => {
 });
 
 describe("discoverSettings", () => {
+  it("returns well-known settings for gmail.com with oauth2", () => {
+    const result = discoverSettings("user@gmail.com");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap.gmail.com");
+    expect(result!.settings.smtpHost).toBe("smtp.gmail.com");
+    expect(result!.authMethods).toEqual(["oauth2", "password"]);
+    expect(result!.oauthProviderId).toBe("google");
+  });
+
+  it("returns well-known settings for googlemail.com with oauth2", () => {
+    const result = discoverSettings("user@googlemail.com");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("imap.gmail.com");
+    expect(result!.authMethods).toEqual(["oauth2", "password"]);
+    expect(result!.oauthProviderId).toBe("google");
+  });
+
   it("returns well-known settings for known providers", () => {
     const result = discoverSettings("user@outlook.com");
     expect(result).not.toBeNull();

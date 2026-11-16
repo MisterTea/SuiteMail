@@ -11,6 +11,8 @@ import { buildImapConfig } from "../imap/imapConfigBuilder";
 import type { ImapConfig } from "../imap/tauriCommands";
 import { getAccount } from "../db/accounts";
 import { getThreadCrdtDoc } from "../db/threadCrdtDocs";
+import { getDb } from "../db/connection";
+import { getLabelsForAccount } from "../db/labels";
 
 export { isEmailFiltered, markEmailFiltered };
 
@@ -274,4 +276,177 @@ export async function downloadEmail(
 
   // Add the email, applying filters if unfiltered and setting metadata
   return addEmail(accountId, effectiveThreadId, messages, imapConfig);
+}
+
+// ============================================================================
+// Affected Emails Preview & Manual Execution
+// ============================================================================
+
+export interface AffectedEmail {
+  id: string;
+  threadId: string;
+  fromName: string | null;
+  fromAddress: string | null;
+  toAddresses: string | null;
+  subject: string | null;
+  snippet: string | null;
+  date: number;
+  isRead: boolean;
+  isStarred: boolean;
+  hasAttachments: boolean;
+  actionChanges: string[];
+}
+
+/**
+ * Preview which emails in an account would be affected by a new filter,
+ * assuming the new filter has highest priority (evaluated before all others).
+ */
+export async function getAffectedEmailsForFilter(
+  accountId: string,
+  criteria: FilterCriteria,
+  actions: FilterActions,
+  limit = 50,
+): Promise<AffectedEmail[]> {
+  const db = await getDb();
+  let labels: { id: string; name: string }[] = [];
+  try {
+    labels = await getLabelsForAccount(accountId);
+  } catch {
+    // best effort
+  }
+  const labelMap = new Map(labels.map((l) => [l.id, l.name]));
+
+  // Resolve action label display name
+  const targetLabelName = actions.applyLabel
+    ? labelMap.get(actions.applyLabel) ?? actions.applyLabel
+    : undefined;
+
+  const rows = await db.select<{
+    id: string;
+    thread_id: string;
+    from_name: string | null;
+    from_address: string | null;
+    to_addresses: string | null;
+    subject: string | null;
+    snippet: string | null;
+    date: number;
+    is_read: number;
+    is_starred: number;
+    body_text: string | null;
+    body_html: string | null;
+    attachment_count: number;
+  }[]>(
+    `SELECT m.id, m.thread_id, m.from_name, m.from_address, m.to_addresses,
+            m.subject, m.snippet, m.date, m.is_read, m.is_starred,
+            m.body_text, m.body_html,
+            (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id AND a.account_id = m.account_id AND a.is_inline = 0) as attachment_count
+     FROM messages m
+     WHERE m.account_id = $1
+     ORDER BY m.date DESC`,
+    [accountId],
+  );
+
+  const affected: AffectedEmail[] = [];
+
+  for (const row of rows) {
+    const hasAttachments = (row.attachment_count ?? 0) > 0;
+    const msg: ParsedMessage = {
+      id: row.id,
+      threadId: row.thread_id,
+      fromAddress: row.from_address,
+      fromName: row.from_name,
+      toAddresses: row.to_addresses,
+      ccAddresses: null,
+      bccAddresses: null,
+      replyTo: null,
+      subject: row.subject,
+      snippet: row.snippet ?? "",
+      date: row.date,
+      isRead: row.is_read === 1,
+      isStarred: row.is_starred === 1,
+      bodyHtml: row.body_html,
+      bodyText: row.body_text,
+      rawSize: 0,
+      internalDate: 0,
+      labelIds: [],
+      hasAttachments,
+      attachments: [],
+      listUnsubscribe: null,
+      listUnsubscribePost: null,
+      authResults: null,
+    };
+
+    if (messageMatchesFilter(msg, criteria)) {
+      const changes: string[] = [];
+      if (actions.applyLabel) {
+        changes.push(`Apply label '${targetLabelName}'`);
+      }
+      if (actions.archive) {
+        changes.push("Archive from Inbox");
+      }
+      if (actions.trash) {
+        changes.push("Move to Trash");
+      }
+      if (actions.star) {
+        changes.push(row.is_starred === 1 ? "Keep starred" : "Star email");
+      }
+      if (actions.markRead) {
+        changes.push(row.is_read === 1 ? "Already read" : "Mark as read");
+      }
+
+      affected.push({
+        id: row.id,
+        threadId: row.thread_id,
+        fromName: row.from_name,
+        fromAddress: row.from_address,
+        toAddresses: row.to_addresses,
+        subject: row.subject,
+        snippet: row.snippet,
+        date: row.date,
+        isRead: row.is_read === 1,
+        isStarred: row.is_starred === 1,
+        hasAttachments,
+        actionChanges: changes,
+      });
+
+      if (affected.length >= limit) {
+        break;
+      }
+    }
+  }
+
+  return affected;
+}
+
+/**
+ * Apply filter actions across specific threads in an account.
+ */
+export async function applyFilterActionsToThreads(
+  accountId: string,
+  actions: FilterActions,
+  threadIds: string[],
+): Promise<void> {
+  const result = computeFilterActions(actions);
+  const uniqueThreadIds = [...new Set(threadIds)];
+
+  await Promise.allSettled(
+    uniqueThreadIds.map(async (threadId) => {
+      try {
+        for (const labelId of result.addLabelIds) {
+          await addThreadLabel(accountId, threadId, labelId);
+        }
+        for (const labelId of result.removeLabelIds) {
+          await removeThreadLabel(accountId, threadId, labelId);
+        }
+        if (result.markRead) {
+          await markThreadRead(accountId, threadId, [], true);
+        }
+        if (result.star) {
+          await starThread(accountId, threadId, [], true);
+        }
+      } catch (err) {
+        console.error(`Failed to apply filter actions to thread ${threadId}:`, err);
+      }
+    }),
+  );
 }

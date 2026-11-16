@@ -51,6 +51,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
     // Actions
     { id: "compose", label: "Compose New Email", shortcut: "c", category: "Actions", action: () => { openComposer(); onClose(); } },
+    { id: "create-filter", label: "Create Filter Rule", category: "Actions", action: () => { onClose(); window.dispatchEvent(new CustomEvent("velo-create-filter", { detail: { mode: "manual" } })); } },
     { id: "deselect", label: "Close Thread", shortcut: "Esc", category: "Actions", action: () => { navigateBack(); onClose(); } },
     { id: "spam", label: activeLabel === "spam" ? "Not Spam" : "Report Spam", shortcut: "!", category: "Actions", action: async () => {
       onClose();
@@ -87,6 +88,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
     // AI
     { id: "ask-ai", label: "Ask AI about your inbox", category: "AI", action: () => { onClose(); window.dispatchEvent(new Event("velo-toggle-ask-inbox")); } },
+    { id: "ai-suggest-filter", label: "Suggest Filter with AI (Pi Agent)", category: "AI", action: () => { onClose(); window.dispatchEvent(new Event("velo-suggest-filter")); } },
 
     // Settings
     { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+Shift+E", category: "Settings", action: () => { toggleSidebar(); onClose(); } },

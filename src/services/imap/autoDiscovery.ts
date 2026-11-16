@@ -23,6 +23,19 @@ interface WellKnownProvider {
 
 const wellKnownProviders: WellKnownProvider[] = [
   {
+    domains: ["gmail.com", "googlemail.com"],
+    settings: {
+      imapHost: "imap.gmail.com",
+      imapPort: 993,
+      imapSecurity: "ssl",
+      smtpHost: "smtp.gmail.com",
+      smtpPort: 465,
+      smtpSecurity: "ssl",
+    },
+    authMethods: ["oauth2", "password"],
+    oauthProviderId: "google",
+  },
+  {
     domains: [
       "outlook.com",
       "hotmail.com",

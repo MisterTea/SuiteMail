@@ -86,3 +86,51 @@ export async function updateLabelSortOrder(
     ),
   );
 }
+
+/**
+ * Ensure a label or folder exists for the account.
+ * Returns the existing ID if found (case-insensitive name match),
+ * or creates a new label/folder and returns its ID.
+ */
+export async function ensureLabelOrFolder(
+  accountId: string,
+  folderName: string,
+): Promise<string> {
+  const trimmed = folderName.trim();
+  if (!trimmed) {
+    throw new Error("Folder name cannot be empty");
+  }
+
+  const existing = await getLabelsForAccount(accountId);
+  const found = existing.find(
+    (l) => l.name.toLowerCase() === trimmed.toLowerCase(),
+  );
+  if (found) {
+    return found.id;
+  }
+
+  // Create new label locally and in remote provider if available
+  let newId = `label_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  try {
+    const { getGmailClient } = await import("@/services/gmail/tokenManager");
+    const client = await getGmailClient(accountId);
+    if (client) {
+      const remote = await client.createLabel(trimmed);
+      if (remote?.id) {
+        newId = remote.id;
+      }
+    }
+  } catch {
+    // Best effort remote creation for Gmail accounts; IMAP and offline fallback to local ID
+  }
+
+  await upsertLabel({
+    id: newId,
+    accountId,
+    name: trimmed,
+    type: "user",
+  });
+
+  return newId;
+}

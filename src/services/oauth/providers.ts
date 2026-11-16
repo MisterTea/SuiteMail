@@ -10,6 +10,20 @@ export interface OAuthProviderConfig {
 }
 
 const providers: Record<string, OAuthProviderConfig> = {
+  google: {
+    id: "google",
+    name: "Google",
+    authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+    tokenUrl: "https://oauth2.googleapis.com/token",
+    scopes: [
+      "https://mail.google.com/",
+      "openid",
+      "https://www.googleapis.com/auth/userinfo.email",
+      "https://www.googleapis.com/auth/userinfo.profile",
+    ],
+    userInfoUrl: "https://www.googleapis.com/oauth2/v3/userinfo",
+    usePkce: true,
+  },
   microsoft: {
     id: "microsoft",
     name: "Microsoft",
@@ -40,6 +54,9 @@ const providers: Record<string, OAuthProviderConfig> = {
 };
 
 export function getOAuthProvider(id: string): OAuthProviderConfig | null {
+  if (id === "gmail") {
+    return providers.google ?? null;
+  }
   return providers[id] ?? null;
 }
 

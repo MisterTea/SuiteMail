@@ -80,11 +80,27 @@ export async function insertFilter(filter: {
   criteria: FilterCriteria;
   actions: FilterActions;
   isEnabled?: boolean;
+  highestPriority?: boolean;
+  sortOrder?: number;
 }): Promise<string> {
   const db = await getDb();
+  let sortOrder = filter.sortOrder ?? 0;
+  if (filter.highestPriority) {
+    try {
+      const minRows = await db.select<{ min_order: number | null }[]>(
+        "SELECT MIN(sort_order) AS min_order FROM filter_rules WHERE account_id = $1",
+        [filter.accountId],
+      );
+      const minOrder = minRows[0]?.min_order;
+      sortOrder = typeof minOrder === "number" ? minOrder - 1 : -1;
+    } catch {
+      sortOrder = -1;
+    }
+  }
+
   const id = crypto.randomUUID();
   await db.execute(
-    "INSERT INTO filter_rules (id, account_id, name, is_enabled, criteria_json, actions_json) VALUES ($1, $2, $3, $4, $5, $6)",
+    "INSERT INTO filter_rules (id, account_id, name, is_enabled, criteria_json, actions_json, sort_order) VALUES ($1, $2, $3, $4, $5, $6, $7)",
     [
       id,
       filter.accountId,
@@ -92,6 +108,7 @@ export async function insertFilter(filter: {
       boolToInt(filter.isEnabled !== false),
       JSON.stringify(filter.criteria),
       JSON.stringify(filter.actions),
+      sortOrder,
     ],
   );
   notifyFilterChange({

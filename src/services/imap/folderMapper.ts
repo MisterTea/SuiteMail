@@ -50,6 +50,13 @@ const FOLDER_NAME_MAP: Record<string, string> = {
   "[gmail]/trash": "\\Trash",
   "[gmail]/starred": "\\Flagged",
   "[gmail]/important": "\\Important",
+  "[google mail]/all mail": "\\All",
+  "[google mail]/sent mail": "\\Sent",
+  "[google mail]/drafts": "\\Drafts",
+  "[google mail]/spam": "\\Junk",
+  "[google mail]/trash": "\\Trash",
+  "[google mail]/starred": "\\Flagged",
+  "[google mail]/important": "\\Important",
 };
 
 export interface FolderLabelMapping {

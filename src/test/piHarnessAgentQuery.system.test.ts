@@ -246,6 +246,8 @@ describe("System Test: Pi Harness + Gemma 4 E4B with SQLite Tool Calling", () =>
       "get_thread",
       "get_email_stats",
       "run_readonly_sql",
+      "list_labels",
+      "suggest_filter",
     ]);
 
     // Turn 2 check: Verified tool result for search_emails was passed back into conversation

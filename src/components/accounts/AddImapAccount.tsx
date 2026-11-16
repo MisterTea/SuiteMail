@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { insertImapAccount, insertOAuthImapAccount } from "@/services/db/accounts";
+import { getSetting, getSecureSetting, setSetting, setSecureSetting } from "@/services/db/settings";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   discoverSettings,
@@ -143,10 +144,24 @@ export function AddImapAccount({
     [],
   );
 
-  const handleEmailBlur = useCallback(() => {
+  const handleEmailBlur = useCallback(async () => {
     if (discoveryApplied) return;
     const result = discoverSettings(form.email);
     if (result && !form.imapHost && !form.smtpHost) {
+      let oauthClientId = form.oauthClientId;
+      let oauthClientSecret = form.oauthClientSecret;
+
+      if (result.oauthProviderId === "google" && !oauthClientId) {
+        try {
+          const savedId = await getSetting("google_client_id");
+          const savedSecret = await getSecureSetting("google_client_secret");
+          if (savedId) oauthClientId = savedId;
+          if (savedSecret) oauthClientSecret = savedSecret;
+        } catch {
+          // ignore error reading settings
+        }
+      }
+
       setForm((prev) => ({
         ...prev,
         imapHost: result.settings.imapHost,
@@ -156,15 +171,17 @@ export function AddImapAccount({
         smtpPort: result.settings.smtpPort,
         smtpSecurity: result.settings.smtpSecurity,
         acceptInvalidCerts: result.acceptInvalidCerts ?? false,
-        // Auto-select OAuth2 if it's the only option (e.g. Outlook)
+        // Auto-select OAuth2 if it's the only option (e.g. Outlook, Gmail)
         authMode: result.authMethods[0] === "oauth2" ? "oauth2" : prev.authMode,
         oauthProvider: result.oauthProviderId ?? null,
+        oauthClientId: oauthClientId || prev.oauthClientId,
+        oauthClientSecret: oauthClientSecret || prev.oauthClientSecret,
       }));
       setDetectedAuthMethods(result.authMethods);
       setDetectedOAuthProviderId(result.oauthProviderId ?? null);
       setDiscoveryApplied(true);
     }
-  }, [form.email, form.imapHost, form.smtpHost, discoveryApplied]);
+  }, [form.email, form.imapHost, form.smtpHost, form.oauthClientId, form.oauthClientSecret, discoveryApplied]);
 
   const handleImapSecurityChange = useCallback(
     (security: SecurityType) => {
@@ -371,6 +388,19 @@ export function AddImapAccount({
           imapUsername,
           acceptInvalidCerts: form.acceptInvalidCerts,
         });
+        if (form.oauthProvider === "google" && form.oauthClientId.trim()) {
+          try {
+            const existingId = await getSetting("google_client_id");
+            if (!existingId) {
+              await setSetting("google_client_id", form.oauthClientId.trim());
+              if (form.oauthClientSecret.trim()) {
+                await setSecureSetting("google_client_secret", form.oauthClientSecret.trim());
+              }
+            }
+          } catch {
+            // ignore setting persistence errors
+          }
+        }
       } else {
         await insertImapAccount({
           id: accountId,
@@ -437,9 +467,6 @@ export function AddImapAccount({
   );
 
   const renderAuthModeSelector = () => {
-    const showOAuth = detectedAuthMethods.includes("oauth2") || form.authMode === "oauth2";
-    if (!showOAuth) return null;
-
     return (
       <div className="mb-4">
         <label className={labelClass}>Authentication Method</label>
@@ -482,10 +509,61 @@ export function AddImapAccount({
 
   const renderOAuthSection = () => {
     const providerId = form.oauthProvider ?? detectedOAuthProviderId;
-    const providerName = providerId === "microsoft" ? "Microsoft" : providerId === "yahoo" ? "Yahoo" : "Provider";
+    const providerName =
+      providerId === "microsoft"
+        ? "Microsoft"
+        : providerId === "yahoo"
+          ? "Yahoo"
+          : providerId === "google"
+            ? "Google"
+            : "Provider";
 
     return (
       <div className="space-y-3">
+        {detectedAuthMethods.length === 1 && detectedAuthMethods[0] === "oauth2" && (
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-accent/10 border border-accent/20 text-xs text-text-secondary">
+            <ShieldCheck className="w-4 h-4 text-accent flex-shrink-0" />
+            <span>
+              {providerName} requires OAuth2 authentication. Traditional username/password authentication is not supported.
+            </span>
+          </div>
+        )}
+
+        {!detectedOAuthProviderId && (
+          <div>
+            <label htmlFor="oauth-provider-select" className={labelClass}>
+              OAuth Provider
+            </label>
+            <select
+              id="oauth-provider-select"
+              value={form.oauthProvider ?? ""}
+              onChange={(e) => {
+                const prov = e.target.value || null;
+                updateForm("oauthProvider", prov);
+                if (prov === "google") {
+                  getSetting("google_client_id")
+                    .then((id) => {
+                      if (id) updateForm("oauthClientId", id);
+                    })
+                    .catch(() => {});
+                  getSecureSetting("google_client_secret")
+                    .then((sec) => {
+                      if (sec) updateForm("oauthClientSecret", sec);
+                    })
+                    .catch(() => {});
+                }
+              }}
+              className={selectClass}
+              disabled={hasOAuthTokens}
+            >
+              <option value="">Select a provider...</option>
+              <option value="google">Google (Gmail)</option>
+              <option value="microsoft">Microsoft (Outlook / Hotmail)</option>
+              <option value="yahoo">Yahoo</option>
+            </select>
+          </div>
+        )}
+
         <div>
           <label htmlFor="oauth-client-id" className={labelClass}>
             Client ID
@@ -550,6 +628,9 @@ export function AddImapAccount({
 
         <p className="text-xs text-text-tertiary">
           You need to register an app with {providerName} to get a Client ID.{" "}
+          {providerId === "google" && (
+            <>Register at the Google Cloud Console with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
+          )}
           {providerId === "microsoft" && (
             <>Register at the Azure Portal (App Registrations) with redirect URI <code className="text-accent">http://127.0.0.1:17248</code>.</>
           )}
@@ -628,7 +709,9 @@ export function AddImapAccount({
               className={inputClass}
             />
             <p className="text-xs text-text-tertiary mt-1">
-              If your provider requires it, use an app-specific password.
+              {detectedOAuthProviderId === "google"
+                ? "For Gmail, you must use a 16-character App Password generated at myaccount.google.com/apppasswords (standard Google passwords are not supported)."
+                : "If your provider requires it, use an app-specific password."}
             </p>
           </div>
         </>

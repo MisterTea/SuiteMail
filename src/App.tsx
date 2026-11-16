@@ -67,6 +67,7 @@ import { getIncompleteTaskCount } from "./services/db/tasks";
 import { useTaskStore } from "./stores/taskStore";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
+import { AiFilterSuggestModal } from "./components/settings/AiFilterSuggestModal";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
@@ -106,6 +107,8 @@ export default function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [showAskInbox, setShowAskInbox] = useState(false);
+  const [showAiSuggestFilter, setShowAiSuggestFilter] = useState(false);
+  const [filterModalMode, setFilterModalMode] = useState<"ai" | "manual">("ai");
   const [moveToFolderState, setMoveToFolderState] = useState<{ open: boolean; threadIds: string[] }>({ open: false, threadIds: [] });
   const deepLinkCleanupRef = useRef<(() => void) | undefined>(undefined);
 
@@ -153,6 +156,11 @@ export default function App() {
     const togglePalette = () => setShowCommandPalette((p) => !p);
     const toggleHelp = () => setShowShortcutsHelp((p) => !p);
     const toggleAskInbox = () => setShowAskInbox((p) => !p);
+    const handleOpenFilterModal = (e: Event) => {
+      const detail = (e as CustomEvent<{ mode?: "ai" | "manual" }>).detail;
+      setFilterModalMode(detail?.mode ?? "ai");
+      setShowAiSuggestFilter(true);
+    };
     const handleMoveToFolder = (e: Event) => {
       const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
       setMoveToFolderState({ open: true, threadIds: detail.threadIds });
@@ -160,11 +168,15 @@ export default function App() {
     window.addEventListener("velo-toggle-command-palette", togglePalette);
     window.addEventListener("velo-toggle-shortcuts-help", toggleHelp);
     window.addEventListener("velo-toggle-ask-inbox", toggleAskInbox);
+    window.addEventListener("velo-suggest-filter", handleOpenFilterModal);
+    window.addEventListener("velo-create-filter", handleOpenFilterModal);
     window.addEventListener("velo-move-to-folder", handleMoveToFolder);
     return () => {
       window.removeEventListener("velo-toggle-command-palette", togglePalette);
       window.removeEventListener("velo-toggle-shortcuts-help", toggleHelp);
       window.removeEventListener("velo-toggle-ask-inbox", toggleAskInbox);
+      window.removeEventListener("velo-suggest-filter", handleOpenFilterModal);
+      window.removeEventListener("velo-create-filter", handleOpenFilterModal);
       window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
     };
   }, []);
@@ -616,6 +628,13 @@ export default function App() {
         <AskInbox
           isOpen={showAskInbox}
           onClose={() => setShowAskInbox(false)}
+        />
+      </ErrorBoundary>
+      <ErrorBoundary name="AiFilterSuggestModal">
+        <AiFilterSuggestModal
+          isOpen={showAiSuggestFilter}
+          initialMode={filterModalMode}
+          onClose={() => setShowAiSuggestFilter(false)}
         />
       </ErrorBoundary>
       <ContextMenuPortal />

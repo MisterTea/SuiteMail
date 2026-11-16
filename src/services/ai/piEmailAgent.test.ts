@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { runPiEmailAgent } from "./piEmailAgent";
+import { runPiEmailAgent, suggestFilterWithPiAgent } from "./piEmailAgent";
 
 // Mock executePiEmailTool
 vi.mock("./piEmailTools", async () => {
@@ -170,5 +170,161 @@ describe("piEmailAgent", () => {
 
     expect(result.answer).toBe("I am ready to help you manage and search your emails.");
     expect(result.toolCallsExecuted).toHaveLength(0);
+  });
+
+  describe("suggestFilterWithPiAgent", () => {
+    it("suggests filter via OpenAI tool call", async () => {
+      mockCreateChatCompletion.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_suggest_1",
+                  type: "function",
+                  function: {
+                    name: "suggest_filter",
+                    arguments: JSON.stringify({
+                      name: "GitHub Notifications",
+                      criteria: { from: "notifications@github.com" },
+                      actions: { markRead: true, archive: true },
+                      explanation: "Archives all GitHub notifications and marks them as read.",
+                    }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      const res = await suggestFilterWithPiAgent({
+        prompt: "Archive all emails from GitHub notifications and mark as read",
+        accountId: "acc-1",
+      });
+
+      expect(res.filter.name).toBe("GitHub Notifications");
+      expect(res.filter.criteria.from).toBe("notifications@github.com");
+      expect(res.filter.actions.markRead).toBe(true);
+      expect(res.filter.actions.archive).toBe(true);
+      expect(res.filter.explanation).toContain("GitHub");
+      expect(res.toolCallsExecuted).toHaveLength(1);
+      expect(res.toolCallsExecuted[0]?.tool).toBe("suggest_filter");
+    });
+
+    it("searches emails to discover sender then suggests filter", async () => {
+      // Turn 1: agent calls search_emails
+      mockCreateChatCompletion.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_search_uber",
+                  type: "function",
+                  function: {
+                    name: "search_emails",
+                    arguments: JSON.stringify({ query: "Uber receipt" }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      vi.mocked(executePiEmailTool).mockResolvedValueOnce({
+        text: "Found message from receipts@uber.com with subject 'Your trip with Uber'",
+        sourceMessages: [],
+      });
+
+      // Turn 2: agent calls suggest_filter
+      mockCreateChatCompletion.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: null,
+              tool_calls: [
+                {
+                  id: "call_suggest_uber",
+                  type: "function",
+                  function: {
+                    name: "suggest_filter",
+                    arguments: JSON.stringify({
+                      name: "Uber Receipts",
+                      criteria: { from: "receipts@uber.com", subject: "receipt" },
+                      actions: { applyLabel: "Receipts", star: true },
+                      explanation: "Labels Uber receipts and stars them.",
+                    }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      });
+
+      const res = await suggestFilterWithPiAgent({
+        prompt: "Label all my Uber receipts with Receipts and star them",
+        accountId: "acc-1",
+      });
+
+      expect(res.filter.name).toBe("Uber Receipts");
+      expect(res.filter.criteria.from).toBe("receipts@uber.com");
+      expect(res.filter.actions.applyLabel).toBe("Receipts");
+      expect(res.filter.actions.star).toBe(true);
+      expect(res.toolCallsExecuted.map((t) => t.tool)).toEqual(["search_emails", "suggest_filter"]);
+    });
+
+    it("handles text-based JSON tool call from compact model", async () => {
+      mockCreateChatCompletion.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content:
+                '```json\n{"tool": "suggest_filter", "parameters": {"name": "Trash Spam", "criteria": {"subject": "Free money"}, "actions": {"trash": true}}}\n```',
+            },
+          },
+        ],
+      });
+
+      const res = await suggestFilterWithPiAgent({
+        prompt: "Trash any email saying Free money in the subject",
+        accountId: "acc-1",
+      });
+
+      expect(res.filter.name).toBe("Trash Spam");
+      expect(res.filter.criteria.subject).toBe("Free money");
+      expect(res.filter.actions.trash).toBe(true);
+    });
+
+    it("extracts filter directly from JSON in message content", async () => {
+      mockCreateChatCompletion.mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content:
+                'Here is the suggested filter:\n```json\n{\n  "name": "Substack Newsletters",\n  "criteria": { "from": "substack.com" },\n  "actions": { "archive": true, "markRead": true }\n}\n```',
+            },
+          },
+        ],
+      });
+
+      const res = await suggestFilterWithPiAgent({
+        prompt: "Archive all substack newsletters",
+        accountId: "acc-1",
+      });
+
+      expect(res.filter.name).toBe("Substack Newsletters");
+      expect(res.filter.criteria.from).toBe("substack.com");
+      expect(res.filter.actions.archive).toBe(true);
+    });
   });
 });

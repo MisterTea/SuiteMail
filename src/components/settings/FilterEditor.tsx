@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Trash2, Pencil } from "lucide-react";
+import { Trash2, Pencil, Sparkles } from "lucide-react";
 import { TextField } from "@/components/ui/TextField";
 import { useAccountStore } from "@/stores/accountStore";
 import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
@@ -8,6 +8,7 @@ import {
   insertFilter,
   updateFilter,
   deleteFilter,
+  addFilterChangeListener,
   type DbFilterRule,
   type FilterCriteria,
   type FilterActions,
@@ -46,6 +47,16 @@ export function FilterEditor() {
     getLabelsForAccount(activeAccountId).then((l) =>
       setLabels(l.filter((lb) => lb.type === "user")),
     );
+
+    const unsubscribe = addFilterChangeListener((event) => {
+      if (event.accountId === activeAccountId) {
+        loadFilters();
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFilters is stable, only re-run on activeAccountId change
   }, [activeAccountId]);
 
@@ -342,12 +353,30 @@ export function FilterEditor() {
           </div>
         </div>
       ) : (
-        <button
-          onClick={() => setShowForm(true)}
-          className="text-xs text-accent hover:text-accent-hover"
-        >
-          + Add filter
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("velo-create-filter", { detail: { mode: "manual" } }),
+              )
+            }
+            className="text-xs text-accent hover:text-accent-hover font-medium"
+          >
+            + Add filter
+          </button>
+          <span className="text-border-primary text-xs">|</span>
+          <button
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("velo-suggest-filter", { detail: { mode: "ai" } }),
+              )
+            }
+            className="text-xs text-accent hover:text-accent-hover flex items-center gap-1 font-medium"
+          >
+            <Sparkles size={13} />
+            Suggest filter with Pi Agent
+          </button>
+        </div>
       )}
     </div>
   );

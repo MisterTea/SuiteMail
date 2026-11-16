@@ -155,8 +155,21 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
           )}
 
           {!loading && !result && (
-            <div className="px-4 py-8 text-center text-sm text-text-tertiary">
-              Ask anything about your emails — meetings, conversations, attachments, and more.
+            <div className="px-4 py-8 text-center text-sm text-text-tertiary space-y-3">
+              <p>Ask anything about your emails — meetings, conversations, attachments, and more.</p>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    window.dispatchEvent(new Event("velo-suggest-filter"));
+                  }}
+                  className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover font-medium px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 transition-colors"
+                >
+                  <Sparkles size={12} />
+                  Looking to create an email filter rule? Ask the AI Filter Assistant
+                </button>
+              </div>
             </div>
           )}
         </div>

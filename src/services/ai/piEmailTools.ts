@@ -196,6 +196,64 @@ export const PI_EMAIL_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "list_labels",
+      description: "List all existing email labels (name, id, and type) available in this account.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "suggest_filter",
+      description: "Propose a structured email filter rule matching the user's requirements.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "A short, descriptive name for the filter rule.",
+          },
+          newFolder: {
+            type: "string",
+            description: "Name of a new folder/label to create for the filtered emails to go to, if applicable.",
+          },
+          criteria: {
+            type: "object",
+            description: "Matching criteria. Leave unspecified if not part of the rule.",
+            properties: {
+              from: { type: "string", description: "Sender email address or display name substring." },
+              to: { type: "string", description: "Recipient email address substring." },
+              subject: { type: "string", description: "Subject text substring." },
+              body: { type: "string", description: "Body text substring." },
+              hasAttachment: { type: "boolean", description: "Whether the message must have attachments." },
+            },
+          },
+          actions: {
+            type: "object",
+            description: "Actions to take on matching emails.",
+            properties: {
+              applyLabel: { type: "string", description: "Label name or label ID to apply." },
+              archive: { type: "boolean", description: "Archive message (remove from INBOX)." },
+              star: { type: "boolean", description: "Star the message." },
+              markRead: { type: "boolean", description: "Mark message as read." },
+              trash: { type: "boolean", description: "Move message to trash." },
+            },
+          },
+          explanation: {
+            type: "string",
+            description: "A short explanation of how the filter achieves the user's intent.",
+          },
+        },
+        required: ["name", "criteria", "actions"],
+      },
+    },
+  },
 ];
 
 /**
@@ -393,6 +451,26 @@ export async function executePiEmailTool(
       } catch (err) {
         return { text: `SQL execution error: ${err instanceof Error ? err.message : String(err)}` };
       }
+    }
+
+    case "list_labels": {
+      const db = await getDb();
+      try {
+        const rows = await db.select<{ id: string; name: string; type: string }[]>(
+          "SELECT id, name, type FROM labels WHERE account_id = $1 ORDER BY name ASC",
+          [accountId],
+        );
+        return { text: JSON.stringify(rows, null, 2), data: rows };
+      } catch (err) {
+        return { text: `Failed to list labels: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    }
+
+    case "suggest_filter": {
+      return {
+        text: "Filter suggestion captured successfully.",
+        data: args,
+      };
     }
 
     default:

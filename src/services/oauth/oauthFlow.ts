@@ -68,7 +68,10 @@ export async function startProviderOAuthFlow(
   crypto.getRandomValues(stateArray);
   const oauthState = base64UrlEncode(stateArray);
 
-  const redirectUri = `http://localhost:${OAUTH_CALLBACK_PORT}`;
+  const redirectUri =
+    provider.id === "google"
+      ? `http://127.0.0.1:${OAUTH_CALLBACK_PORT}`
+      : `http://localhost:${OAUTH_CALLBACK_PORT}`;
 
   const params: Record<string, string> = {
     client_id: clientId,
@@ -87,6 +90,9 @@ export async function startProviderOAuthFlow(
   if (provider.id === "microsoft") {
     params.prompt = "consent";
     params.response_mode = "query";
+  } else if (provider.id === "google") {
+    params.access_type = "offline";
+    params.prompt = "consent";
   }
 
   const authUrl = `${provider.authUrl}?${new URLSearchParams(params).toString()}`;
@@ -181,6 +187,20 @@ async function fetchUserInfo(
     }
     // Fallback if no ID token
     return { email: "", name: "", picture: undefined };
+  }
+
+  // Google: extract user info from ID token if available
+  if (provider.id === "google" && tokens.id_token) {
+    try {
+      const claims = parseIdToken(tokens.id_token);
+      return {
+        email: (claims.email as string) || "",
+        name: (claims.name as string) || "",
+        picture: (claims.picture as string) || undefined,
+      };
+    } catch {
+      // Fallback to userInfoUrl
+    }
   }
 
   if (!provider.userInfoUrl) {

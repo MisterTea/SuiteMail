@@ -11,7 +11,23 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
 }));
 
 import { invoke } from "@tauri-apps/api/core";
-import { refreshProviderToken } from "./oauthFlow";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { refreshProviderToken, startProviderOAuthFlow } from "./oauthFlow";
+
+const googleProvider: OAuthProviderConfig = {
+  id: "google",
+  name: "Google",
+  authUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+  tokenUrl: "https://oauth2.googleapis.com/token",
+  scopes: [
+    "https://mail.google.com/",
+    "openid",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/userinfo.profile",
+  ],
+  userInfoUrl: "https://www.googleapis.com/oauth2/v3/userinfo",
+  usePkce: true,
+};
 
 const microsoftProvider: OAuthProviderConfig = {
   id: "microsoft",
@@ -110,6 +126,29 @@ describe("refreshProviderToken", () => {
     });
   });
 
+  it("invokes Rust oauth_refresh_token for Google without scope", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      access_token: "google-token",
+      expires_in: 3600,
+      token_type: "Bearer",
+    });
+
+    await refreshProviderToken(
+      googleProvider,
+      "google-refresh",
+      "google-client",
+      "google-secret",
+    );
+
+    expect(invoke).toHaveBeenCalledWith("oauth_refresh_token", {
+      tokenUrl: googleProvider.tokenUrl,
+      refreshToken: "google-refresh",
+      clientId: "google-client",
+      clientSecret: "google-secret",
+      scope: null,
+    });
+  });
+
   it("propagates errors from invoke", async () => {
     vi.mocked(invoke).mockRejectedValue(new Error("Token refresh failed: 400"));
 
@@ -122,6 +161,59 @@ describe("refreshProviderToken", () => {
 // Test parseIdToken indirectly through the module
 // Since parseIdToken is private, we test it via startProviderOAuthFlow's fetchUserInfo path
 // We'll test the JWT parsing logic directly by importing the module internals
+
+describe("startProviderOAuthFlow", () => {
+  it("formats Google OAuth URL with access_type=offline, prompt=consent, and 127.0.0.1 redirect URI", async () => {
+    let capturedState = "";
+    vi.mocked(invoke).mockImplementation(async (cmd: string, args: unknown) => {
+      if (cmd === "start_oauth_server") {
+        const payload = args as { port: number; state: string };
+        capturedState = payload.state;
+        return { code: "test-auth-code", state: capturedState };
+      }
+      if (cmd === "oauth_exchange_token") {
+        return {
+          access_token: "google-access-token",
+          refresh_token: "google-refresh-token",
+          expires_in: 3600,
+          token_type: "Bearer",
+        };
+      }
+      return null;
+    });
+
+    // Mock fetch for userInfoUrl
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        email: "test@gmail.com",
+        name: "Test User",
+        picture: "https://example.com/avatar.png",
+      }),
+    });
+
+    const result = await startProviderOAuthFlow(
+      googleProvider,
+      "google-client-id",
+      "google-client-secret",
+    );
+
+    expect(openUrl).toHaveBeenCalled();
+    const openedUrl = vi.mocked(openUrl).mock.calls[0]![0] as string;
+    const url = new URL(openedUrl);
+
+    expect(url.origin + url.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(url.searchParams.get("client_id")).toBe("google-client-id");
+    expect(url.searchParams.get("redirect_uri")).toBe("http://127.0.0.1:17248");
+    expect(url.searchParams.get("access_type")).toBe("offline");
+    expect(url.searchParams.get("prompt")).toBe("consent");
+    expect(url.searchParams.get("scope")).toContain("https://mail.google.com/");
+
+    expect(result.tokens.access_token).toBe("google-access-token");
+    expect(result.userInfo.email).toBe("test@gmail.com");
+    expect(result.userInfo.name).toBe("Test User");
+  });
+});
 
 describe("parseIdToken (via module internals)", () => {
   // Create a valid JWT-like structure for testing

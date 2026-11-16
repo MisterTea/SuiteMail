@@ -239,5 +239,34 @@ describe("piEmailTools", () => {
       expect(result.text).toContain("Query rejected");
       expect(mockSelect).not.toHaveBeenCalled();
     });
+
+    it("executes list_labels tool returning account labels", async () => {
+      mockSelect.mockResolvedValueOnce([
+        { id: "lbl-work", name: "Work", type: "user" },
+        { id: "lbl-finance", name: "Finance", type: "user" },
+      ]);
+
+      const result = await executePiEmailTool("list_labels", {}, "acc-1");
+
+      expect(mockSelect).toHaveBeenCalledWith(
+        expect.stringContaining("SELECT id, name, type FROM labels"),
+        ["acc-1"],
+      );
+      expect(result.text).toContain("Work");
+      expect(result.text).toContain("Finance");
+    });
+
+    it("executes suggest_filter tool returning captured filter args", async () => {
+      const args = {
+        name: "Test Rule",
+        criteria: { from: "test@domain.com" },
+        actions: { markRead: true },
+      };
+
+      const result = await executePiEmailTool("suggest_filter", args, "acc-1");
+
+      expect(result.text).toContain("Filter suggestion captured");
+      expect(result.data).toEqual(args);
+    });
   });
 });
