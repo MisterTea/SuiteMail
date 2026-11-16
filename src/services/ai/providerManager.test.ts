@@ -35,12 +35,18 @@ vi.mock("./providers/copilotProvider", () => ({
   clearCopilotProvider: vi.fn(),
 }));
 
+vi.mock("./providers/piProvider", () => ({
+  createPiProvider: vi.fn(() => createMockAiProvider("pi response")),
+  clearPiProvider: vi.fn(),
+}));
+
 import { getSetting } from "@/services/db/settings";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider } from "./providers/openaiProvider";
 import { createGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider } from "./providers/copilotProvider";
+import { createPiProvider, clearPiProvider } from "./providers/piProvider";
 import {
   getActiveProvider,
   getActiveProviderName,
@@ -80,6 +86,11 @@ describe("providerManager", () => {
     it("returns copilot when ai_provider is copilot", async () => {
       mockGetSetting.mockResolvedValue("copilot");
       expect(await getActiveProviderName()).toBe("copilot");
+    });
+
+    it("returns pi when ai_provider is pi", async () => {
+      mockGetSetting.mockResolvedValue("pi");
+      expect(await getActiveProviderName()).toBe("pi");
     });
 
     it("defaults to claude for unknown provider value", async () => {
@@ -179,6 +190,28 @@ describe("providerManager", () => {
 
       await getActiveProvider();
       expect(createOllamaProvider).toHaveBeenCalledWith("http://localhost:11434", "llama3.2");
+    });
+
+    it("creates pi provider with default gemma-4-e4b model and url", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "pi";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createPiProvider).toHaveBeenCalledWith("http://localhost:3000", "gemma-4-e4b");
+    });
+
+    it("creates pi provider with custom model and url", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "pi";
+        if (key === "pi_server_url") return "http://127.0.0.1:8080";
+        if (key === "pi_model") return "gemma-4-e4b-it";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createPiProvider).toHaveBeenCalledWith("http://127.0.0.1:8080", "gemma-4-e4b-it");
     });
 
     it("uses default ollama url and model when not configured", async () => {
@@ -294,6 +327,27 @@ describe("providerManager", () => {
       mockGetSetting.mockImplementation(async (key: string) => {
         if (key === "ai_enabled") return "true";
         if (key === "ai_provider") return "ollama";
+        return null;
+      });
+
+      expect(await isAiAvailable()).toBe(false);
+    });
+
+    it("returns true for pi when server url is configured", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_enabled") return "true";
+        if (key === "ai_provider") return "pi";
+        if (key === "pi_server_url") return "http://localhost:3000";
+        return null;
+      });
+
+      expect(await isAiAvailable()).toBe(true);
+    });
+
+    it("returns false for pi when server url is not configured", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_enabled") return "true";
+        if (key === "ai_provider") return "pi";
         return null;
       });
 

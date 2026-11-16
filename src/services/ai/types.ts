@@ -1,4 +1,4 @@
-export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot";
+export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi";
 
 export interface AiCompletionRequest {
   systemPrompt: string;
@@ -17,6 +17,7 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   gemini: "gemini-2.5-flash-preview-05-20",
   ollama: "llama3.2",
   copilot: "openai/gpt-4o-mini",
+  pi: "gemma-4-e4b",
 };
 
 export interface ModelOption {
@@ -48,6 +49,11 @@ export const PROVIDER_MODELS: Record<Exclude<AiProvider, "ollama">, ModelOption[
     { id: "openai/gpt-4o", label: "GPT-4o (High)" },
     { id: "openai/gpt-4.1", label: "GPT-4.1 (High)" },
   ],
+  pi: [
+    { id: "gemma-4-e4b", label: "Gemma 4 E4B (Local)" },
+    { id: "gemma-4-e4b-it", label: "Gemma 4 E4B Instruct (Local)" },
+    { id: "gemma-4-26b", label: "Gemma 4 26B (Local)" },
+  ],
 };
 
 export const MODEL_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
@@ -55,4 +61,5 @@ export const MODEL_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
   openai: "openai_model",
   gemini: "gemini_model",
   copilot: "copilot_model",
+  pi: "pi_model",
 };

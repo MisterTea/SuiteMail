@@ -7,8 +7,9 @@ import { createOpenAIProvider, clearOpenAIProvider } from "./providers/openaiPro
 import { createGeminiProvider, clearGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
+import { createPiProvider, clearPiProvider } from "./providers/piProvider";
 
-const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
+const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama" | "pi">, string> = {
   claude: "claude_api_key",
   openai: "openai_api_key",
   gemini: "gemini_api_key",
@@ -19,7 +20,7 @@ let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } 
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
-  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot") return setting;
+  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot" || setting === "pi") return setting;
   return "claude";
 }
 
@@ -37,6 +38,20 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
 
     const client = createOllamaProvider(serverUrl, model);
     cachedProvider = { name: "ollama", key: cacheKey, client };
+    return client;
+  }
+
+  if (providerName === "pi") {
+    const serverUrl = (await getSetting("pi_server_url")) ?? "http://localhost:3000";
+    const model = (await getSetting("pi_model")) ?? DEFAULT_MODELS.pi;
+    const cacheKey = `${serverUrl}|${model}`;
+
+    if (cachedProvider && cachedProvider.name === "pi" && cachedProvider.key === cacheKey) {
+      return cachedProvider.client;
+    }
+
+    const client = createPiProvider(serverUrl, model);
+    cachedProvider = { name: "pi", key: cacheKey, client };
     return client;
   }
 
@@ -85,6 +100,11 @@ export async function isAiAvailable(): Promise<boolean> {
       return !!serverUrl;
     }
 
+    if (providerName === "pi") {
+      const serverUrl = await getSetting("pi_server_url");
+      return !!serverUrl;
+    }
+
     const keySetting = API_KEY_SETTINGS[providerName];
     const key = await getSecureSetting(keySetting);
     return !!key;
@@ -100,4 +120,5 @@ export function clearProviderClients(): void {
   clearGeminiProvider();
   clearOllamaProvider();
   clearCopilotProvider();
+  clearPiProvider();
 }

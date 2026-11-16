@@ -112,13 +112,15 @@ export function SettingsPage() {
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot">("claude");
+  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi">("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
+  const [piServerUrl, setPiServerUrl] = useState("http://localhost:3000");
+  const [piModel, setPiModel] = useState("gemma-4-e4b");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
@@ -174,11 +176,15 @@ export function SettingsPage() {
 
       // Load AI settings
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot") setAiProvider(provider);
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi") setAiProvider(provider);
       const ollamaUrl = await getSetting("ollama_server_url");
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
       const ollamaModelVal = await getSetting("ollama_model");
       if (ollamaModelVal) setOllamaModel(ollamaModelVal);
+      const piUrl = await getSetting("pi_server_url");
+      if (piUrl) setPiServerUrl(piUrl);
+      const piModelVal = await getSetting("pi_model");
+      if (piModelVal) setPiModel(piModelVal);
       const claudeModelVal = await getSetting("claude_model");
       if (claudeModelVal) setClaudeModel(claudeModelVal);
       const openaiModelVal = await getSetting("openai_model");
@@ -1047,7 +1053,7 @@ export function SettingsPage() {
                       <select
                         value={aiProvider}
                         onChange={async (e) => {
-                          const val = e.target.value as "claude" | "openai" | "gemini" | "ollama" | "copilot";
+                          const val = e.target.value as "claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi";
                           setAiProvider(val);
                           setAiTestResult(null);
                           await setSetting("ai_provider", val);
@@ -1061,6 +1067,7 @@ export function SettingsPage() {
                         <option value="gemini">Gemini (Google)</option>
                         <option value="ollama">Local AI (Ollama / LMStudio)</option>
                         <option value="copilot">GitHub Copilot</option>
+                        <option value="pi">Local AI (Pi Harness / Gemma 4)</option>
                       </select>
                     </SettingRow>
                     <p className="text-xs text-text-tertiary">
@@ -1069,10 +1076,78 @@ export function SettingsPage() {
                       {aiProvider === "gemini" && `Uses ${PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel}.`}
                       {aiProvider === "ollama" && "Connect to a local Ollama or LMStudio server. No API key required."}
                       {aiProvider === "copilot" && `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
+                      {aiProvider === "pi" && `Uses ${PROVIDER_MODELS.pi.find((m) => m.id === piModel)?.label ?? piModel} via local Pi harness server. No API key required.`}
                     </p>
                   </Section>
 
-                  {aiProvider === "ollama" ? (
+                  {aiProvider === "pi" ? (
+                    <Section title="Local Pi Harness Server">
+                      <div className="space-y-3">
+                        <TextField
+                          label="Pi Server URL"
+                          size="md"
+                          value={piServerUrl}
+                          onChange={(e) => setPiServerUrl(e.target.value)}
+                          placeholder="http://localhost:3000"
+                        />
+                        <SettingRow label="Model">
+                          <select
+                            value={piModel}
+                            onChange={(e) => setPiModel(e.target.value)}
+                            className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                          >
+                            {PROVIDER_MODELS.pi.map((m) => (
+                              <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                          </select>
+                        </SettingRow>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="primary"
+                            size="md"
+                            onClick={async () => {
+                              await setSetting("pi_server_url", piServerUrl.trim());
+                              await setSetting("pi_model", piModel.trim());
+                              const { clearProviderClients } = await import("@/services/ai/providerManager");
+                              clearProviderClients();
+                              setAiKeySaved(true);
+                              setTimeout(() => setAiKeySaved(false), 2000);
+                            }}
+                            disabled={!piServerUrl.trim() || !piModel.trim()}
+                          >
+                            {aiKeySaved ? "Saved!" : "Save"}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="md"
+                            onClick={async () => {
+                              setAiTesting(true);
+                              setAiTestResult(null);
+                              try {
+                                const { testConnection } = await import("@/services/ai/aiService");
+                                const ok = await testConnection();
+                                setAiTestResult(ok ? "success" : "fail");
+                              } catch {
+                                setAiTestResult("fail");
+                              } finally {
+                                setAiTesting(false);
+                              }
+                            }}
+                            disabled={!piServerUrl.trim() || !piModel.trim() || aiTesting}
+                            className="bg-bg-tertiary text-text-primary border border-border-primary"
+                          >
+                            {aiTesting ? "Testing..." : "Test Connection"}
+                          </Button>
+                          {aiTestResult === "success" && (
+                            <span className="text-xs text-success">Connected!</span>
+                          )}
+                          {aiTestResult === "fail" && (
+                            <span className="text-xs text-danger">Connection failed</span>
+                          )}
+                        </div>
+                      </div>
+                    </Section>
+                  ) : aiProvider === "ollama" ? (
                     <Section title="Local Server">
                       <div className="space-y-3">
                         <TextField
