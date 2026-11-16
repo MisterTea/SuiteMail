@@ -65,9 +65,9 @@
       ]
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0NjlFREYzMjVBRDYwRjMKUldUellLMGw4KzFwTkJ4RmJ0ejArWUNTZTEzT01SMnJveHc4K3ErNHVIdEVuYmZmYW94U295QzcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwODdGRUFFN0Y2RjJCN0IKUldSN0syOS9ydjZIOEJjYUh3UkVEZERSWjlzaHhURXpNVTYwUlJjUmd3d0gxRWEzSndIaU9XN0kK",
       "endpoints": [
-        "https://github.com/avihaymenahem/velo/releases/latest/download/latest.json"
+        "https://github.com/MisterTea/SuperMail/releases/latest/download/latest.json"
       ]
     },
     "deep-link": {
