@@ -1,5 +1,7 @@
 import { searchMessages, type SearchResult } from "@/services/db/search";
 import { askInbox as callAskInbox } from "./aiService";
+import { getActiveProviderName } from "./providerManager";
+import { runPiEmailAgent } from "./piEmailAgent";
 
 /**
  * Extract key search terms from a natural language question.
@@ -37,12 +39,30 @@ export interface AskInboxResult {
 /**
  * Answer a natural language question by searching the user's inbox
  * and using AI to synthesize an answer from the results.
+ * When the active provider is 'pi', delegates to the Pi agent harness
+ * with SQLite tool execution.
  */
 export async function askMyInbox(
   question: string,
   accountId: string,
 ): Promise<AskInboxResult> {
-  // Extract search terms
+  const activeProvider = await getActiveProviderName();
+
+  if (activeProvider === "pi") {
+    try {
+      const agentResult = await runPiEmailAgent({ question, accountId });
+      if (agentResult.answer) {
+        return {
+          answer: agentResult.answer,
+          sourceMessages: agentResult.sourceMessages,
+        };
+      }
+    } catch (err) {
+      console.warn("Pi email agent failed, falling back to standard search:", err);
+    }
+  }
+
+  // Fallback: Extract search terms
   const terms = extractSearchTerms(question);
   if (!terms.trim()) {
     return {
@@ -64,7 +84,7 @@ export async function askMyInbox(
   // Format context for AI
   const context = results
     .map((r) => {
-      const date = new Date(r.date).toLocaleDateString("en-US", {
+      const date = new Date(r.date > 1e11 ? r.date : r.date * 1000).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
         year: "numeric",
