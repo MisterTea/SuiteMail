@@ -8,8 +8,9 @@ import { createGeminiProvider, clearGeminiProvider } from "./providers/geminiPro
 import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
 import { createPiProvider, clearPiProvider } from "./providers/piProvider";
+import { createAiCoreProvider, clearAiCoreProvider } from "./providers/aicoreProvider";
 
-const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama" | "pi">, string> = {
+const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama" | "pi" | "aicore">, string> = {
   claude: "claude_api_key",
   openai: "openai_api_key",
   gemini: "gemini_api_key",
@@ -20,7 +21,27 @@ let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } 
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
-  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot" || setting === "pi") return setting;
+  if (
+    setting === "openai" ||
+    setting === "gemini" ||
+    setting === "ollama" ||
+    setting === "copilot" ||
+    setting === "pi" ||
+    setting === "aicore"
+  ) {
+    return setting;
+  }
+
+  // Auto-detect mobile platform: on Android, prefer aicore if no provider configured
+  try {
+    const { platform } = await import("@tauri-apps/plugin-os");
+    if (platform() === "android") {
+      return "aicore";
+    }
+  } catch {
+    // ignore
+  }
+
   return "claude";
 }
 
@@ -52,6 +73,19 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
 
     const client = createPiProvider(serverUrl, model);
     cachedProvider = { name: "pi", key: cacheKey, client };
+    return client;
+  }
+
+  if (providerName === "aicore") {
+    const model = (await getSetting("aicore_model")) ?? DEFAULT_MODELS.aicore;
+    const cacheKey = `aicore|${model}`;
+
+    if (cachedProvider && cachedProvider.name === "aicore" && cachedProvider.key === cacheKey) {
+      return cachedProvider.client;
+    }
+
+    const client = createAiCoreProvider(model);
+    cachedProvider = { name: "aicore", key: cacheKey, client };
     return client;
   }
 
@@ -105,6 +139,10 @@ export async function isAiAvailable(): Promise<boolean> {
       return !!serverUrl;
     }
 
+    if (providerName === "aicore") {
+      return true;
+    }
+
     const keySetting = API_KEY_SETTINGS[providerName];
     const key = await getSecureSetting(keySetting);
     return !!key;
@@ -121,4 +159,5 @@ export function clearProviderClients(): void {
   clearOllamaProvider();
   clearCopilotProvider();
   clearPiProvider();
+  clearAiCoreProvider();
 }

@@ -112,7 +112,7 @@ export function SettingsPage() {
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
-  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi">("claude");
+  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi" | "aicore">("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
@@ -121,6 +121,7 @@ export function SettingsPage() {
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
   const [piServerUrl, setPiServerUrl] = useState("http://localhost:3000");
   const [piModel, setPiModel] = useState("gemma-4-e4b");
+  const [aicoreModel, setAicoreModel] = useState("gemma-4-e4b");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
@@ -176,7 +177,9 @@ export function SettingsPage() {
 
       // Load AI settings
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi") setAiProvider(provider);
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") setAiProvider(provider);
+      const aicoreModelVal = await getSetting("aicore_model");
+      if (aicoreModelVal) setAicoreModel(aicoreModelVal);
       const ollamaUrl = await getSetting("ollama_server_url");
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
       const ollamaModelVal = await getSetting("ollama_model");
@@ -1067,7 +1070,8 @@ export function SettingsPage() {
                         <option value="gemini">Gemini (Google)</option>
                         <option value="ollama">Local AI (Ollama / LMStudio)</option>
                         <option value="copilot">GitHub Copilot</option>
-                        <option value="pi">Local AI (Pi Harness / Gemma 4)</option>
+                        <option value="pi">Desktop Llama / Pi Harness (Local)</option>
+                        <option value="aicore">Android AICore (On-Device Mobile)</option>
                       </select>
                     </SettingRow>
                     <p className="text-xs text-text-tertiary">
@@ -1076,15 +1080,16 @@ export function SettingsPage() {
                       {aiProvider === "gemini" && `Uses ${PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel}.`}
                       {aiProvider === "ollama" && "Connect to a local Ollama or LMStudio server. No API key required."}
                       {aiProvider === "copilot" && `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
-                      {aiProvider === "pi" && `Uses ${PROVIDER_MODELS.pi.find((m) => m.id === piModel)?.label ?? piModel} via local Pi harness server. No API key required.`}
+                      {aiProvider === "pi" && `Uses ${PROVIDER_MODELS.pi.find((m) => m.id === piModel)?.label ?? piModel} loaded via local Llama server & Pi harness. No cloud API key required.`}
+                      {aiProvider === "aicore" && `Uses on-device ${PROVIDER_MODELS.aicore.find((m) => m.id === aicoreModel)?.label ?? aicoreModel} through Android AICore. Zero cloud latency and fully private.`}
                     </p>
                   </Section>
 
                   {aiProvider === "pi" ? (
-                    <Section title="Local Pi Harness Server">
+                    <Section title="Desktop Llama Server & Pi Harness">
                       <div className="space-y-3">
                         <TextField
-                          label="Pi Server URL"
+                          label="Llama Server URL"
                           size="md"
                           value={piServerUrl}
                           onChange={(e) => setPiServerUrl(e.target.value)}
@@ -1121,6 +1126,21 @@ export function SettingsPage() {
                             variant="secondary"
                             size="md"
                             onClick={async () => {
+                              try {
+                                const { invoke } = await import("@tauri-apps/api/core");
+                                await invoke("start_llama_server", { modelId: piModel, port: 3000 });
+                              } catch (e) {
+                                console.error("Start llama server error:", e);
+                              }
+                            }}
+                            className="bg-bg-tertiary text-text-primary border border-border-primary"
+                          >
+                            Start Llama Server
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="md"
+                            onClick={async () => {
                               setAiTesting(true);
                               setAiTestResult(null);
                               try {
@@ -1143,6 +1163,64 @@ export function SettingsPage() {
                           )}
                           {aiTestResult === "fail" && (
                             <span className="text-xs text-danger">Connection failed</span>
+                          )}
+                        </div>
+                      </div>
+                    </Section>
+                  ) : aiProvider === "aicore" ? (
+                    <Section title="Android AICore (On-Device)">
+                      <div className="space-y-3">
+                        <SettingRow label="On-Device Model">
+                          <select
+                            value={aicoreModel}
+                            onChange={(e) => setAicoreModel(e.target.value)}
+                            className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+                          >
+                            {PROVIDER_MODELS.aicore.map((m) => (
+                              <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                          </select>
+                        </SettingRow>
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="primary"
+                            size="md"
+                            onClick={async () => {
+                              await setSetting("aicore_model", aicoreModel.trim());
+                              const { clearProviderClients } = await import("@/services/ai/providerManager");
+                              clearProviderClients();
+                              setAiKeySaved(true);
+                              setTimeout(() => setAiKeySaved(false), 2000);
+                            }}
+                          >
+                            {aiKeySaved ? "Saved!" : "Save"}
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="md"
+                            onClick={async () => {
+                              setAiTesting(true);
+                              setAiTestResult(null);
+                              try {
+                                const { testConnection } = await import("@/services/ai/aiService");
+                                const ok = await testConnection();
+                                setAiTestResult(ok ? "success" : "fail");
+                              } catch {
+                                setAiTestResult("fail");
+                              } finally {
+                                setAiTesting(false);
+                              }
+                            }}
+                            disabled={aiTesting}
+                            className="bg-bg-tertiary text-text-primary border border-border-primary"
+                          >
+                            {aiTesting ? "Testing..." : "Test Connection"}
+                          </Button>
+                          {aiTestResult === "success" && (
+                            <span className="text-xs text-success">AICore Active!</span>
+                          )}
+                          {aiTestResult === "fail" && (
+                            <span className="text-xs text-danger">AICore unavailable</span>
                           )}
                         </div>
                       </div>

@@ -1,6 +1,20 @@
 import OpenAI from "openai";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import type { AiProviderClient, AiCompletionRequest } from "../types";
+
+const safeFetch: typeof fetch = async (input, init) => {
+  try {
+    return await tauriFetch(input, init);
+  } catch (err) {
+    if (
+      err instanceof TypeError &&
+      (err.message.includes("invoke") || err.message.includes("undefined"))
+    ) {
+      return await globalThis.fetch(input, init);
+    }
+    throw err;
+  }
+};
 
 let instance: OpenAI | null = null;
 let cachedKey: string | null = null;
@@ -12,7 +26,7 @@ function getClient(serverUrl: string, model: string): OpenAI {
       baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
       apiKey: "pi-harness",
       dangerouslyAllowBrowser: true,
-      fetch,
+      fetch: safeFetch,
     });
     cachedKey = cacheKey;
   }

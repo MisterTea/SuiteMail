@@ -1,8 +1,22 @@
 import OpenAI from "openai";
-import { fetch } from "@tauri-apps/plugin-http";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { getSetting } from "@/services/db/settings";
 import { PI_EMAIL_TOOLS, executePiEmailTool } from "./piEmailTools";
 import type { SearchResult } from "@/services/db/search";
+
+const safeFetch: typeof fetch = async (input, init) => {
+  try {
+    return await tauriFetch(input, init);
+  } catch (err) {
+    if (
+      err instanceof TypeError &&
+      (err.message.includes("invoke") || err.message.includes("undefined"))
+    ) {
+      return await globalThis.fetch(input, init);
+    }
+    throw err;
+  }
+};
 
 export interface PiAgentOptions {
   question: string;
@@ -81,7 +95,7 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
     baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
     apiKey: "pi-harness",
     dangerouslyAllowBrowser: true,
-    fetch,
+    fetch: safeFetch,
   });
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
