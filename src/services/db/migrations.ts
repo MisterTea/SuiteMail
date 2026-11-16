@@ -775,6 +775,40 @@ const MIGRATIONS = [
     description: "Accept self-signed certificates for IMAP/SMTP",
     sql: `ALTER TABLE accounts ADD COLUMN accept_invalid_certs INTEGER DEFAULT 0;`,
   },
+  {
+    version: 24,
+    description: "PGP identity, contact public keys keyring, and Automerge CRDT docs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS pgp_identities (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        armored_public_key TEXT NOT NULL,
+        armored_private_key TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch())
+      );
+
+      CREATE TABLE IF NOT EXISTS contact_pgp_keys (
+        id TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        armored_public_key TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        trust_status TEXT NOT NULL DEFAULT 'tofu',
+        created_at INTEGER DEFAULT (unixepoch()),
+        updated_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_contact_pgp_keys_email ON contact_pgp_keys(email);
+
+      CREATE TABLE IF NOT EXISTS thread_crdt_docs (
+        account_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        scope TEXT NOT NULL DEFAULT 'personal', -- 'personal' or 'shared'
+        doc_base64 TEXT NOT NULL,
+        updated_at INTEGER DEFAULT (unixepoch()),
+        PRIMARY KEY (account_id, thread_id, scope)
+      );
+    `,
+  },
 ];
 
 /**

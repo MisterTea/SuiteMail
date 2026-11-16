@@ -190,6 +190,14 @@ export default function App() {
       try {
         await runMigrations();
 
+        // Initialize OpenPGP keypair on first run
+        try {
+          const { initAppPgpKey } = await import("./services/crypto/pgpService");
+          await initAppPgpKey();
+        } catch (pgpErr) {
+          console.warn("[App] Failed to initialize PGP identity:", pgpErr);
+        }
+
         const ui = useUIStore.getState();
 
         // Restore persisted theme

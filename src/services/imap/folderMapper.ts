@@ -149,9 +149,24 @@ export async function syncFoldersToLabels(
   });
 }
 
+export const METADATA_SIDECAR_FOLDER = ".metadata";
+
+/**
+ * Check whether a folder path represents the hidden metadata sidecar folder.
+ */
+export function isSidecarFolder(path: string): boolean {
+  const lower = path.toLowerCase().trim();
+  return (
+    lower === METADATA_SIDECAR_FOLDER ||
+    lower === "metadata" ||
+    lower.endsWith("/" + METADATA_SIDECAR_FOLDER) ||
+    lower.endsWith("." + METADATA_SIDECAR_FOLDER)
+  );
+}
+
 /**
  * Determine which folders should be synced during initial sync.
- * Excludes special folders like [Gmail] parent folder.
+ * Excludes special folders like [Gmail] parent folder and the hidden metadata sidecar folder.
  */
 export function getSyncableFolders(folders: ImapFolder[]): ImapFolder[] {
   return folders.filter((f) => {
@@ -160,6 +175,8 @@ export function getSyncableFolders(folders: ImapFolder[]): ImapFolder[] {
     if (lowerPath === "[gmail]" || lowerPath === "[google mail]") return false;
     // Skip Nostromo-style virtual folders
     if (lowerPath.startsWith("[nostromo]")) return false;
+    // Skip the metadata sidecar folder
+    if (isSidecarFolder(f.path) || isSidecarFolder(f.name)) return false;
     return true;
   });
 }

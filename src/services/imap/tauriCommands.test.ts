@@ -19,6 +19,7 @@ import {
   imapDeleteMessages,
   imapGetFolderStatus,
   imapFetchAttachment,
+  imapCreateFolder,
   smtpSendEmail,
   smtpTestConnection,
   type ImapConfig,
@@ -225,6 +226,17 @@ describe('IMAP Tauri commands', () => {
       partId: '1.2',
     });
     expect(result).toBe('base64encodeddata==');
+  });
+
+  it('imapCreateFolder invokes with correct command and params', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+
+    await imapCreateFolder(testImapConfig, '.metadata');
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_create_folder', {
+      config: testImapConfig,
+      folder: '.metadata',
+    });
   });
 });
 

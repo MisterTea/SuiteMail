@@ -580,6 +580,17 @@ pub async fn delete_messages(
     Ok(())
 }
 
+/// Create a folder/mailbox on the IMAP server (e.g. .metadata sidecar folder).
+pub async fn create_folder(
+    session: &mut ImapSession,
+    folder: &str,
+) -> Result<(), String> {
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.create(folder))
+        .await
+        .map_err(|_| format!("CREATE folder timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("CREATE folder failed: {e}"))
+}
+
 /// Append a raw message to a folder (for saving sent mail or drafts).
 pub async fn append_message(
     session: &mut ImapSession,

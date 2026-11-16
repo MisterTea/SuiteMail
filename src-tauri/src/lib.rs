@@ -129,6 +129,7 @@ pub fn run() {
             commands::imap_get_folder_status,
             commands::imap_fetch_attachment,
             commands::imap_append_message,
+            commands::imap_create_folder,
             commands::imap_search_folder,
             commands::imap_sync_folder,
             commands::imap_raw_fetch_diagnostic,

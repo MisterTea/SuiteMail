@@ -216,6 +216,17 @@ pub async fn imap_fetch_attachment(
 }
 
 #[tauri::command]
+pub async fn imap_create_folder(
+    config: ImapConfig,
+    folder: String,
+) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let res = imap_client::create_folder(&mut session, &folder).await;
+    let _ = session.logout().await;
+    res
+}
+
+#[tauri::command]
 pub async fn imap_append_message(
     config: ImapConfig,
     folder: String,

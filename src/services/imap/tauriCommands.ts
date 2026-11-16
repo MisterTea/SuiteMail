@@ -234,6 +234,16 @@ export async function imapAppendMessage(
 }
 
 /**
+ * Create a new folder/mailbox on the IMAP server (e.g. .metadata sidecar folder).
+ */
+export async function imapCreateFolder(
+  config: ImapConfig,
+  folder: string
+): Promise<void> {
+  return invoke<void>('imap_create_folder', { config, folder });
+}
+
+/**
  * Get folder status (UIDVALIDITY, UIDNEXT, message count, unseen count).
  */
 export async function imapGetFolderStatus(

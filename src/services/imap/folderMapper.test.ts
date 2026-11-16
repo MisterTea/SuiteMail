@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { mapFolderToLabel, getLabelsForMessage, getSyncableFolders } from "./folderMapper";
+import {
+  mapFolderToLabel,
+  getLabelsForMessage,
+  getSyncableFolders,
+  isSidecarFolder,
+  METADATA_SIDECAR_FOLDER,
+} from "./folderMapper";
 import { createMockImapFolder } from "@/test/mocks";
 
 describe("mapFolderToLabel", () => {
@@ -147,5 +153,28 @@ describe("getSyncableFolders", () => {
     ];
     const result = getSyncableFolders(folders);
     expect(result).toHaveLength(3);
+  });
+
+  it("filters out the hidden metadata sidecar folder", () => {
+    const folders: ImapFolder[] = [
+      createMockImapFolder({ path: "INBOX", name: "INBOX" }),
+      createMockImapFolder({ path: ".metadata", name: ".metadata" }),
+      createMockImapFolder({ path: "INBOX/.metadata", name: ".metadata" }),
+      createMockImapFolder({ path: "Work", name: "Work" }),
+    ];
+    const result = getSyncableFolders(folders);
+    expect(result).toHaveLength(2);
+    expect(result.map((f) => f.path)).toEqual(["INBOX", "Work"]);
+  });
+});
+
+describe("isSidecarFolder", () => {
+  it("identifies .metadata variants", () => {
+    expect(isSidecarFolder(".metadata")).toBe(true);
+    expect(isSidecarFolder(".METADATA")).toBe(true);
+    expect(isSidecarFolder("INBOX/.metadata")).toBe(true);
+    expect(isSidecarFolder("metadata")).toBe(true);
+    expect(isSidecarFolder("INBOX")).toBe(false);
+    expect(isSidecarFolder("Work/Projects")).toBe(false);
   });
 });
