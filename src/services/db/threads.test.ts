@@ -9,7 +9,17 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount } from "./threads";
+import {
+  muteThread,
+  unmuteThread,
+  getMutedThreadIds,
+  deleteAllThreadsForAccount,
+  getThreadsForAccount,
+  getThreadsForCategory,
+  upsertThread,
+  getUnreadInboxCount,
+  getThreadCountForAccount,
+} from "./threads";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -84,5 +94,77 @@ describe("threads service - mute", () => {
 
       expect(result.size).toBe(0);
     });
+  });
+});
+
+describe("threads service - is_filtered filtering", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getDb).mockResolvedValue(mockDb as unknown as Awaited<ReturnType<typeof getDb>>);
+  });
+
+  it("getThreadsForAccount queries only threads with is_filtered = 1", async () => {
+    mockDb.select.mockResolvedValueOnce([]);
+    await getThreadsForAccount("acc-1");
+
+    expect(mockDb.select).toHaveBeenCalled();
+    const query = mockDb.select.mock.calls[0]![0] as string;
+    expect(query).toContain("t.is_filtered = 1");
+  });
+
+  it("getThreadsForAccount with label queries only threads with is_filtered = 1", async () => {
+    mockDb.select.mockResolvedValueOnce([]);
+    await getThreadsForAccount("acc-1", "INBOX");
+
+    expect(mockDb.select).toHaveBeenCalled();
+    const query = mockDb.select.mock.calls[0]![0] as string;
+    expect(query).toContain("t.is_filtered = 1");
+  });
+
+  it("getThreadsForCategory queries only threads with is_filtered = 1", async () => {
+    mockDb.select.mockResolvedValueOnce([]);
+    await getThreadsForCategory("acc-1", "Primary");
+
+    expect(mockDb.select).toHaveBeenCalled();
+    const query = mockDb.select.mock.calls[0]![0] as string;
+    expect(query).toContain("t.is_filtered = 1");
+  });
+
+  it("getUnreadInboxCount counts only threads with is_filtered = 1", async () => {
+    mockDb.select.mockResolvedValueOnce([{ count: 3 }]);
+    const count = await getUnreadInboxCount();
+
+    expect(count).toBe(3);
+    const query = mockDb.select.mock.calls[0]![0] as string;
+    expect(query).toContain("t.is_filtered = 1");
+  });
+
+  it("getThreadCountForAccount counts only threads with is_filtered = 1", async () => {
+    mockDb.select.mockResolvedValueOnce([{ count: 5 }]);
+    const count = await getThreadCountForAccount("acc-1");
+
+    expect(count).toBe(5);
+    const query = mockDb.select.mock.calls[0]![0] as string;
+    expect(query).toContain("is_filtered = 1");
+  });
+
+  it("upsertThread passes isFiltered to SQL execute", async () => {
+    await upsertThread({
+      id: "th-1",
+      accountId: "acc-1",
+      subject: "Test",
+      snippet: "Snippet",
+      lastMessageAt: 12345,
+      messageCount: 1,
+      isRead: false,
+      isStarred: false,
+      isImportant: false,
+      hasAttachments: false,
+      isFiltered: true,
+    });
+
+    expect(mockDb.execute).toHaveBeenCalled();
+    const params = mockDb.execute.mock.calls[0]![1] as unknown[];
+    expect(params[10]).toBe(1); // isFilteredVal = 1
   });
 });

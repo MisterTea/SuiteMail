@@ -4,7 +4,11 @@ import {
   getLabelsForMessage,
   getSyncableFolders,
   isSidecarFolder,
+  isSettingsFolder,
   METADATA_SIDECAR_FOLDER,
+  SETTINGS_SIDECAR_FOLDER,
+  SETTINGS_GENERAL_FOLDER,
+  SETTINGS_FILTERS_FOLDER,
 } from "./folderMapper";
 import { createMockImapFolder } from "@/test/mocks";
 
@@ -155,11 +159,14 @@ describe("getSyncableFolders", () => {
     expect(result).toHaveLength(3);
   });
 
-  it("filters out the hidden metadata sidecar folder", () => {
+  it("filters out the hidden metadata and settings sidecar folders", () => {
     const folders: ImapFolder[] = [
       createMockImapFolder({ path: "INBOX", name: "INBOX" }),
       createMockImapFolder({ path: ".metadata", name: ".metadata" }),
       createMockImapFolder({ path: "INBOX/.metadata", name: ".metadata" }),
+      createMockImapFolder({ path: ".settings", name: ".settings" }),
+      createMockImapFolder({ path: ".settings/general", name: "general" }),
+      createMockImapFolder({ path: ".settings/filters", name: "filters" }),
       createMockImapFolder({ path: "Work", name: "Work" }),
     ];
     const result = getSyncableFolders(folders);
@@ -176,5 +183,21 @@ describe("isSidecarFolder", () => {
     expect(isSidecarFolder("metadata")).toBe(true);
     expect(isSidecarFolder("INBOX")).toBe(false);
     expect(isSidecarFolder("Work/Projects")).toBe(false);
+  });
+});
+
+describe("isSettingsFolder", () => {
+  it("identifies .settings and subfolder variants", () => {
+    expect(isSettingsFolder(".settings")).toBe(true);
+    expect(isSettingsFolder(".SETTINGS")).toBe(true);
+    expect(isSettingsFolder(".settings/general")).toBe(true);
+    expect(isSettingsFolder(".settings/filters")).toBe(true);
+    expect(isSettingsFolder("settings/general")).toBe(true);
+    expect(isSettingsFolder("settings/filters")).toBe(true);
+    expect(isSettingsFolder(".settings.general")).toBe(true);
+    expect(isSettingsFolder("INBOX/.settings")).toBe(true);
+    expect(isSettingsFolder("INBOX/.settings/general")).toBe(true);
+    expect(isSettingsFolder("INBOX")).toBe(false);
+    expect(isSettingsFolder("Work/Projects")).toBe(false);
   });
 });

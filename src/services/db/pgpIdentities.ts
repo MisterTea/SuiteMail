@@ -1,4 +1,5 @@
 import { getDb, selectFirstBy } from "./connection";
+import { setSetting } from "./settings";
 
 export interface PgpIdentity {
   id: string;
@@ -35,4 +36,15 @@ export async function upsertAppPgpIdentity(identity: PgpIdentity): Promise<void>
       identity.created_at ?? null,
     ],
   );
+
+  try {
+    await setSetting("pgp_public_key", identity.armored_public_key);
+    await setSetting("pgp_private_key", identity.armored_private_key);
+    await setSetting("pgp_armored_public_key", identity.armored_public_key);
+    await setSetting("pgp_armored_private_key", identity.armored_private_key);
+    await setSetting("pgp_fingerprint", identity.fingerprint);
+    await setSetting("pgp_email", identity.email);
+  } catch (err) {
+    console.warn("[pgpIdentities] Note on saving PGP keys to global settings:", err);
+  }
 }

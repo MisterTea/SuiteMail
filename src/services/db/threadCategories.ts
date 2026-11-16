@@ -127,7 +127,7 @@ export async function getCategoryUnreadCounts(
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
-     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_read = 0
+     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_read = 0 AND t.is_filtered = 1
      GROUP BY tc.category`,
     [accountId],
   );
@@ -151,7 +151,7 @@ export async function getUncategorizedInboxThreadIds(
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
-     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND tc.thread_id IS NULL
+     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_filtered = 1 AND tc.thread_id IS NULL
      ORDER BY t.last_message_at DESC
      LIMIT $2`,
     [accountId, limit],

@@ -17,6 +17,7 @@ export interface DbThread {
   is_muted: number;
   from_name: string | null;
   from_address: string | null;
+  is_filtered?: number;
 }
 
 export async function getThreadsForAccount(
@@ -32,7 +33,7 @@ export async function getThreadsForAccount(
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
-       WHERE t.account_id = $1 AND tl.label_id = $2
+       WHERE t.account_id = $1 AND tl.label_id = $2 AND t.is_filtered = 1
        GROUP BY t.account_id, t.id
        ORDER BY t.is_pinned DESC, t.last_message_at DESC
        LIMIT $3 OFFSET $4`,
@@ -43,7 +44,7 @@ export async function getThreadsForAccount(
     `SELECT t.*, m.from_name, m.from_address FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
-     WHERE t.account_id = $1
+     WHERE t.account_id = $1 AND t.is_filtered = 1
      ORDER BY t.is_pinned DESC, t.last_message_at DESC LIMIT $2 OFFSET $3`,
     [accountId, limit, offset],
   );
@@ -64,7 +65,7 @@ export async function getThreadsForCategory(
        LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
-       WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND (tc.category IS NULL OR tc.category = 'Primary')
+       WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_filtered = 1 AND (tc.category IS NULL OR tc.category = 'Primary')
        GROUP BY t.account_id, t.id
        ORDER BY t.is_pinned DESC, t.last_message_at DESC
        LIMIT $2 OFFSET $3`,
@@ -77,7 +78,7 @@ export async function getThreadsForCategory(
      INNER JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
-     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND tc.category = $2
+     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_filtered = 1 AND tc.category = $2
      GROUP BY t.account_id, t.id
      ORDER BY t.is_pinned DESC, t.last_message_at DESC
      LIMIT $3 OFFSET $4`,
@@ -96,14 +97,17 @@ export async function upsertThread(thread: {
   isStarred: boolean;
   isImportant: boolean;
   hasAttachments: boolean;
+  isFiltered?: boolean;
 }): Promise<void> {
   const db = await getDb();
+  const isFilteredVal = thread.isFiltered !== undefined ? (thread.isFiltered ? 1 : 0) : null;
   await db.execute(
-    `INSERT INTO threads (id, account_id, subject, snippet, last_message_at, message_count, is_read, is_starred, is_important, has_attachments)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+    `INSERT INTO threads (id, account_id, subject, snippet, last_message_at, message_count, is_read, is_starred, is_important, has_attachments, is_filtered)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0))
      ON CONFLICT(account_id, id) DO UPDATE SET
        subject = $3, snippet = $4, last_message_at = $5, message_count = $6,
-       is_read = $7, is_starred = $8, is_important = $9, has_attachments = $10`,
+       is_read = $7, is_starred = $8, is_important = $9, has_attachments = $10,
+       is_filtered = COALESCE($11, threads.is_filtered)`,
     [
       thread.id,
       thread.accountId,
@@ -115,6 +119,7 @@ export async function upsertThread(thread: {
       thread.isStarred ? 1 : 0,
       thread.isImportant ? 1 : 0,
       thread.hasAttachments ? 1 : 0,
+      isFilteredVal,
     ],
   );
 }
@@ -154,13 +159,17 @@ export async function getThreadLabelIds(
 export async function getThreadById(
   accountId: string,
   threadId: string,
+  onlyFiltered = false,
 ): Promise<DbThread | undefined> {
   const db = await getDb();
+  const whereClause = onlyFiltered
+    ? "WHERE t.account_id = $1 AND t.id = $2 AND t.is_filtered = 1"
+    : "WHERE t.account_id = $1 AND t.id = $2";
   const rows = await db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
-     WHERE t.account_id = $1 AND t.id = $2
+     ${whereClause}
      LIMIT 1`,
     [accountId, threadId],
   );
@@ -170,7 +179,7 @@ export async function getThreadById(
 export async function getThreadCountForAccount(accountId: string): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ count: number }[]>(
-    "SELECT COUNT(*) as count FROM threads WHERE account_id = $1",
+    "SELECT COUNT(*) as count FROM threads WHERE account_id = $1 AND is_filtered = 1",
     [accountId],
   );
   return rows[0]?.count ?? 0;
@@ -181,7 +190,7 @@ export async function getUnreadInboxCount(): Promise<number> {
   const rows = await db.select<{ count: number }[]>(
     `SELECT COUNT(*) as count FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-     WHERE tl.label_id = 'INBOX' AND t.is_read = 0`,
+     WHERE tl.label_id = 'INBOX' AND t.is_read = 0 AND t.is_filtered = 1`,
   );
   return rows[0]?.count ?? 0;
 }

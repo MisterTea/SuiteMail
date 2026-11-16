@@ -26,6 +26,11 @@ vi.mock("../db/pgpIdentities", () => ({
   }),
 }));
 
+vi.mock("../db/settings", () => ({
+  getSetting: vi.fn(async () => null),
+  setSetting: vi.fn(async () => {}),
+}));
+
 vi.mock("../db/contactPgpKeys", () => ({
   getContactPgpKeyByEmail: vi.fn(async (email) => {
     return mockDbContactKeys[email.toLowerCase()] || null;

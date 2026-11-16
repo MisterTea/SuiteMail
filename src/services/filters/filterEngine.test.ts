@@ -1,7 +1,69 @@
-import { describe, it, expect } from "vitest";
-import { messageMatchesFilter, computeFilterActions } from "./filterEngine";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  messageMatchesFilter,
+  computeFilterActions,
+  applyFiltersToMessages,
+  addEmail,
+  downloadEmail,
+  isEmailFiltered,
+  markEmailFiltered,
+} from "./filterEngine";
 import type { FilterCriteria, FilterActions } from "../db/filters";
 import { createMockParsedMessage } from "@/test/mocks";
+import type { ImapConfig } from "../imap/tauriCommands";
+
+const mockFilters = vi.fn();
+const mockEmailActions = {
+  addThreadLabel: vi.fn(),
+  removeThreadLabel: vi.fn(),
+  markThreadRead: vi.fn(),
+  starThread: vi.fn(),
+};
+const mockCrdtDocs: Record<string, any> = {};
+const mockEnsureMetadataDownloadedForEmail = vi.fn();
+const mockPushSidecarMetadata = vi.fn();
+const mockGetAccount = vi.fn();
+
+vi.mock("../db/filters", () => ({
+  getEnabledFiltersForAccount: vi.fn((accId) => mockFilters(accId)),
+}));
+
+vi.mock("../emailActions", () => ({
+  addThreadLabel: vi.fn((...args) => mockEmailActions.addThreadLabel(...args)),
+  removeThreadLabel: vi.fn((...args) => mockEmailActions.removeThreadLabel(...args)),
+  markThreadRead: vi.fn((...args) => mockEmailActions.markThreadRead(...args)),
+  starThread: vi.fn((...args) => mockEmailActions.starThread(...args)),
+}));
+
+vi.mock("../db/threadCrdtDocs", () => ({
+  getThreadCrdtDoc: vi.fn(async (accountId, threadId, scope = "personal") => {
+    return mockCrdtDocs[`${accountId}:${threadId}:${scope}`] || null;
+  }),
+  upsertThreadCrdtDoc: vi.fn(async (record) => {
+    const scope = record.scope || "personal";
+    mockCrdtDocs[`${record.account_id}:${record.thread_id}:${scope}`] = record;
+  }),
+}));
+
+vi.mock("../imap/metadataSidecarSync", () => ({
+  ensureMetadataDownloadedForEmail: vi.fn((...args) =>
+    mockEnsureMetadataDownloadedForEmail(...args)
+  ),
+  pushSidecarMetadata: vi.fn((...args) => mockPushSidecarMetadata(...args)),
+}));
+
+vi.mock("../db/accounts", () => ({
+  getAccount: vi.fn((...args) => mockGetAccount(...args)),
+}));
+
+const testImapConfig: ImapConfig = {
+  host: "imap.example.com",
+  port: 993,
+  security: "tls",
+  username: "user@example.com",
+  password: "password",
+  auth_method: "password",
+};
 
 describe("messageMatchesFilter", () => {
   it("matches from criteria (case-insensitive)", () => {
@@ -149,5 +211,249 @@ describe("computeFilterActions", () => {
     expect(result.removeLabelIds).toContain("INBOX");
     expect(result.markRead).toBe(true);
     expect(result.star).toBe(true);
+  });
+});
+
+describe("applyFiltersToMessages", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFilters.mockResolvedValue([]);
+  });
+
+  it("does nothing when account has no enabled filters", async () => {
+    mockFilters.mockResolvedValueOnce([]);
+    const msg = createMockParsedMessage({ threadId: "t-1" });
+    await applyFiltersToMessages("acc-1", [msg]);
+    expect(mockEmailActions.addThreadLabel).not.toHaveBeenCalled();
+  });
+
+  it("applies matched filter actions to threads", async () => {
+    mockFilters.mockResolvedValueOnce([
+      {
+        id: "f-1",
+        account_id: "acc-1",
+        criteria_json: JSON.stringify({ from: "alice" }),
+        actions_json: JSON.stringify({ applyLabel: "VIP", star: true }),
+        is_enabled: 1,
+      },
+    ]);
+    const msg = createMockParsedMessage({
+      threadId: "t-100",
+      fromAddress: "alice@example.com",
+    });
+    await applyFiltersToMessages("acc-1", [msg]);
+    expect(mockEmailActions.addThreadLabel).toHaveBeenCalledWith(
+      "acc-1",
+      "t-100",
+      "VIP",
+    );
+    expect(mockEmailActions.starThread).toHaveBeenCalledWith(
+      "acc-1",
+      "t-100",
+      [],
+      true,
+    );
+  });
+});
+
+describe("addEmail with client-side filters", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFilters.mockReset();
+    mockFilters.mockResolvedValue([]);
+    for (const k of Object.keys(mockCrdtDocs)) delete mockCrdtDocs[k];
+    mockGetAccount.mockResolvedValue({
+      id: "acc-1",
+      provider: "imap",
+      email: "user@example.com",
+    });
+  });
+
+  it("applies filter rules and marks email as filtered when adding an unfiltered email", async () => {
+    mockFilters.mockResolvedValueOnce([
+      {
+        id: "f-1",
+        account_id: "acc-1",
+        criteria_json: JSON.stringify({ from: "boss" }),
+        actions_json: JSON.stringify({ applyLabel: "Urgent", star: true }),
+        is_enabled: 1,
+      },
+    ]);
+
+    const msg = createMockParsedMessage({
+      threadId: "thread-unfiltered-1",
+      fromAddress: "boss@work.com",
+    });
+
+    expect(await isEmailFiltered("acc-1", "thread-unfiltered-1")).toBe(false);
+
+    const result = await addEmail(
+      "acc-1",
+      "thread-unfiltered-1",
+      [msg],
+      testImapConfig,
+    );
+    expect(result.filtered).toBe(true);
+
+    // Verify filter actions were applied
+    expect(mockEmailActions.addThreadLabel).toHaveBeenCalledWith(
+      "acc-1",
+      "thread-unfiltered-1",
+      "Urgent",
+    );
+    expect(mockEmailActions.starThread).toHaveBeenCalledWith(
+      "acc-1",
+      "thread-unfiltered-1",
+      [],
+      true,
+    );
+
+    // Verify email is now marked as filtered in metadata
+    expect(await isEmailFiltered("acc-1", "thread-unfiltered-1")).toBe(true);
+
+    // Verify sidecar metadata was pushed
+    expect(mockPushSidecarMetadata).toHaveBeenCalledWith(
+      testImapConfig,
+      "user@example.com",
+      expect.objectContaining({
+        conversationId: "thread-unfiltered-1",
+        isFiltered: true,
+      }),
+    );
+  });
+
+  it("skips filter rules when adding an email that is already marked as filtered in metadata", async () => {
+    mockFilters.mockResolvedValue([
+      {
+        id: "f-1",
+        account_id: "acc-1",
+        criteria_json: JSON.stringify({ from: "boss" }),
+        actions_json: JSON.stringify({ applyLabel: "Urgent" }),
+        is_enabled: 1,
+      },
+    ]);
+
+    // Pre-mark email as filtered in metadata
+    await markEmailFiltered("acc-1", "thread-already-filtered", true);
+    expect(await isEmailFiltered("acc-1", "thread-already-filtered")).toBe(true);
+
+    const msg = createMockParsedMessage({
+      threadId: "thread-already-filtered",
+      fromAddress: "boss@work.com",
+    });
+
+    const result = await addEmail(
+      "acc-1",
+      "thread-already-filtered",
+      [msg],
+      testImapConfig,
+    );
+    expect(result.filtered).toBe(false);
+
+    // Verify filter actions were NOT applied
+    expect(mockEmailActions.addThreadLabel).not.toHaveBeenCalled();
+    expect(mockFilters).not.toHaveBeenCalled();
+  });
+});
+
+describe("downloadEmail", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockFilters.mockReset();
+    mockFilters.mockResolvedValue([]);
+    for (const k of Object.keys(mockCrdtDocs)) delete mockCrdtDocs[k];
+    mockGetAccount.mockResolvedValue({
+      id: "acc-1",
+      provider: "imap",
+      email: "user@example.com",
+    });
+  });
+
+  it("makes sure pending metadata is downloaded before adding/assuming an empty metadata item", async () => {
+    mockFilters.mockResolvedValue([
+      {
+        id: "f-1",
+        account_id: "acc-1",
+        criteria_json: JSON.stringify({ from: "newsletter" }),
+        actions_json: JSON.stringify({ applyLabel: "Newsletters" }),
+        is_enabled: 1,
+      },
+    ]);
+
+    // Simulate that when ensureMetadataDownloadedForEmail runs, it downloads remote metadata
+    // that already marked this email as filtered on another client
+    mockEnsureMetadataDownloadedForEmail.mockImplementationOnce(
+      async (accId: string, _config: any, tId: string) => {
+        await markEmailFiltered(accId, tId, true);
+        return 1;
+      },
+    );
+
+    const msg = createMockParsedMessage({
+      threadId: "thread-pending-meta",
+      fromAddress: "newsletter@site.com",
+    });
+
+    const result = await downloadEmail(
+      "acc-1",
+      "thread-pending-meta",
+      [msg],
+      testImapConfig,
+    );
+
+    // 1. Made sure pending metadata was checked/downloaded first
+    expect(mockEnsureMetadataDownloadedForEmail).toHaveBeenCalledWith(
+      "acc-1",
+      testImapConfig,
+      "thread-pending-meta",
+    );
+
+    // 2. Because remote metadata was downloaded and marked it as filtered,
+    // it did NOT assume an empty metadata item or apply filters again
+    expect(result.filtered).toBe(false);
+    expect(mockEmailActions.addThreadLabel).not.toHaveBeenCalled();
+  });
+
+  it("applies filter rules and marks metadata when no remote metadata exists to download", async () => {
+    mockFilters.mockResolvedValue([
+      {
+        id: "f-1",
+        account_id: "acc-1",
+        criteria_json: JSON.stringify({ from: "invoice" }),
+        actions_json: JSON.stringify({ applyLabel: "Finance" }),
+        is_enabled: 1,
+      },
+    ]);
+
+    // No pending metadata on server
+    mockEnsureMetadataDownloadedForEmail.mockResolvedValueOnce(0);
+
+    const msg = createMockParsedMessage({
+      threadId: "thread-new-download",
+      fromAddress: "invoice@billing.com",
+    });
+
+    const result = await downloadEmail(
+      "acc-1",
+      "thread-new-download",
+      [msg],
+      testImapConfig,
+    );
+
+    // 1. Verified pending metadata was checked first
+    expect(mockEnsureMetadataDownloadedForEmail).toHaveBeenCalledWith(
+      "acc-1",
+      testImapConfig,
+      "thread-new-download",
+    );
+
+    // 2. Added email, applied filter rules, and set metadata
+    expect(result.filtered).toBe(true);
+    expect(mockEmailActions.addThreadLabel).toHaveBeenCalledWith(
+      "acc-1",
+      "thread-new-download",
+      "Finance",
+    );
+    expect(await isEmailFiltered("acc-1", "thread-new-download")).toBe(true);
   });
 });

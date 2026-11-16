@@ -4,6 +4,7 @@ import { getThreadCrdtDoc, upsertThreadCrdtDoc, type CrdtScope } from "../db/thr
 import { setThreadCategory } from "../db/threadCategories";
 import { insertFollowUpReminder, cancelFollowUpForThread } from "../db/followUpReminders";
 import { setThreadLabels } from "../db/threads";
+import { getDb } from "../db/connection";
 
 /**
  * Personal metadata: private to this user/account.
@@ -18,6 +19,7 @@ export interface PersonalMetadataState {
   isStarred?: boolean;
   isRead?: boolean;
   category?: string | null;
+  isFiltered?: boolean;
   lastUpdated: number;
 }
 
@@ -49,6 +51,7 @@ export interface ConversationMetadataState extends Partial<LocalMetadataState>, 
   followUpAt?: number | null;
   notes?: string;
   collaborators?: string[];
+  isFiltered?: boolean;
   lastUpdated: number;
 }
 
@@ -70,6 +73,7 @@ export function createPersonalMetadataDoc(
     d.isStarred = initial?.isStarred ?? false;
     d.isRead = initial?.isRead ?? false;
     d.category = initial?.category ?? null;
+    d.isFiltered = initial?.isFiltered ?? false;
     d.lastUpdated = initial?.lastUpdated ?? Date.now();
   });
   return doc;
@@ -90,6 +94,7 @@ export function updatePersonalMetadataDoc(
     if (changes.isStarred !== undefined) d.isStarred = changes.isStarred;
     if (changes.isRead !== undefined) d.isRead = changes.isRead;
     if (changes.category !== undefined) d.category = changes.category;
+    if (changes.isFiltered !== undefined) d.isFiltered = changes.isFiltered;
     d.lastUpdated = Date.now();
   });
 }
@@ -243,18 +248,41 @@ export async function reconcilePersonalMetadataToDb(
   doc: automerge.Doc<PersonalMetadataState>,
 ): Promise<void> {
   if (doc.category) {
-    await setThreadCategory(accountId, threadId, doc.category, true);
+    try {
+      await setThreadCategory(accountId, threadId, doc.category, true);
+    } catch (e) {
+      console.warn(`[metadataCrdt] Could not update category for ${threadId}:`, e);
+    }
   }
   if (doc.followUpAt) {
-    await insertFollowUpReminder(accountId, threadId, threadId, doc.followUpAt);
+    try {
+      await insertFollowUpReminder(accountId, threadId, threadId, doc.followUpAt);
+    } catch (e) {
+      console.warn(`[metadataCrdt] Could not insert follow-up reminder for ${threadId}:`, e);
+    }
   } else if (doc.followUpAt === null) {
-    await cancelFollowUpForThread(accountId, threadId);
+    try {
+      await cancelFollowUpForThread(accountId, threadId);
+    } catch {
+      // Ignored if cancelFollowUp is not available or DB is unavailable
+    }
   }
   if (doc.personalLabels && doc.personalLabels.length > 0) {
     try {
       await setThreadLabels(accountId, threadId, doc.personalLabels);
     } catch (e) {
       console.warn(`[metadataCrdt] Could not update thread labels for ${threadId}:`, e);
+    }
+  }
+  if (doc.isFiltered !== undefined) {
+    try {
+      const db = await getDb();
+      await db.execute(
+        "UPDATE threads SET is_filtered = $1 WHERE account_id = $2 AND id = $3",
+        [doc.isFiltered ? 1 : 0, accountId, threadId],
+      );
+    } catch {
+      // Ignored in environments without active DB
     }
   }
 }
@@ -298,6 +326,7 @@ export function createMetadataDoc(
     d.followUpAt = initial?.followUpAt ?? null;
     d.notes = initial?.notes ?? "";
     d.collaborators = initial?.collaborators ? [...initial.collaborators] : [];
+    d.isFiltered = initial?.isFiltered ?? false;
     d.lastUpdated = initial?.lastUpdated ?? Date.now();
   });
   return doc;
@@ -317,6 +346,7 @@ export function updateMetadataDoc(
     if (changes.isRead !== undefined) d.isRead = changes.isRead;
     if (changes.followUpAt !== undefined) d.followUpAt = changes.followUpAt;
     if (changes.notes !== undefined) d.notes = changes.notes;
+    if (changes.isFiltered !== undefined) d.isFiltered = changes.isFiltered;
     if (authorEmail) {
       if (!d.collaborators) d.collaborators = [];
       if (!d.collaborators.includes(authorEmail)) {
@@ -384,5 +414,81 @@ export async function reconcileCrdtToLocalDb(
     } catch (e) {
       console.warn(`[metadataCrdt] Could not update thread labels for ${threadId}:`, e);
     }
+  }
+}
+
+// ============================================================================
+// Client-side Filtering Helpers
+// ============================================================================
+
+/**
+ * Check whether an email/thread has already been filtered using its metadata.
+ */
+export async function isEmailFiltered(
+  accountId: string,
+  threadId: string,
+): Promise<boolean> {
+  const record = await getThreadCrdtDoc(accountId, threadId, "personal");
+  if (record && record.doc_base64) {
+    try {
+      const doc = deserializeMetadataDoc<PersonalMetadataState>(record.doc_base64);
+      if (doc.isFiltered !== undefined) return Boolean(doc.isFiltered);
+    } catch {
+      // Fall through to DB check
+    }
+  }
+  try {
+    const db = await getDb();
+    const rows = await db.select<{ is_filtered: number }[]>(
+      "SELECT is_filtered FROM threads WHERE account_id = $1 AND id = $2 LIMIT 1",
+      [accountId, threadId],
+    );
+    if (rows.length > 0 && rows[0]?.is_filtered !== undefined && rows[0]?.is_filtered !== null) {
+      return rows[0].is_filtered === 1;
+    }
+  } catch {
+    // If column doesn't exist or query fails
+  }
+  return false;
+}
+
+/**
+ * Mark an email/thread as filtered or not in its personal metadata doc and database.
+ */
+export async function markEmailFiltered(
+  accountId: string,
+  threadId: string,
+  isFiltered = true,
+): Promise<void> {
+  const doc = await getOrInitPersonalMetadataDoc(accountId, threadId, {
+    conversationId: threadId,
+    isFiltered,
+  });
+  const updated = updatePersonalMetadataDoc(doc, { isFiltered });
+  await savePersonalMetadataDoc(accountId, threadId, updated);
+  try {
+    const db = await getDb();
+    await db.execute(
+      "UPDATE threads SET is_filtered = $1 WHERE account_id = $2 AND id = $3",
+      [isFiltered ? 1 : 0, accountId, threadId],
+    );
+  } catch {
+    // Ignored in environments without active DB
+  }
+}
+
+/**
+ * Retrieve personal metadata state for an email/thread if available.
+ */
+export async function getPersonalMetadata(
+  accountId: string,
+  threadId: string,
+): Promise<PersonalMetadataState | null> {
+  const record = await getThreadCrdtDoc(accountId, threadId, "personal");
+  if (!record || !record.doc_base64) return null;
+  try {
+    return deserializeMetadataDoc<PersonalMetadataState>(record.doc_base64);
+  } catch {
+    return null;
   }
 }

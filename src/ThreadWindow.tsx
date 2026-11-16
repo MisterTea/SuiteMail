@@ -73,7 +73,7 @@ export default function ThreadWindow() {
 
         // Fetch thread
         const dbThread = await getThreadById(accountId!, threadId!);
-        if (!dbThread) {
+        if (!dbThread || dbThread.is_filtered === 0) {
           setError("Thread not found");
           setLoading(false);
           return;

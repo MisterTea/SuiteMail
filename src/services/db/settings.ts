@@ -10,12 +10,41 @@ export async function getSetting(key: string): Promise<string | null> {
   return rows[0]?.value ?? null;
 }
 
-export async function setSetting(key: string, value: string): Promise<void> {
+export interface SettingChangeEvent {
+  key: string;
+  value: string;
+}
+
+export type SettingChangeListener = (event: SettingChangeEvent) => void;
+
+const settingChangeListeners = new Set<SettingChangeListener>();
+
+export function addSettingChangeListener(listener: SettingChangeListener): () => void {
+  settingChangeListeners.add(listener);
+  return () => {
+    settingChangeListeners.delete(listener);
+  };
+}
+
+export async function setSetting(
+  key: string,
+  value: string,
+  options?: { skipNotify?: boolean },
+): Promise<void> {
   const db = await getDb();
   await db.execute(
     "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2",
     [key, value],
   );
+  if (!options?.skipNotify) {
+    for (const listener of settingChangeListeners) {
+      try {
+        listener({ key, value });
+      } catch (e) {
+        console.warn("[settings] Error in setting change listener:", e);
+      }
+    }
+  }
 }
 
 export async function getAllSettings(): Promise<Record<string, string>> {

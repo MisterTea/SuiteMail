@@ -203,7 +203,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const searchQuery = useThreadStore((s) => s.searchQuery);
 
   const filteredThreads = useMemo(() => {
-    let filtered = threads;
+    let filtered = threads.filter((t) => t.isFiltered !== false);
     // Apply search filter
     if (searchThreadIds !== null) {
       filtered = filtered.filter((t) => searchThreadIds.has(t.id));
@@ -233,8 +233,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [filteredThreads, activeLabel, activeCategory, categoryMap, bundledCategorySet, heldThreadIds]);
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
+    const filteredDbThreads = dbThreads.filter((t) => t.is_filtered === undefined || t.is_filtered === null || t.is_filtered === 1);
     return Promise.all(
-      dbThreads.map(async (t) => {
+      filteredDbThreads.map(async (t) => {
         const labelIds = await getThreadLabelIds(t.account_id, t.id);
         return {
           id: t.id,
@@ -251,6 +252,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           labelIds,
           fromName: t.from_name,
           fromAddress: t.from_address,
+          isFiltered: t.is_filtered !== undefined && t.is_filtered !== null ? t.is_filtered === 1 : true,
         };
       }),
     );

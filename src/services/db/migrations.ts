@@ -809,6 +809,15 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 25,
+    description: "Add is_filtered column to threads",
+    sql: `
+      ALTER TABLE threads ADD COLUMN is_filtered INTEGER DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS idx_threads_filtered ON threads(account_id, is_filtered);
+      UPDATE threads SET is_filtered = 1;
+    `,
+  },
 ];
 
 /**

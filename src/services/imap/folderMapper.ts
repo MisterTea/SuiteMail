@@ -150,6 +150,9 @@ export async function syncFoldersToLabels(
 }
 
 export const METADATA_SIDECAR_FOLDER = ".metadata";
+export const SETTINGS_SIDECAR_FOLDER = ".settings";
+export const SETTINGS_GENERAL_FOLDER = ".settings/general";
+export const SETTINGS_FILTERS_FOLDER = ".settings/filters";
 
 /**
  * Check whether a folder path represents the hidden metadata sidecar folder.
@@ -161,6 +164,29 @@ export function isSidecarFolder(path: string): boolean {
     lower === "metadata" ||
     lower.endsWith("/" + METADATA_SIDECAR_FOLDER) ||
     lower.endsWith("." + METADATA_SIDECAR_FOLDER)
+  );
+}
+
+/**
+ * Check whether a folder path represents a settings sidecar folder (.settings, .settings/general, .settings/filters).
+ */
+export function isSettingsFolder(path: string): boolean {
+  const lower = path.toLowerCase().trim();
+  return (
+    lower === SETTINGS_SIDECAR_FOLDER ||
+    lower === "settings" ||
+    lower === SETTINGS_GENERAL_FOLDER ||
+    lower === "settings/general" ||
+    lower === ".settings.general" ||
+    lower === SETTINGS_FILTERS_FOLDER ||
+    lower === "settings/filters" ||
+    lower === ".settings.filters" ||
+    lower.startsWith(".settings/") ||
+    lower.startsWith("settings/") ||
+    lower.startsWith(".settings.") ||
+    lower.endsWith("/" + SETTINGS_SIDECAR_FOLDER) ||
+    lower.includes("/.settings/") ||
+    lower.includes("/settings/")
   );
 }
 
@@ -177,6 +203,8 @@ export function getSyncableFolders(folders: ImapFolder[]): ImapFolder[] {
     if (lowerPath.startsWith("[nostromo]")) return false;
     // Skip the metadata sidecar folder
     if (isSidecarFolder(f.path) || isSidecarFolder(f.name)) return false;
+    // Skip the settings sidecar folders (.settings, .settings/general, .settings/filters)
+    if (isSettingsFolder(f.path) || isSettingsFolder(f.name)) return false;
     return true;
   });
 }

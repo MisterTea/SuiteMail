@@ -105,12 +105,15 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
     return true;
   });
 
-  return Promise.all(
-    uniqueRows.map(async (r) => {
+  const results = await Promise.all(
+    uniqueRows.map(async (r): Promise<Thread | null> => {
       const [labelIds, dbThread] = await Promise.all([
         getThreadLabelIds(r.account_id, r.thread_id),
         getThreadById(r.account_id, r.thread_id),
       ]);
+      if (dbThread && dbThread.is_filtered === 0) {
+        return null;
+      }
       return {
         id: r.thread_id,
         accountId: r.account_id,
@@ -126,7 +129,9 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
         labelIds,
         fromName: r.from_name,
         fromAddress: r.from_address,
+        isFiltered: dbThread?.is_filtered !== undefined && dbThread?.is_filtered !== null ? dbThread.is_filtered === 1 : true,
       };
     }),
   );
+  return results.filter((t): t is Thread => t !== null && t.isFiltered !== false);
 }

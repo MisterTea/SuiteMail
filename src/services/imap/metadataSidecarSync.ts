@@ -1,3 +1,4 @@
+import * as automerge from "@automerge/automerge";
 import {
   imapListFolders,
   imapCreateFolder,
@@ -17,8 +18,13 @@ import {
   mergeMetadataDocs,
   serializeMetadataDoc,
   reconcilePersonalMetadataToDb,
+  getOrInitPersonalMetadataDoc,
+  updatePersonalMetadataDoc,
+  savePersonalMetadataDoc,
   type PersonalMetadataState,
 } from "../crdt/metadataCrdt";
+import { getAccount } from "../db/accounts";
+import { buildImapConfig } from "./imapConfigBuilder";
 
 /**
  * Payload stored in the .metadata shadow folder on IMAP.
@@ -37,6 +43,7 @@ export interface PersonalSidecarPayload {
   followUpAt?: number | null;
   privateNotes?: string;
   personalLabels?: string[];
+  isFiltered?: boolean;
   crdtDocBase64?: string;
 }
 
@@ -189,25 +196,31 @@ export async function syncSidecarMetadata(
         if (payload.crdtDocBase64) {
           const remoteDoc = deserializeMetadataDoc<PersonalMetadataState>(payload.crdtDocBase64);
           const existing = await getThreadCrdtDoc(accountId, conversationId, "personal");
+          let merged: automerge.Doc<PersonalMetadataState>;
           if (existing && existing.doc_base64) {
             const localDoc = deserializeMetadataDoc<PersonalMetadataState>(existing.doc_base64);
-            const merged = mergeMetadataDocs(localDoc, remoteDoc);
-            await upsertThreadCrdtDoc({
-              account_id: accountId,
-              thread_id: conversationId,
-              scope: "personal",
-              doc_base64: serializeMetadataDoc(merged),
-            });
-            await reconcilePersonalMetadataToDb(accountId, conversationId, merged);
+            merged = mergeMetadataDocs(localDoc, remoteDoc);
           } else {
-            await upsertThreadCrdtDoc({
-              account_id: accountId,
-              thread_id: conversationId,
-              scope: "personal",
-              doc_base64: payload.crdtDocBase64,
-            });
-            await reconcilePersonalMetadataToDb(accountId, conversationId, remoteDoc);
+            merged = remoteDoc;
           }
+          if (payload.isFiltered !== undefined && merged.isFiltered !== payload.isFiltered) {
+            merged = updatePersonalMetadataDoc(merged, { isFiltered: payload.isFiltered });
+          }
+          await upsertThreadCrdtDoc({
+            account_id: accountId,
+            thread_id: conversationId,
+            scope: "personal",
+            doc_base64: serializeMetadataDoc(merged),
+          });
+          await reconcilePersonalMetadataToDb(accountId, conversationId, merged);
+        } else if (payload.isFiltered !== undefined) {
+          const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
+            conversationId,
+            isFiltered: payload.isFiltered,
+          });
+          const updated = updatePersonalMetadataDoc(doc, { isFiltered: payload.isFiltered });
+          await savePersonalMetadataDoc(accountId, conversationId, updated);
+          await reconcilePersonalMetadataToDb(accountId, conversationId, updated);
         }
 
         appliedCount++;
@@ -229,4 +242,73 @@ export async function syncSidecarMetadata(
   });
 
   return appliedCount;
+}
+
+/**
+ * Check if there is pending metadata in the sidecar folder on the IMAP server
+ * that has not been downloaded yet.
+ */
+export async function hasPendingMetadata(
+  accountId: string,
+  config: ImapConfig,
+): Promise<boolean> {
+  const folders = await imapListFolders(config);
+  const sidecar = folders.find((f) => isSidecarFolder(f.path) || isSidecarFolder(f.name));
+  if (!sidecar) {
+    return false;
+  }
+
+  const folderPath = sidecar.raw_path || sidecar.path;
+  const syncState = await getFolderSyncState(accountId, folderPath);
+  const lastUid = syncState?.last_uid ?? 0;
+  const allUids = await imapSearchAllUids(config, folderPath);
+  return allUids.some((uid) => uid > lastUid);
+}
+
+/**
+ * Ensure any pending metadata on the server has been downloaded.
+ */
+export async function ensureMetadataDownloaded(
+  accountId: string,
+  config: ImapConfig,
+): Promise<number> {
+  return syncSidecarMetadata(accountId, config);
+}
+
+/**
+ * Make sure there isn't metadata for that email/conversation yet to be downloaded
+ * before adding or assuming an empty metadata item.
+ * If there are pending metadata messages in the sidecar folder, downloads and applies them.
+ */
+export async function ensureMetadataDownloadedForEmail(
+  accountId: string,
+  config: ImapConfig,
+  _conversationId?: string,
+): Promise<number> {
+  const hasPending = await hasPendingMetadata(accountId, config);
+  if (hasPending) {
+    return await syncSidecarMetadata(accountId, config);
+  }
+  return 0;
+}
+
+/**
+ * Helper to ensure metadata is downloaded for an account, automatically building
+ * config if it is an IMAP account.
+ */
+export async function ensureMetadataDownloadedForAccount(
+  accountId: string,
+  config?: ImapConfig,
+  conversationId?: string,
+): Promise<void> {
+  let imapConfig = config;
+  if (!imapConfig) {
+    const account = await getAccount(accountId);
+    if (account && account.provider === "imap") {
+      imapConfig = buildImapConfig(account);
+    }
+  }
+  if (imapConfig) {
+    await ensureMetadataDownloadedForEmail(accountId, imapConfig, conversationId);
+  }
 }

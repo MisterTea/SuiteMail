@@ -9,11 +9,15 @@ import {
   getAllContactKeys,
   encryptMetadataPayload,
   decryptMetadataPayload,
+  getPgpKeysFromSettings,
+  syncPgpKeysToSettings,
+  syncPgpKeysFromSettings,
 } from "./pgpService";
 
 // Mock DB modules
 const mockDbIdentities: Record<string, any> = {};
 const mockDbContactKeys: Record<string, any> = {};
+const mockSettings: Record<string, string> = {};
 
 vi.mock("../db/pgpIdentities", () => ({
   getAppPgpIdentity: vi.fn(async (id = "default") => mockDbIdentities[id] || null),
@@ -32,10 +36,18 @@ vi.mock("../db/contactPgpKeys", () => ({
   listContactPgpKeys: vi.fn(async () => Object.values(mockDbContactKeys)),
 }));
 
+vi.mock("../db/settings", () => ({
+  getSetting: vi.fn(async (key: string) => mockSettings[key] || null),
+  setSetting: vi.fn(async (key: string, val: string) => {
+    mockSettings[key] = val;
+  }),
+}));
+
 describe("pgpService", () => {
   beforeEach(() => {
     for (const k of Object.keys(mockDbIdentities)) delete mockDbIdentities[k];
     for (const k of Object.keys(mockDbContactKeys)) delete mockDbContactKeys[k];
+    for (const k of Object.keys(mockSettings)) delete mockSettings[k];
   });
 
   it("generates an OpenPGP keypair on first launch and reuses it subsequently", async () => {
@@ -52,6 +64,50 @@ describe("pgpService", () => {
 
     const retrieved = await getPgpIdentity();
     expect(retrieved?.fingerprint).toBe(identity1.fingerprint);
+  }, 15000);
+
+  it("puts private and public PGP keys into global settings on key generation", async () => {
+    const identity = await initAppPgpKey("user@example.com");
+    expect(mockSettings.pgp_public_key).toBe(identity.armored_public_key);
+    expect(mockSettings.pgp_private_key).toBe(identity.armored_private_key);
+    expect(mockSettings.pgp_armored_public_key).toBe(identity.armored_public_key);
+    expect(mockSettings.pgp_armored_private_key).toBe(identity.armored_private_key);
+    expect(mockSettings.pgp_fingerprint).toBe(identity.fingerprint);
+    expect(mockSettings.pgp_email).toBe("user@example.com");
+
+    const settingsKeys = await getPgpKeysFromSettings();
+    expect(settingsKeys.publicKey).toBe(identity.armored_public_key);
+    expect(settingsKeys.privateKey).toBe(identity.armored_private_key);
+    expect(settingsKeys.fingerprint).toBe(identity.fingerprint);
+    expect(settingsKeys.email).toBe("user@example.com");
+  }, 15000);
+
+  it("restores PGP identity from global settings when local identity table is empty", async () => {
+    const { privateKey, publicKey } = await openpgp.generateKey({
+      userIDs: [{ name: "Synced User", email: "synced@example.com" }],
+      type: "curve25519",
+    });
+    const keyObj = await openpgp.readKey({ armoredKey: publicKey });
+    const fingerprint = keyObj.getFingerprint();
+
+    // Store in global settings
+    mockSettings.pgp_public_key = publicKey;
+    mockSettings.pgp_private_key = privateKey;
+    mockSettings.pgp_fingerprint = fingerprint;
+    mockSettings.pgp_email = "synced@example.com";
+
+    // Local DB is empty
+    expect(mockDbIdentities["default"]).toBeUndefined();
+
+    // initAppPgpKey should restore from global settings without generating new keys
+    const identity = await initAppPgpKey();
+    expect(identity.armored_public_key).toBe(publicKey);
+    expect(identity.armored_private_key).toBe(privateKey);
+    expect(identity.fingerprint).toBe(fingerprint);
+    expect(identity.email).toBe("synced@example.com");
+
+    // Local DB now has the restored identity
+    expect(mockDbIdentities["default"]).toBeDefined();
   }, 15000);
 
   it("records contact public key with TOFU warning on first addition", async () => {

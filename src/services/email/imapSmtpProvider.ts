@@ -23,6 +23,7 @@ import { findSpecialFolder } from "../imap/messageHelper";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
+import { markEmailFiltered } from "../filters/filterEngine";
 
 /**
  * Decode base64url (Gmail/RFC 4648 URL-safe, no padding) to a UTF-8 string.
@@ -472,8 +473,10 @@ export class ImapSmtpProvider implements EmailProvider {
         isStarred: false,
         isImportant: false,
         hasAttachments: false,
+        isFiltered: true,
       });
       await setThreadLabels(this.accountId, effectiveThreadId, ["SENT"]);
+      await markEmailFiltered(this.accountId, effectiveThreadId, true).catch(() => {});
     }
 
     // Extract sender name from "Name <email>" format

@@ -146,6 +146,8 @@ export function SettingsPage() {
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
   const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
   const [newVipEmail, setNewVipEmail] = useState("");
+  const [pgpIdentity, setPgpIdentity] = useState<{ publicKey: string; fingerprint: string } | null>(null);
+  const [pgpCopied, setPgpCopied] = useState(false);
 
   // Load settings from DB
   useEffect(() => {
@@ -248,6 +250,20 @@ export function SettingsPage() {
         setCacheSizeMb(Math.round(size / (1024 * 1024) * 10) / 10);
       } catch {
         // cache manager may not be available
+      }
+
+      // Load OpenPGP identity from global settings / service
+      try {
+        const { getPgpIdentity } = await import("@/services/crypto/pgpService");
+        const ident = await getPgpIdentity();
+        if (ident) {
+          setPgpIdentity({
+            publicKey: ident.armored_public_key,
+            fingerprint: ident.fingerprint,
+          });
+        }
+      } catch {
+        // PGP not initialized yet
       }
     }
     load();
@@ -570,6 +586,31 @@ export function SettingsPage() {
                           <option value="high">High (more warnings)</option>
                         </select>
                       </SettingRow>
+                    )}
+
+                    {pgpIdentity && (
+                      <div className="pt-3 mt-1 border-t border-border-primary/50 flex items-center justify-between">
+                        <div>
+                          <span className="text-sm text-text-primary font-medium">OpenPGP Keypair</span>
+                          <p className="text-xs text-text-tertiary mt-0.5 font-mono">
+                            Fingerprint: {pgpIdentity.fingerprint}
+                          </p>
+                          <p className="text-xs text-text-secondary mt-0.5">
+                            Private and public keys stored in global settings
+                          </p>
+                        </div>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => {
+                            navigator.clipboard.writeText(pgpIdentity.publicKey);
+                            setPgpCopied(true);
+                            setTimeout(() => setPgpCopied(false), 2000);
+                          }}
+                        >
+                          {pgpCopied ? "Copied!" : "Copy Public Key"}
+                        </Button>
+                      </div>
                     )}
                   </Section>
 

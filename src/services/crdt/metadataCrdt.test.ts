@@ -24,6 +24,9 @@ import {
   reconcileLocalMetadataToDb,
   reconcilePersonalMetadataToDb,
   reconcileSharedMetadataToDb,
+  isEmailFiltered,
+  markEmailFiltered,
+  getPersonalMetadata,
 } from "./metadataCrdt";
 
 const mockCrdtDocs: Record<string, any> = {};
@@ -57,6 +60,13 @@ vi.mock("../db/followUpReminders", () => ({
 
 vi.mock("../db/threads", () => ({
   setThreadLabels: vi.fn(async () => {}),
+}));
+
+vi.mock("../db/connection", () => ({
+  getDb: vi.fn(async () => ({
+    execute: vi.fn(async () => {}),
+    select: vi.fn(async () => []),
+  })),
 }));
 
 describe("metadataCrdt", () => {
@@ -230,6 +240,56 @@ describe("metadataCrdt", () => {
       threadId: "thread-555",
       messageId: "thread-555",
       remindAt: 1780000000,
+    });
+  });
+
+  describe("client-side filter metadata tracking", () => {
+    it("initializes isFiltered in personal metadata doc", () => {
+      const docDefault = createPersonalMetadataDoc({ conversationId: "t-1" });
+      expect(docDefault.isFiltered).toBe(false);
+
+      const docFiltered = createPersonalMetadataDoc({
+        conversationId: "t-2",
+        isFiltered: true,
+      });
+      expect(docFiltered.isFiltered).toBe(true);
+    });
+
+    it("updates isFiltered in personal metadata doc", () => {
+      const doc = createPersonalMetadataDoc({ conversationId: "t-1" });
+      expect(doc.isFiltered).toBe(false);
+
+      const updated = updatePersonalMetadataDoc(doc, { isFiltered: true });
+      expect(updated.isFiltered).toBe(true);
+
+      const reverted = updatePersonalMetadataDoc(updated, { isFiltered: false });
+      expect(reverted.isFiltered).toBe(false);
+    });
+
+    it("tracks isFiltered in composite metadata doc", () => {
+      const doc = createMetadataDoc({ isFiltered: true });
+      expect(doc.isFiltered).toBe(true);
+
+      const updated = updateMetadataDoc(doc, { isFiltered: false });
+      expect(updated.isFiltered).toBe(false);
+    });
+
+    it("isEmailFiltered returns false when no doc exists", async () => {
+      const filtered = await isEmailFiltered("acc-1", "non-existent");
+      expect(filtered).toBe(false);
+    });
+
+    it("markEmailFiltered marks email as filtered and persists to storage", async () => {
+      expect(await isEmailFiltered("acc-1", "thread-101")).toBe(false);
+
+      await markEmailFiltered("acc-1", "thread-101", true);
+      expect(await isEmailFiltered("acc-1", "thread-101")).toBe(true);
+
+      const meta = await getPersonalMetadata("acc-1", "thread-101");
+      expect(meta?.isFiltered).toBe(true);
+
+      await markEmailFiltered("acc-1", "thread-101", false);
+      expect(await isEmailFiltered("acc-1", "thread-101")).toBe(false);
     });
   });
 });

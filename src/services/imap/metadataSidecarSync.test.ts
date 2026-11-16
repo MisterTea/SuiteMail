@@ -5,6 +5,8 @@ import {
   buildSidecarEmail,
   pushSidecarMetadata,
   syncSidecarMetadata,
+  hasPendingMetadata,
+  ensureMetadataDownloadedForEmail,
   type SidecarPayload,
 } from "./metadataSidecarSync";
 import type { ImapConfig, ImapFolder, ImapFetchResult } from "./tauriCommands";
@@ -51,6 +53,7 @@ vi.mock("../db/followUpReminders", () => ({
   insertFollowUpReminder: vi.fn(async (accountId, threadId, messageId, remindAt) => {
     mockReminders[threadId] = { accountId, threadId, messageId, remindAt };
   }),
+  cancelFollowUpForThread: vi.fn(async () => {}),
 }));
 
 vi.mock("../db/threadCrdtDocs", () => ({
@@ -182,5 +185,151 @@ describe("metadataSidecarSync", () => {
     expect(mockCategories["thread-789"]?.category).toBe("Personal");
     expect(mockReminders["thread-789"]?.remindAt).toBe(1725000000);
     expect(mockFolderSyncState["acc-1:.metadata"]?.last_uid).toBe(1);
+  });
+
+  it("syncs sidecar metadata with isFiltered field and updates personal doc", async () => {
+    mockTauri.imapListFolders.mockResolvedValueOnce([
+      { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+    ]);
+    mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+      uidvalidity: 1,
+      uidnext: 10,
+      exists: 1,
+      unseen: 0,
+      highest_modseq: null,
+    });
+    mockTauri.imapSearchAllUids.mockResolvedValueOnce([105]);
+
+    const sidecarPayload: SidecarPayload = {
+      conversationId: "thread-filter-1",
+      type: "personal",
+      updatedAt: 1720000000,
+      isFiltered: true,
+    };
+
+    mockTauri.imapFetchMessages.mockResolvedValueOnce({
+      messages: [
+        {
+          uid: 105,
+          folder: ".metadata",
+          body_text: JSON.stringify(sidecarPayload),
+          body_html: null,
+          date: 1720000000,
+          is_read: true,
+          is_starred: false,
+          is_draft: false,
+          attachments: [],
+        },
+      ],
+      folder_status: {
+        uidvalidity: 1,
+        uidnext: 106,
+        exists: 1,
+        unseen: 0,
+        highest_modseq: null,
+      },
+    });
+
+    const synced = await syncSidecarMetadata("acc-1", testConfig);
+    expect(synced).toBe(1);
+
+    const crdtDoc = mockCrdtDocs["acc-1:thread-filter-1:personal"];
+    expect(crdtDoc).toBeDefined();
+    expect(crdtDoc.doc_base64).toBeDefined();
+  });
+
+  describe("hasPendingMetadata & ensureMetadataDownloadedForEmail", () => {
+    it("returns false if sidecar folder does not exist", async () => {
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: "INBOX", name: "INBOX" },
+      ]);
+      const pending = await hasPendingMetadata("acc-1", testConfig);
+      expect(pending).toBe(false);
+    });
+
+    it("returns true if there are UIDs higher than last_uid", async () => {
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 5 };
+      mockTauri.imapSearchAllUids.mockResolvedValueOnce([1, 2, 3, 4, 5, 6]);
+
+      const pending = await hasPendingMetadata("acc-1", testConfig);
+      expect(pending).toBe(true);
+    });
+
+    it("returns false if all UIDs are <= last_uid", async () => {
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 6 };
+      mockTauri.imapSearchAllUids.mockResolvedValueOnce([1, 2, 3, 4, 5, 6]);
+
+      const pending = await hasPendingMetadata("acc-1", testConfig);
+      expect(pending).toBe(false);
+    });
+
+    it("ensureMetadataDownloadedForEmail syncs when pending exists", async () => {
+      // 1st listFolders for hasPendingMetadata
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 10 };
+      mockTauri.imapSearchAllUids.mockResolvedValueOnce([11]);
+
+      // syncSidecarMetadata calls:
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+        uidvalidity: 1,
+        uidnext: 12,
+        exists: 1,
+        unseen: 0,
+        highest_modseq: null,
+      });
+      mockTauri.imapSearchAllUids.mockResolvedValueOnce([11]);
+      mockTauri.imapFetchMessages.mockResolvedValueOnce({
+        messages: [
+          {
+            uid: 11,
+            folder: ".metadata",
+            body_text: JSON.stringify({
+              conversationId: "thread-dl-check",
+              type: "personal",
+              updatedAt: 1720000000,
+              isFiltered: true,
+            }),
+            body_html: null,
+            date: 1720000000,
+            is_read: true,
+            is_starred: false,
+            is_draft: false,
+            attachments: [],
+          },
+        ],
+        folder_status: {
+          uidvalidity: 1,
+          uidnext: 12,
+          exists: 1,
+          unseen: 0,
+          highest_modseq: null,
+        },
+      });
+
+      const count = await ensureMetadataDownloadedForEmail("acc-1", testConfig, "thread-dl-check");
+      expect(count).toBe(1);
+    });
+
+    it("ensureMetadataDownloadedForEmail returns 0 when no pending metadata", async () => {
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 20 };
+      mockTauri.imapSearchAllUids.mockResolvedValueOnce([15, 20]);
+
+      const count = await ensureMetadataDownloadedForEmail("acc-1", testConfig, "thread-dl-check");
+      expect(count).toBe(0);
+    });
   });
 });

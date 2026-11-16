@@ -47,6 +47,33 @@ export async function getEnabledFiltersForAccount(
   );
 }
 
+export interface FilterChangeEvent {
+  action: "insert" | "update" | "delete";
+  accountId: string;
+  filterId: string;
+}
+
+export type FilterChangeListener = (event: FilterChangeEvent) => void;
+
+const filterChangeListeners = new Set<FilterChangeListener>();
+
+export function addFilterChangeListener(listener: FilterChangeListener): () => void {
+  filterChangeListeners.add(listener);
+  return () => {
+    filterChangeListeners.delete(listener);
+  };
+}
+
+function notifyFilterChange(event: FilterChangeEvent) {
+  for (const listener of filterChangeListeners) {
+    try {
+      listener(event);
+    } catch (e) {
+      console.warn("[filters] Error in filter change listener:", e);
+    }
+  }
+}
+
 export async function insertFilter(filter: {
   accountId: string;
   name: string;
@@ -67,6 +94,11 @@ export async function insertFilter(filter: {
       JSON.stringify(filter.actions),
     ],
   );
+  notifyFilterChange({
+    action: "insert",
+    accountId: filter.accountId,
+    filterId: id,
+  });
   return id;
 }
 
@@ -80,6 +112,17 @@ export async function updateFilter(
   },
 ): Promise<void> {
   const db = await getDb();
+  let accountId: string | undefined;
+  try {
+    const rows = await db.select<{ account_id: string }[]>(
+      "SELECT account_id FROM filter_rules WHERE id = $1",
+      [id],
+    );
+    accountId = rows[0]?.account_id;
+  } catch {
+    // best effort
+  }
+
   const fields: [string, unknown][] = [];
   if (updates.name !== undefined) fields.push(["name", updates.name]);
   if (updates.criteria !== undefined) fields.push(["criteria_json", JSON.stringify(updates.criteria)]);
@@ -90,9 +133,36 @@ export async function updateFilter(
   if (query) {
     await db.execute(query.sql, query.params);
   }
+
+  if (accountId) {
+    notifyFilterChange({
+      action: "update",
+      accountId,
+      filterId: id,
+    });
+  }
 }
 
 export async function deleteFilter(id: string): Promise<void> {
   const db = await getDb();
+  let accountId: string | undefined;
+  try {
+    const rows = await db.select<{ account_id: string }[]>(
+      "SELECT account_id FROM filter_rules WHERE id = $1",
+      [id],
+    );
+    accountId = rows[0]?.account_id;
+  } catch {
+    // best effort
+  }
+
   await db.execute("DELETE FROM filter_rules WHERE id = $1", [id]);
+
+  if (accountId) {
+    notifyFilterChange({
+      action: "delete",
+      accountId,
+      filterId: id,
+    });
+  }
 }

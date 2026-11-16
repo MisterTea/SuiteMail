@@ -2,6 +2,17 @@ import type { FilterCriteria, FilterActions } from "../db/filters";
 import { getEnabledFiltersForAccount } from "../db/filters";
 import type { ParsedMessage } from "../gmail/messageParser";
 import { addThreadLabel, removeThreadLabel, markThreadRead, starThread } from "../emailActions";
+import { isEmailFiltered, markEmailFiltered } from "../crdt/metadataCrdt";
+import {
+  ensureMetadataDownloadedForEmail,
+  pushSidecarMetadata,
+} from "../imap/metadataSidecarSync";
+import { buildImapConfig } from "../imap/imapConfigBuilder";
+import type { ImapConfig } from "../imap/tauriCommands";
+import { getAccount } from "../db/accounts";
+import { getThreadCrdtDoc } from "../db/threadCrdtDocs";
+
+export { isEmailFiltered, markEmailFiltered };
 
 /**
  * Check if a parsed message matches the given filter criteria.
@@ -151,4 +162,116 @@ export async function applyFiltersToMessages(
       }
     }),
   );
+}
+
+// ============================================================================
+// Client-side Filter Operations (Metadata-tracked)
+// ============================================================================
+
+/**
+ * Add an email (or thread of messages) with client-side filtering.
+ * Checks whether the email has already been filtered using its metadata.
+ * When adding an email that has not been filtered:
+ *   1. Applies the filter rules to it.
+ *   2. Sets the metadata to mark the email as filtered.
+ *
+ * If the email has already been marked as filtered in metadata, filter rules are skipped.
+ */
+export async function addEmail(
+  accountId: string,
+  threadId: string,
+  messageOrMessages: ParsedMessage | ParsedMessage[],
+  config?: ImapConfig,
+): Promise<{ filtered: boolean }> {
+  const messages = Array.isArray(messageOrMessages)
+    ? messageOrMessages
+    : [messageOrMessages];
+  const effectiveThreadId =
+    threadId || (messages.length > 0 ? messages[0]!.threadId : "");
+
+  // Check metadata to see if email has already been filtered
+  const alreadyFiltered = await isEmailFiltered(accountId, effectiveThreadId);
+  if (alreadyFiltered) {
+    return { filtered: false };
+  }
+
+  // When adding an email that has not been filtered, apply the filter rules to it
+  await applyFiltersToMessages(accountId, messages);
+
+  // Then set the metadata to mark the email as filtered
+  await markEmailFiltered(accountId, effectiveThreadId, true);
+
+  // If this is an IMAP account and sidecar is available, push updated metadata
+  try {
+    const account = await getAccount(accountId);
+    if (account && account.provider === "imap") {
+      const imapConfig = config ?? buildImapConfig(account);
+      const doc = await getThreadCrdtDoc(accountId, effectiveThreadId, "personal");
+      await pushSidecarMetadata(imapConfig, account.email, {
+        conversationId: effectiveThreadId,
+        type: "personal",
+        updatedAt: Date.now(),
+        isFiltered: true,
+        crdtDocBase64: doc?.doc_base64,
+      });
+    }
+  } catch (err) {
+    console.warn(
+      `[filterEngine] Note on pushing sidecar metadata for ${effectiveThreadId}:`,
+      err,
+    );
+  }
+
+  return { filtered: true };
+}
+
+/**
+ * Download an email (or thread of messages).
+ * When downloading an email, makes sure there isn't metadata for that email
+ * yet to be downloaded before adding/assuming an empty metadata item.
+ * Then calls addEmail to apply filters if not filtered and mark metadata.
+ */
+export async function downloadEmail(
+  accountId: string,
+  threadId: string,
+  messageOrMessages: ParsedMessage | ParsedMessage[],
+  config?: ImapConfig,
+): Promise<{ filtered: boolean }> {
+  const messages = Array.isArray(messageOrMessages)
+    ? messageOrMessages
+    : [messageOrMessages];
+  const effectiveThreadId =
+    threadId || (messages.length > 0 ? messages[0]!.threadId : "");
+
+  // When downloading an email, make sure there isn't metadata for that email
+  // yet to be downloaded before adding/assuming an empty metadata item.
+  let imapConfig = config;
+  if (!imapConfig) {
+    try {
+      const account = await getAccount(accountId);
+      if (account && account.provider === "imap") {
+        imapConfig = buildImapConfig(account);
+      }
+    } catch {
+      // Account lookup failed or not found
+    }
+  }
+
+  if (imapConfig) {
+    try {
+      await ensureMetadataDownloadedForEmail(
+        accountId,
+        imapConfig,
+        effectiveThreadId,
+      );
+    } catch (err) {
+      console.warn(
+        `[filterEngine] Error checking pending metadata for ${effectiveThreadId}:`,
+        err,
+      );
+    }
+  }
+
+  // Add the email, applying filters if unfiltered and setting metadata
+  return addEmail(accountId, effectiveThreadId, messages, imapConfig);
 }

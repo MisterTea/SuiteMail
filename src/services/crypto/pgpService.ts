@@ -10,17 +10,106 @@ import {
   listContactPgpKeys,
   type ContactPgpKey,
 } from "../db/contactPgpKeys";
+import { getSetting, setSetting } from "../db/settings";
+
+export const PGP_SETTING_PUBLIC_KEY = "pgp_public_key";
+export const PGP_SETTING_PRIVATE_KEY = "pgp_private_key";
+export const PGP_SETTING_ARMORED_PUBLIC_KEY = "pgp_armored_public_key";
+export const PGP_SETTING_ARMORED_PRIVATE_KEY = "pgp_armored_private_key";
+export const PGP_SETTING_FINGERPRINT = "pgp_fingerprint";
+export const PGP_SETTING_EMAIL = "pgp_email";
+
+/**
+ * Save the application's PGP keypair into the global settings.
+ */
+export async function syncPgpKeysToSettings(identity: PgpIdentity): Promise<void> {
+  try {
+    await setSetting(PGP_SETTING_PUBLIC_KEY, identity.armored_public_key);
+    await setSetting(PGP_SETTING_PRIVATE_KEY, identity.armored_private_key);
+    await setSetting(PGP_SETTING_ARMORED_PUBLIC_KEY, identity.armored_public_key);
+    await setSetting(PGP_SETTING_ARMORED_PRIVATE_KEY, identity.armored_private_key);
+    await setSetting(PGP_SETTING_FINGERPRINT, identity.fingerprint);
+    await setSetting(PGP_SETTING_EMAIL, identity.email);
+  } catch (err) {
+    console.warn("[pgpService] Note on saving PGP keys to global settings:", err);
+  }
+}
+
+/**
+ * Retrieve PGP keys directly from the global settings if present.
+ */
+export async function getPgpKeysFromSettings(): Promise<{
+  publicKey: string | null;
+  privateKey: string | null;
+  fingerprint: string | null;
+  email: string | null;
+}> {
+  try {
+    const publicKey =
+      (await getSetting(PGP_SETTING_PUBLIC_KEY)) ||
+      (await getSetting(PGP_SETTING_ARMORED_PUBLIC_KEY));
+    const privateKey =
+      (await getSetting(PGP_SETTING_PRIVATE_KEY)) ||
+      (await getSetting(PGP_SETTING_ARMORED_PRIVATE_KEY));
+    const fingerprint = await getSetting(PGP_SETTING_FINGERPRINT);
+    const email = await getSetting(PGP_SETTING_EMAIL);
+    return { publicKey, privateKey, fingerprint, email };
+  } catch {
+    return { publicKey: null, privateKey: null, fingerprint: null, email: null };
+  }
+}
+
+/**
+ * Restore or synchronize PGP identity from global settings into the local pgp_identities table.
+ */
+export async function syncPgpKeysFromSettings(): Promise<PgpIdentity | null> {
+  try {
+    const { publicKey, privateKey, fingerprint: storedFingerprint, email: storedEmail } =
+      await getPgpKeysFromSettings();
+    if (!publicKey || !privateKey) return null;
+
+    let fingerprint = storedFingerprint;
+    if (!fingerprint) {
+      const keyObj = await openpgp.readKey({ armoredKey: publicKey });
+      fingerprint = keyObj.getFingerprint();
+    }
+    const email = storedEmail || "user@supermail.local";
+
+    const identity: PgpIdentity = {
+      id: "default",
+      email,
+      armored_public_key: publicKey,
+      armored_private_key: privateKey,
+      fingerprint,
+    };
+    await upsertAppPgpIdentity(identity);
+    return identity;
+  } catch (err) {
+    console.warn("[pgpService] Note on restoring PGP keys from settings:", err);
+    return null;
+  }
+}
 
 /**
  * Initialize or retrieve the application's OpenPGP identity.
- * Generates an Ed25519 keypair on first run and persists it in SQLite.
+ * Persists the client's private and public PGP keys both in SQLite
+ * and in the app's global settings for cross-client sync.
  */
 export async function initAppPgpKey(email?: string): Promise<PgpIdentity> {
+  // 1. Check if identity already exists in pgp_identities table
   const existing = await getAppPgpIdentity("default");
   if (existing) {
+    await syncPgpKeysToSettings(existing);
     return existing;
   }
 
+  // 2. Check if identity was synced to global settings from another client
+  const fromSettings = await syncPgpKeysFromSettings();
+  if (fromSettings) {
+    return fromSettings;
+  }
+
+  // 3. Generate a new keypair
   const userEmail = email?.trim() || "user@supermail.local";
   const { privateKey, publicKey } = await openpgp.generateKey({
     userIDs: [{ name: "SuperMail User", email: userEmail }],
@@ -39,14 +128,20 @@ export async function initAppPgpKey(email?: string): Promise<PgpIdentity> {
   };
 
   await upsertAppPgpIdentity(identity);
+  await syncPgpKeysToSettings(identity);
   return identity;
 }
 
 /**
  * Get the current app PGP identity if one has already been created.
+ * Falls back to global settings if not found in pgp_identities.
  */
 export async function getPgpIdentity(): Promise<PgpIdentity | null> {
-  return getAppPgpIdentity("default");
+  const identity = await getAppPgpIdentity("default");
+  if (identity) {
+    return identity;
+  }
+  return syncPgpKeysFromSettings();
 }
 
 export interface RecordKeyResult {

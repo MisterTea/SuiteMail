@@ -36,10 +36,17 @@ vi.mock("./folderMapper", () => ({
   ),
   syncFoldersToLabels: vi.fn(),
   getSyncableFolders: vi.fn((folders: unknown[]) => folders),
+  isSidecarFolder: vi.fn(() => false),
+  isSettingsFolder: vi.fn(() => false),
+  METADATA_SIDECAR_FOLDER: ".metadata",
+  SETTINGS_SIDECAR_FOLDER: ".settings",
+  SETTINGS_GENERAL_FOLDER: ".settings/general",
+  SETTINGS_FILTERS_FOLDER: ".settings/filters",
 }));
 vi.mock("../db/messages", () => ({
   upsertMessage: vi.fn(),
   updateMessageThreadIds: vi.fn(),
+  getMessagesForThread: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("../db/threads", () => ({
   upsertThread: vi.fn(),
@@ -55,6 +62,13 @@ vi.mock("../db/accounts", () => ({
 }));
 vi.mock("../db/connection", () => ({
   withTransaction: vi.fn(async (fn: () => Promise<void>) => fn()),
+  selectFirstBy: vi.fn().mockResolvedValue(null),
+}));
+vi.mock("../filters/filterEngine", () => ({
+  addEmail: vi.fn().mockResolvedValue({ filtered: true }),
+}));
+vi.mock("./metadataSidecarSync", () => ({
+  syncSidecarMetadata: vi.fn().mockResolvedValue(0),
 }));
 vi.mock("../db/folderSyncState", () => ({
   upsertFolderSyncState: vi.fn(),

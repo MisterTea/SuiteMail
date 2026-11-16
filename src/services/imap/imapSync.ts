@@ -16,7 +16,7 @@ import {
 } from "./folderMapper";
 import type { ParsedMessage, ParsedAttachment } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
-import { upsertMessage, updateMessageThreadIds } from "../db/messages";
+import { upsertMessage, updateMessageThreadIds, getMessagesForThread } from "../db/messages";
 import { upsertThread, setThreadLabels, deleteThread } from "../db/threads";
 import { upsertAttachment } from "../db/attachments";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
@@ -31,6 +31,9 @@ import {
   type ThreadGroup,
 } from "../threading/threadBuilder";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+import { syncSidecarMetadata } from "./metadataSidecarSync";
+import { syncSettingsForAccount } from "./settingsSidecarSync";
+import { addEmail } from "../filters/filterEngine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -210,6 +213,7 @@ async function storeThreadsAndMessages(
   parsedByLocalId: Map<string, ParsedMessage>,
   imapMsgByLocalId: Map<string, ImapMessage>,
   labelsByRfcId?: Map<string, Set<string>>,
+  config?: ImapConfig,
 ): Promise<ParsedMessage[]> {
   const storedMessages: ParsedMessage[] = [];
 
@@ -338,6 +342,16 @@ async function storeThreadsAndMessages(
 
           storedMessages.push(parsed);
         }
+
+        // Apply client-side filters if thread has not been filtered
+        try {
+          await addEmail(accountId, group.threadId, messages, config);
+        } catch (filterErr) {
+          console.error(
+            `[imapSync] Failed to apply client-side filters to thread ${group.threadId}:`,
+            filterErr,
+          );
+        }
       }
     });
   }
@@ -406,6 +420,21 @@ export async function imapInitialSync(
   await syncFoldersToLabels(accountId, syncableFolders);
   console.log(`[imapSync] Initial sync for account ${accountId}: ${syncableFolders.length} syncable folders`);
   onProgress?.({ phase: "folders", current: 1, total: 1 });
+
+  // Sync any remote metadata from the sidecar folder before downloading emails
+  // so we don't assume empty metadata items for existing conversations.
+  try {
+    await syncSidecarMetadata(accountId, config);
+  } catch (err) {
+    console.warn(`[imapSync] Note on syncing sidecar metadata in initial sync:`, err);
+  }
+
+  // Sync settings and filters from the .settings sidecar folder
+  try {
+    await syncSettingsForAccount(accountId);
+  } catch (err) {
+    console.warn(`[imapSync] Note on syncing settings sidecar in initial sync:`, err);
+  }
 
   // ---------------------------------------------------------------------------
   // Phase 2: Streaming fetch & store
@@ -763,6 +792,45 @@ export async function imapInitialSync(
         // Batch-update thread IDs for all messages in this thread
         const messageIds = messages.map((m) => m.id);
         await updateMessageThreadIds(accountId, messageIds, group.threadId);
+
+        // Apply client-side filters if thread has not been filtered
+        try {
+          const dbMsgs = await getMessagesForThread(accountId, group.threadId);
+          const parsedMsgs: ParsedMessage[] = dbMsgs.map((dbMsg) => {
+            const meta = allMeta.get(dbMsg.id);
+            return {
+              id: dbMsg.id,
+              threadId: dbMsg.thread_id,
+              fromAddress: dbMsg.from_address,
+              fromName: dbMsg.from_name,
+              toAddresses: dbMsg.to_addresses,
+              ccAddresses: dbMsg.cc_addresses,
+              bccAddresses: dbMsg.bcc_addresses,
+              replyTo: dbMsg.reply_to,
+              subject: dbMsg.subject,
+              snippet: dbMsg.snippet ?? "",
+              date: dbMsg.date,
+              isRead: Boolean(dbMsg.is_read),
+              isStarred: Boolean(dbMsg.is_starred),
+              bodyHtml: dbMsg.body_html,
+              bodyText: dbMsg.body_text,
+              attachments: [],
+              rawSize: dbMsg.raw_size ?? 0,
+              internalDate: dbMsg.internal_date ?? dbMsg.date,
+              labelIds: [...allLabelIds],
+              hasAttachments: meta?.hasAttachments ?? false,
+              listUnsubscribe: dbMsg.list_unsubscribe,
+              listUnsubscribePost: dbMsg.list_unsubscribe_post,
+              authResults: dbMsg.auth_results,
+            };
+          });
+          await addEmail(accountId, group.threadId, parsedMsgs, config);
+        } catch (filterErr) {
+          console.error(
+            `[imapSync] Failed to apply filters to thread ${group.threadId}:`,
+            filterErr,
+          );
+        }
       }
     });
 
@@ -839,6 +907,20 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   const allFolders = await imapListFolders(config);
   const syncableFolders = getSyncableFolders(allFolders);
   await syncFoldersToLabels(accountId, syncableFolders);
+
+  // Sync sidecar metadata before downloading emails so we don't assume empty metadata
+  try {
+    await syncSidecarMetadata(accountId, config);
+  } catch (err) {
+    console.warn(`[imapSync] Note on syncing sidecar metadata in delta sync:`, err);
+  }
+
+  // Sync settings and filters from the .settings sidecar folder
+  try {
+    await syncSettingsForAccount(accountId);
+  } catch (err) {
+    console.warn(`[imapSync] Note on syncing settings sidecar in delta sync:`, err);
+  }
 
   const syncStateMap = new Map(syncStates.map((s) => [s.folder_path, s]));
 
@@ -1076,6 +1158,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     allParsed,
     allImapMsgs,
     labelsByRfcId,
+    config,
   );
 
   // Update sync state timestamp

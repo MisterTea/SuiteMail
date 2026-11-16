@@ -33,6 +33,8 @@ vi.mock("@/services/categorization/ruleEngine", () => ({
 }));
 vi.mock("../filters/filterEngine", () => ({
   applyFiltersToMessages: vi.fn(),
+  isEmailFiltered: vi.fn().mockResolvedValue(false),
+  markEmailFiltered: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@/services/ai/categorizationManager", () => ({
   categorizeNewThreads: vi.fn(),

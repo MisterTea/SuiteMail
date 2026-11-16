@@ -6,7 +6,7 @@ import { upsertMessage } from "../db/messages";
 import { upsertAttachment } from "../db/attachments";
 import { updateAccountSyncState } from "../db/accounts";
 import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
-import { applyFiltersToMessages } from "../filters/filterEngine";
+import { applyFiltersToMessages, isEmailFiltered, markEmailFiltered } from "../filters/filterEngine";
 import { getSetting } from "../db/settings";
 import { getMutedThreadIds } from "../db/threads";
 import { getThreadCategory } from "../db/threadCategories";
@@ -149,6 +149,17 @@ async function processAndStoreThread(
       }),
     ));
   }));
+
+  // Apply client-side filters if thread has not been filtered
+  try {
+    const alreadyFiltered = await isEmailFiltered(accountId, thread.id);
+    if (!alreadyFiltered) {
+      await applyFiltersToMessages(accountId, parsedMessages);
+      await markEmailFiltered(accountId, thread.id, true);
+    }
+  } catch (err) {
+    console.error(`Failed to apply client-side filters to thread ${thread.id}:`, err);
+  }
 }
 
 /**
@@ -404,7 +415,11 @@ export async function deltaSync(
           const newMessages = parsedMessages.filter((m) => newInboxMessageIds.has(m.id));
           if (newMessages.length > 0) {
             try {
-              await applyFiltersToMessages(accountId, newMessages);
+              const alreadyFiltered = await isEmailFiltered(accountId, threadId);
+              if (!alreadyFiltered) {
+                await applyFiltersToMessages(accountId, newMessages);
+                await markEmailFiltered(accountId, threadId, true);
+              }
             } catch (err) {
               console.error(`Failed to apply filters to thread ${threadId}:`, err);
             }

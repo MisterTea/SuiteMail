@@ -198,6 +198,14 @@ export default function App() {
           console.warn("[App] Failed to initialize PGP identity:", pgpErr);
         }
 
+        // Initialize settings sidecar auto-sync for IMAP accounts
+        try {
+          const { initSettingsSidecarAutoSync } = await import("./services/imap/settingsSidecarSync");
+          initSettingsSidecarAutoSync();
+        } catch (settingsErr) {
+          console.warn("[App] Failed to initialize settings sidecar auto-sync:", settingsErr);
+        }
+
         const ui = useUIStore.getState();
 
         // Restore persisted theme
