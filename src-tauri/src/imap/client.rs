@@ -3,9 +3,13 @@ use base64::Engine;
 use futures::StreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
 use std::time::Duration;
+use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
-use tokio_native_tls::TlsStream;
+use tokio_rustls::client::TlsStream;
+use tokio_rustls::TlsConnector;
+use rustls::client::danger::{ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 
 use super::types::*;
 
@@ -127,15 +131,65 @@ impl std::fmt::Debug for ImapStream {
 
 // ---------- TLS helper ----------
 
+#[derive(Debug)]
+struct NoVerifyServerCert;
+impl ServerCertVerifier for NoVerifyServerCert {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
 /// Build a TLS connector, optionally accepting invalid certificates
 /// (for local mail bridges like ProtonMail Bridge with self-signed certs).
-fn build_tls_connector(accept_invalid_certs: bool) -> Result<native_tls::TlsConnector, String> {
-    let mut builder = native_tls::TlsConnector::builder();
-    if accept_invalid_certs {
-        builder.danger_accept_invalid_certs(true);
-        builder.danger_accept_invalid_hostnames(true);
-    }
-    builder.build().map_err(|e| format!("Failed to create TLS connector: {e}"))
+fn build_tls_connector(accept_invalid_certs: bool) -> Result<TlsConnector, String> {
+    let config = if accept_invalid_certs {
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|e| format!("TLS protocol error: {e}"))?
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoVerifyServerCert))
+            .with_no_client_auth()
+    } else {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_safe_default_protocol_versions()
+            .map_err(|e| format!("TLS protocol error: {e}"))?
+            .with_root_certificates(root_store)
+            .with_no_client_auth()
+    };
+    Ok(TlsConnector::from(Arc::new(config)))
 }
 
 // ---------- Public API ----------
@@ -1140,9 +1194,10 @@ async fn raw_connect_starttls(config: &ImapConfig) -> Result<ImapStream, String>
     if !resp.contains("OK") {
         return Err(format!("STARTTLS rejected: {resp}"));
     }
-    let nc = build_tls_connector(config.accept_invalid_certs)?;
-    let tc = tokio_native_tls::TlsConnector::from(nc);
-    let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tc.connect(&config.host, tcp))
+    let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+    let server_name = ServerName::try_from(config.host.clone())
+        .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
+    let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))
         .await
         .map_err(|_| format!(
             "TLS handshake timed out after {}s — check your server settings or network connection",
@@ -1407,8 +1462,7 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
 
     match config.security.as_str() {
         "tls" => {
-            let native_connector = build_tls_connector(config.accept_invalid_certs)?;
-            let tls_connector = tokio_native_tls::TlsConnector::from(native_connector);
+            let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
             let tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
                 .await
                 .map_err(|_| format!(
@@ -1417,7 +1471,9 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
                 ))?
                 .map_err(|e| format!("TCP connect to {}:{} failed: {e}", config.host, config.port))?;
             configure_tcp_socket(&tcp);
-            let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(&config.host, tcp))
+            let server_name = ServerName::try_from(config.host.clone())
+                .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
+            let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))
                 .await
                 .map_err(|_| format!(
                     "TLS handshake with {} timed out after {}s — check your server settings or network connection",
@@ -1492,9 +1548,10 @@ async fn connect_starttls(config: &ImapConfig) -> Result<ImapSession, String> {
     }
 
     // Upgrade to TLS
-    let native_connector = build_tls_connector(config.accept_invalid_certs)?;
-    let tls_connector = tokio_native_tls::TlsConnector::from(native_connector);
-    let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(&config.host, tcp))
+    let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+    let server_name = ServerName::try_from(config.host.clone())
+        .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
+    let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))
         .await
         .map_err(|_| format!(
             "TLS upgrade after STARTTLS timed out after {}s — check your server settings or network connection",
