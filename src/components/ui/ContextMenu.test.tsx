@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { Archive, Trash2, Star } from "lucide-react";

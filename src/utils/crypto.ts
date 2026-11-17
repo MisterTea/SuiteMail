@@ -4,13 +4,12 @@
  * via Tauri's filesystem in the app data directory.
  */
 
-import { exists, readTextFile, writeTextFile, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { isTauri } from "@/platform";
 
 const KEY_FILE_NAME = "velo.key";
 const ALGORITHM = "AES-GCM";
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
-const FS_OPTIONS = { baseDir: BaseDirectory.AppData };
 
 let cachedKey: CryptoKey | null = null;
 
@@ -31,17 +30,45 @@ export function base64Decode(str: string): Uint8Array {
   return bytes;
 }
 
-async function ensureAppDataDir(): Promise<void> {
-  try {
-    await mkdir("", { ...FS_OPTIONS, recursive: true });
-  } catch {
-    // directory may already exist
+async function readKeyFile(): Promise<string | null> {
+  if (typeof window !== "undefined" && window.supermail?.fs) {
+    if (await window.supermail.fs.exists(KEY_FILE_NAME)) {
+      return await window.supermail.fs.readTextFile(KEY_FILE_NAME);
+    }
+    return null;
+  }
+  if (isTauri()) {
+    const { exists, readTextFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+    if (await exists(KEY_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
+      return await readTextFile(KEY_FILE_NAME, { baseDir: BaseDirectory.AppData });
+    }
+    return null;
+  }
+  if (typeof localStorage !== "undefined") {
+    return localStorage.getItem(KEY_FILE_NAME);
+  }
+  return null;
+}
+
+async function writeKeyFile(rawKeyB64: string): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.fs) {
+    await window.supermail.fs.writeTextFile(KEY_FILE_NAME, rawKeyB64);
+    return;
+  }
+  if (isTauri()) {
+    const { writeTextFile, mkdir, BaseDirectory } = await import("@tauri-apps/plugin-fs");
+    try {
+      await mkdir("", { baseDir: BaseDirectory.AppData, recursive: true });
+    } catch {}
+    await writeTextFile(KEY_FILE_NAME, rawKeyB64, { baseDir: BaseDirectory.AppData });
+    return;
+  }
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(KEY_FILE_NAME, rawKeyB64);
   }
 }
 
 // Web Crypto API accepts BufferSource (ArrayBuffer | ArrayBufferView).
-// TypeScript's ES2021 lib types are strict about Uint8Array<ArrayBufferLike> vs ArrayBufferView<ArrayBuffer>.
-// This cast satisfies the type checker while passing the Uint8Array directly to the API.
 function asBufferSource(arr: Uint8Array): BufferSource {
   return arr as unknown as BufferSource;
 }
@@ -49,17 +76,16 @@ function asBufferSource(arr: Uint8Array): BufferSource {
 async function getOrCreateKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey;
 
+  const existingKey = await readKeyFile();
   let rawKeyB64: string;
-  if (await exists(KEY_FILE_NAME, FS_OPTIONS)) {
-    rawKeyB64 = (await readTextFile(KEY_FILE_NAME, FS_OPTIONS)).trim();
+  if (existingKey) {
+    rawKeyB64 = existingKey.trim();
   } else {
     // Generate a new random key
     const rawKey = new Uint8Array(KEY_LENGTH / 8);
     crypto.getRandomValues(rawKey);
     rawKeyB64 = base64Encode(rawKey);
-
-    await ensureAppDataDir();
-    await writeTextFile(KEY_FILE_NAME, rawKeyB64, FS_OPTIONS);
+    await writeKeyFile(rawKeyB64);
   }
 
   const rawKey = base64Decode(rawKeyB64);

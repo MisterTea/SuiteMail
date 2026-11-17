@@ -1,5 +1,6 @@
 import { createBackgroundChecker } from "./backgroundCheckers";
 import type { BackgroundChecker } from "./backgroundCheckers";
+import { isTauri } from "@/platform";
 
 interface UpdateInfo {
   version: string;
@@ -13,6 +14,7 @@ let availableUpdate: { info: UpdateInfo; raw: unknown } | null = null;
 let callback: UpdateCallback | null = null;
 
 async function performCheck(): Promise<void> {
+  if (!isTauri()) return;
   const { check } = await import("@tauri-apps/plugin-updater");
   const update = await check();
   if (update) {

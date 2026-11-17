@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@/platform";
 import { Minus, Square, X, Copy } from "lucide-react";
 
 const isMac = navigator.userAgent.includes("Macintosh");
@@ -8,21 +8,28 @@ export function TitleBar() {
   const [maximized, setMaximized] = useState(false);
 
   useEffect(() => {
-    const appWindow = getCurrentWindow();
-    appWindow.isMaximized().then(setMaximized);
-
-    // Listen for resize events to track maximize state
-    let unlisten: (() => void) | undefined;
-    appWindow.onResized(() => {
+    if (!isTauri()) return;
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => {
+      const appWindow = getCurrentWindow();
       appWindow.isMaximized().then(setMaximized);
-    }).then((fn) => { unlisten = fn; });
 
-    return () => { unlisten?.(); };
+      appWindow.onResized(() => {
+        appWindow.isMaximized().then(setMaximized);
+      });
+    }).catch(() => {});
   }, []);
 
-  const handleMinimize = () => getCurrentWindow().minimize();
-  const handleMaximize = () => getCurrentWindow().toggleMaximize();
-  const handleClose = () => getCurrentWindow().close();
+  if (!isTauri()) return null;
+
+  const handleMinimize = () => {
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().minimize()).catch(() => {});
+  };
+  const handleMaximize = () => {
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().toggleMaximize()).catch(() => {});
+  };
+  const handleClose = () => {
+    import("@tauri-apps/api/window").then(({ getCurrentWindow }) => getCurrentWindow().close()).catch(() => {});
+  };
 
   return (
     <div

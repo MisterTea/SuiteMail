@@ -1,5 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { platformInvoke as invoke, platformOpenUrl as openUrl } from "@/platform";
 import type { OAuthProviderConfig } from "./providers";
 
 const OAUTH_CALLBACK_PORT = 17248;

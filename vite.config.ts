@@ -8,17 +8,17 @@ import path from "path";
 const host = process.env.TAURI_DEV_HOST;
 
 export default defineConfig({
-  plugins: [wasm(), topLevelAwait(), react(), tailwindcss()],
+  plugins: [wasm(), react(), tailwindcss()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
   },
   build: {
+    target: "esnext",
     rollupOptions: {
       input: {
         main: path.resolve(__dirname, "index.html"),
-        splashscreen: path.resolve(__dirname, "splashscreen.html"),
       },
     },
   },

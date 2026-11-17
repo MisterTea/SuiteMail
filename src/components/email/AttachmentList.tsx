@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { platformSaveFile } from "@/platform";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
@@ -145,18 +144,8 @@ export function AttachmentPreview({
 
     setSaving(true);
     try {
-      const filePath = await save({
-        defaultPath: attachment.filename ?? "attachment",
-        filters: [{ name: "All Files", extensions: ["*"] }],
-      });
-
-      if (!filePath) {
-        setSaving(false);
-        return;
-      }
-
       const bytes = await fetchData();
-      await writeFile(filePath, bytes);
+      await platformSaveFile(attachment.filename ?? "attachment", bytes);
     } catch (err) {
       console.error("Failed to save attachment:", err);
     } finally {

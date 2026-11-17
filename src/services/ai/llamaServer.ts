@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { platformFetch as fetch } from "@/platform";
 import { getSetting, setSetting } from "@/services/db/settings";
 
 export interface LlamaServerStatus {

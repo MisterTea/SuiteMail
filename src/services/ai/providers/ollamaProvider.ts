@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { fetch } from "@tauri-apps/plugin-http";
+import { platformFetch as fetch } from "@/platform";
 import type { AiProviderClient, AiCompletionRequest } from "../types";
 
 let instance: OpenAI | null = null;

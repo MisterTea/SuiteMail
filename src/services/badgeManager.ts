@@ -1,5 +1,4 @@
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
+import { isTauri, platformInvoke } from "@/platform";
 import { getUnreadInboxCount } from "./db/threads";
 
 let lastCount = -1;
@@ -10,17 +9,16 @@ export async function updateBadgeCount(): Promise<void> {
     if (count === lastCount) return;
     lastCount = count;
 
-    try {
-      await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
-    } catch {
-      // badge count may not be supported on all platforms
-    }
+    if (isTauri()) {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
+      } catch {}
 
-    const tooltip = count > 0 ? `Velo - ${count} unread` : "Velo";
-    try {
-      await invoke("set_tray_tooltip", { tooltip });
-    } catch {
-      // tray tooltip update is best-effort
+      const tooltip = count > 0 ? `Velo - ${count} unread` : "Velo";
+      try {
+        await platformInvoke("set_tray_tooltip", { tooltip });
+      } catch {}
     }
   } catch (err) {
     console.error("Failed to update badge count:", err);

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { platformFetch as tauriFetch } from "@/platform";
 import { getSetting } from "@/services/db/settings";
 import { PI_EMAIL_TOOLS, executePiEmailTool } from "./piEmailTools";
 import type { SearchResult } from "@/services/db/search";

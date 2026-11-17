@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { platformSaveFile } from "@/platform";
 import { Paperclip, Search, LayoutGrid, List } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import {
@@ -157,12 +156,6 @@ export function AttachmentLibrary() {
   const handleDownload = useCallback(async (att: AttachmentWithContext) => {
     if (!att.gmail_attachment_id || !accountId) return;
     try {
-      const filePath = await save({
-        defaultPath: att.filename ?? "attachment",
-        filters: [{ name: "All Files", extensions: ["*"] }],
-      });
-      if (!filePath) return;
-
       const provider = await getEmailProvider(accountId);
       const response = await provider.fetchAttachment(att.message_id, att.gmail_attachment_id);
       const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
@@ -171,7 +164,7 @@ export function AttachmentLibrary() {
       for (let i = 0; i < binaryStr.length; i++) {
         bytes[i] = binaryStr.charCodeAt(i);
       }
-      await writeFile(filePath, bytes);
+      await platformSaveFile(att.filename ?? "attachment", bytes);
     } catch (err) {
       console.error("Download failed:", err);
     }

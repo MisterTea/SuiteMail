@@ -1,6 +1,6 @@
 import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } from "react";
 import { ImageOff } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { platformOpenUrl as openUrl } from "@/platform";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { auditTrackingPixels, type DetectedTracker } from "@/utils/trackingPixels";
 import { addToAllowlist } from "@/services/db/imageAllowlist";

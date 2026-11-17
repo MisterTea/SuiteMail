@@ -12,7 +12,7 @@ import { deleteDraftsForThread } from "@/services/gmail/draftDeletion";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { getMessagesForThread } from "@/services/db/messages";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { platformOpenUrl as openUrl } from "@/platform";
 import { triggerSync } from "@/services/gmail/syncManager";
 
 /**

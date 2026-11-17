@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 
 const mockGetAvailableUpdate = vi.fn();
@@ -13,13 +12,12 @@ vi.mock("@/services/updateManager", () => ({
 
 import { UpdateToast } from "./UpdateToast";
 
-beforeEach(() => {
-  mockGetAvailableUpdate.mockReset();
-  mockSetUpdateCallback.mockReset();
-  mockInstallUpdate.mockReset();
-});
-
 describe("UpdateToast", () => {
+  beforeEach(() => {
+    mockGetAvailableUpdate.mockReset();
+    mockSetUpdateCallback.mockReset();
+    mockInstallUpdate.mockReset();
+  });
   it("does not render when no update is available", () => {
     mockGetAvailableUpdate.mockReturnValue(null);
     const { container } = render(<UpdateToast />);

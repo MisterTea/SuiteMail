@@ -1,5 +1,6 @@
 import type { DbMessage } from "@/services/db/messages";
 import { getDb } from "@/services/db/connection";
+import { platformSaveFile } from "@/platform";
 
 export interface ExportableMessage {
   id: string;
@@ -65,25 +66,12 @@ export async function exportThreadToFile(
 ): Promise<{ success: boolean; filePath?: string }> {
   if (messages.length === 0) return { success: false };
   try {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-
     const sanitizedSubject = (subject || "email").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 50);
-    const filePath = await save({
-      defaultPath: `${sanitizedSubject}.eml`,
-      filters: [
-        { name: "Email (.eml)", extensions: ["eml"] },
-        { name: "Mailbox (.mbox)", extensions: ["mbox"] },
-      ],
-    });
+    const filename = `${sanitizedSubject}.eml`;
+    const content = formatMessagesAsEml(messages);
 
-    if (!filePath) return { success: false };
-
-    const isMbox = filePath.toLowerCase().endsWith(".mbox");
-    const content = isMbox ? formatMessagesAsMbox(messages) : formatMessagesAsEml(messages);
-
-    await writeTextFile(filePath, content);
-    return { success: true, filePath };
+    await platformSaveFile(filename, new TextEncoder().encode(content));
+    return { success: true, filePath: filename };
   } catch (err) {
     console.error("Export thread failed:", err);
     return { success: false };
@@ -95,16 +83,8 @@ export async function exportAccountToMbox(
   accountEmail: string,
 ): Promise<{ count: number; filePath: string | null }> {
   try {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-
     const sanitizedEmail = accountEmail.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const filePath = await save({
-      defaultPath: `${sanitizedEmail}-archive.mbox`,
-      filters: [{ name: "Mailbox (.mbox)", extensions: ["mbox"] }],
-    });
-
-    if (!filePath) return { count: 0, filePath: null };
+    const filename = `${sanitizedEmail}-archive.mbox`;
 
     const db = await getDb();
     const messages = await db.select<DbMessage[]>(
@@ -113,9 +93,9 @@ export async function exportAccountToMbox(
     );
 
     const content = formatMessagesAsMbox(messages);
-    await writeTextFile(filePath, content);
+    await platformSaveFile(filename, new TextEncoder().encode(content));
 
-    return { count: messages.length, filePath };
+    return { count: messages.length, filePath: filename };
   } catch (err) {
     console.error("Export account to MBOX failed:", err);
     throw err;

@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { platformFetch as tauriFetch } from "@/platform";
 import type { AiProviderClient, AiCompletionRequest } from "../types";
 
 const safeFetch: typeof fetch = async (input, init) => {

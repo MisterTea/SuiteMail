@@ -1,12 +1,22 @@
-import Database from "@tauri-apps/plugin-sql";
+import type Database from "@tauri-apps/plugin-sql";
+import { type SqlDatabase, isTauri } from "@/platform";
 
-let db: Database | null = null;
+let db: SqlDatabase | Database | null = null;
 
-export async function getDb(): Promise<Database> {
+export async function getDb(): Promise<SqlDatabase> {
   if (!db) {
-    db = await Database.load("sqlite:velo.db");
+    if (typeof window !== "undefined" && window.supermail?.db) {
+      db = window.supermail.db;
+    } else if (isTauri()) {
+      const { default: TauriDatabase } = await import("@tauri-apps/plugin-sql");
+      db = await TauriDatabase.load("sqlite:velo.db");
+    } else {
+      throw new Error(
+        "No database provider available. Initialize window.supermail.db or run in Tauri.",
+      );
+    }
   }
-  return db;
+  return db as SqlDatabase;
 }
 
 /**
@@ -45,7 +55,7 @@ export function buildDynamicUpdate(
  */
 let txQueue: Promise<void> = Promise.resolve();
 
-export async function withTransaction(fn: (db: Database) => Promise<void>): Promise<void> {
+export async function withTransaction(fn: (db: SqlDatabase) => Promise<void>): Promise<void> {
   // Queue this transaction behind any currently-running one.
   // This serialises all transactions without blocking non-transactional reads.
   const prev = txQueue;

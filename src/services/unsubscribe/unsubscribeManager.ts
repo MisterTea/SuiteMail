@@ -1,8 +1,15 @@
 import { getDb } from "../db/connection";
-import { openUrl } from "@tauri-apps/plugin-opener";
-import { fetch } from "@tauri-apps/plugin-http";
+import { platformOpenUrl as openUrl, isTauri } from "@/platform";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { normalizeEmail } from "@/utils/emailUtils";
+
+async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  if (isTauri()) {
+    const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+    return tauriFetch(input, init);
+  }
+  return fetch(input, init);
+}
 
 export interface ParsedUnsubscribe {
   httpUrl: string | null;
@@ -60,7 +67,7 @@ export async function executeUnsubscribe(
   // Method 1: RFC 8058 one-click HTTP POST
   if (parsed.hasOneClick && parsed.httpUrl) {
     try {
-      const response = await fetch(parsed.httpUrl, {
+      const response = await appFetch(parsed.httpUrl, {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new TextEncoder().encode("List-Unsubscribe=One-Click"),
