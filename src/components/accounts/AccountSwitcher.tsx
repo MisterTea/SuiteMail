@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback } from "react";
 import { useAccountStore, type Account } from "@/stores/accountStore";
-import { ChevronDown, Check, Plus, UserPlus, Calendar } from "lucide-react";
+import { ChevronDown, Check, Plus, UserPlus, Calendar, Shield } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { isProtonEmail } from "@/services/proton/protonBridgeService";
 
 interface AccountSwitcherProps {
   collapsed: boolean;
@@ -112,6 +113,9 @@ export function AccountSwitcher({
                     {account.displayName || account.email.split("@")[0]}
                     {account.provider === "caldav" && (
                       <Calendar size={12} className="shrink-0 text-text-tertiary" />
+                    )}
+                    {isProtonEmail(account.email) && (
+                      <Shield size={12} className="shrink-0 text-purple-400" />
                     )}
                   </div>
                   <div className="text-xs text-text-secondary truncate leading-tight">

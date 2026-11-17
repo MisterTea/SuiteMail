@@ -4,6 +4,7 @@ import { getSetting } from "@/services/db/settings";
 import { PI_EMAIL_TOOLS, executePiEmailTool } from "./piEmailTools";
 import type { SearchResult } from "@/services/db/search";
 import type { FilterCriteria, FilterActions } from "@/services/db/filters";
+import type { ConsentRequest } from "./consent/types";
 
 const safeFetch: typeof fetch = async (input, init) => {
   try {
@@ -25,6 +26,7 @@ export interface PiAgentOptions {
   serverUrl?: string;
   model?: string;
   maxSteps?: number;
+  onConsentRequest?: (request: ConsentRequest) => Promise<boolean>;
 }
 
 export interface PiAgentToolExecutionRecord {
@@ -37,10 +39,11 @@ export interface PiAgentResult {
   answer: string;
   sourceMessages: SearchResult[];
   toolCallsExecuted: PiAgentToolExecutionRecord[];
+  consentRefused?: boolean;
 }
 
 const PI_AGENT_SYSTEM_PROMPT = `You are SuperMail's intelligent local AI email assistant powered by Gemma 4.
-You have direct access to the user's local SQLite email database via tools.
+You have direct access to the user's local SQLite email database and email operations via tools.
 
 Guidelines:
 1. Always search or query before answering questions about the user's emails.
@@ -48,9 +51,14 @@ Guidelines:
 3. Use 'semantic_search_emails' when searching for broad concepts, topics, or ideas that might be phrased in multiple ways without knowing the exact words.
 4. If an email thread snippet is insufficient, use 'get_thread' with the thread_id to inspect the full conversation history.
 5. Use 'get_email_stats' when the user asks for counts, volume, top contacts, or statistics.
-6. Use 'run_readonly_sql' only if standard tools cannot satisfy the specific aggregation or query requested.
-7. Provide concise, clear, and direct answers. Cite dates, senders, and subjects where helpful.
-8. If no relevant emails are found after searching, honestly inform the user. Never invent email content.`;
+6. Use 'send_email' to send an email, or 'batch_send_emails' to send a batch of multiple emails.
+7. Use 'move_emails' to move email threads to a folder (Archive, Trash, Spam, etc.).
+8. Use 'relabel_emails' to add or remove labels from email threads.
+9. Use 'delete_emails' to delete email threads.
+10. IMPORTANT: Any mutable operation (sending emails, moving/relabeling, deleting) requires explicit user consent via a confirmation popover before it executes. If the user refuses consent, the agentic loop will immediately stop.
+11. Use 'run_readonly_sql' only if standard tools cannot satisfy the specific aggregation or query requested.
+12. Provide concise, clear, and direct answers. Cite dates, senders, and subjects where helpful.
+13. If no relevant emails are found after searching, honestly inform the user. Never invent email content.`;
 
 /**
  * Extract a markdown-embedded JSON tool call if Gemma produces a text-based tool invocation.
@@ -72,6 +80,11 @@ function extractTextToolCall(content: string): { toolName: string; args: Record<
       "run_readonly_sql",
       "list_labels",
       "suggest_filter",
+      "send_email",
+      "batch_send_emails",
+      "move_emails",
+      "relabel_emails",
+      "delete_emails",
     ];
     if (typeof toolName === "string" && validTools.includes(toolName)) {
       return {
@@ -144,7 +157,25 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
           args = {};
         }
 
-        const toolResult = await executePiEmailTool(tc.function.name, args, accountId);
+        const toolResult = options.onConsentRequest
+          ? await executePiEmailTool(tc.function.name, args, accountId, {
+              onConsentRequest: options.onConsentRequest,
+            })
+          : await executePiEmailTool(tc.function.name, args, accountId);
+
+        if (toolResult.consentRefused) {
+          toolCallsExecuted.push({
+            tool: tc.function.name,
+            args,
+            output: toolResult.text,
+          });
+          return {
+            answer: `Operation cancelled: User refused consent for '${tc.function.name}'. The agentic loop was stopped.`,
+            sourceMessages: Array.from(sourceMessagesMap.values()),
+            toolCallsExecuted,
+            consentRefused: true,
+          };
+        }
 
         if (toolResult.sourceMessages) {
           for (const msg of toolResult.sourceMessages) {
@@ -171,7 +202,25 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
     const content = message.content ?? "";
     const textToolCall = extractTextToolCall(content);
     if (textToolCall) {
-      const toolResult = await executePiEmailTool(textToolCall.toolName, textToolCall.args, accountId);
+      const toolResult = options.onConsentRequest
+        ? await executePiEmailTool(textToolCall.toolName, textToolCall.args, accountId, {
+            onConsentRequest: options.onConsentRequest,
+          })
+        : await executePiEmailTool(textToolCall.toolName, textToolCall.args, accountId);
+
+      if (toolResult.consentRefused) {
+        toolCallsExecuted.push({
+          tool: textToolCall.toolName,
+          args: textToolCall.args,
+          output: toolResult.text,
+        });
+        return {
+          answer: `Operation cancelled: User refused consent for '${textToolCall.toolName}'. The agentic loop was stopped.`,
+          sourceMessages: Array.from(sourceMessagesMap.values()),
+          toolCallsExecuted,
+          consentRefused: true,
+        };
+      }
 
       if (toolResult.sourceMessages) {
         for (const msg of toolResult.sourceMessages) {

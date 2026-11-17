@@ -2,6 +2,7 @@ import { searchMessages, type SearchResult } from "@/services/db/search";
 import { askInbox as callAskInbox } from "./aiService";
 import { getActiveProviderName } from "./providerManager";
 import { runPiEmailAgent } from "./piEmailAgent";
+import type { ConsentRequest } from "./consent/types";
 
 /**
  * Extract key search terms from a natural language question.
@@ -31,6 +32,10 @@ function extractSearchTerms(question: string): string {
     .join(" ");
 }
 
+export interface AskInboxOptions {
+  onConsentRequest?: (request: ConsentRequest) => Promise<boolean>;
+}
+
 export interface AskInboxResult {
   answer: string;
   sourceMessages: SearchResult[];
@@ -45,12 +50,17 @@ export interface AskInboxResult {
 export async function askMyInbox(
   question: string,
   accountId: string,
+  options?: AskInboxOptions,
 ): Promise<AskInboxResult> {
   const activeProvider = await getActiveProviderName();
 
   if (activeProvider === "pi") {
     try {
-      const agentResult = await runPiEmailAgent({ question, accountId });
+      const agentResult = await runPiEmailAgent({
+        question,
+        accountId,
+        onConsentRequest: options?.onConsentRequest,
+      });
       if (agentResult.answer) {
         return {
           answer: agentResult.answer,

@@ -24,6 +24,7 @@ import {
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { isProtonEmail } from "@/services/proton/protonBridgeService";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -711,7 +712,9 @@ export function AddImapAccount({
             <p className="text-xs text-text-tertiary mt-1">
               {detectedOAuthProviderId === "google"
                 ? "For Gmail, you must use a 16-character App Password generated at myaccount.google.com/apppasswords (standard Google passwords are not supported)."
-                : "If your provider requires it, use an app-specific password."}
+                : isProtonEmail(form.email)
+                  ? "For Proton Mail, you must use the Bridge-generated password from Proton Mail Bridge (Mailbox details), NOT your web account password."
+                  : "If your provider requires it, use an app-specific password."}
             </p>
           </div>
         </>

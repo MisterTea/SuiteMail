@@ -7,6 +7,7 @@ import { UndoSendToast } from "./components/composer/UndoSendToast";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { AskInbox } from "./components/search/AskInbox";
+import { AgentConsentPopover } from "./components/ai/AgentConsentPopover";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -647,6 +648,9 @@ export default function App() {
           initialMode={filterModalMode}
           onClose={() => setShowAiSuggestFilter(false)}
         />
+      </ErrorBoundary>
+      <ErrorBoundary name="AgentConsentPopover">
+        <AgentConsentPopover />
       </ErrorBoundary>
       <ContextMenuPortal />
       <MoveToFolderDialog

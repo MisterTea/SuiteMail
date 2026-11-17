@@ -4,6 +4,27 @@ import { buildSearchQuery } from "@/services/search/searchQueryBuilder";
 import type { ParsedSearchQuery } from "@/services/search/searchParser";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import type { SearchResult } from "@/services/db/search";
+import { buildRawEmail } from "@/utils/emailBuilder";
+import { useAccountStore } from "@/stores/accountStore";
+import {
+  sendEmail,
+  moveThread,
+  trashThread,
+  permanentDeleteThread,
+  archiveThread,
+  spamThread,
+  addThreadLabel,
+  removeThreadLabel,
+} from "@/services/emailActions";
+import {
+  isMutableTool,
+  MUTABLE_TOOLS,
+  type ConsentRequest,
+} from "./consent/types";
+import { requestAgentConsent } from "./consent/consentStore";
+import { buildConsentRequest } from "./consent/agentConsentHelper";
+
+export { isMutableTool, MUTABLE_TOOLS };
 
 export interface SearchEmailsArgs {
   query?: string;
@@ -35,6 +56,11 @@ export interface ToolExecutionResult {
   text: string;
   data?: unknown;
   sourceMessages?: SearchResult[];
+  consentRefused?: boolean;
+}
+
+export interface ExecutePiEmailToolOptions {
+  onConsentRequest?: (request: ConsentRequest) => Promise<boolean>;
 }
 
 /**
@@ -275,6 +301,165 @@ export const PI_EMAIL_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "send_email",
+      description: "Send an email. Note: This is a mutable operation that requires explicit user confirmation via a popover before sending.",
+      parameters: {
+        type: "object",
+        properties: {
+          to: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of recipient email addresses.",
+          },
+          subject: {
+            type: "string",
+            description: "Subject line of the email.",
+          },
+          body: {
+            type: "string",
+            description: "Body content of the email (plain text or formatted HTML).",
+          },
+          cc: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional list of CC email addresses.",
+          },
+          bcc: {
+            type: "array",
+            items: { type: "string" },
+            description: "Optional list of BCC email addresses.",
+          },
+          thread_id: {
+            type: "string",
+            description: "Optional thread ID if this email is a reply within an existing thread.",
+          },
+        },
+        required: ["to", "subject", "body"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "batch_send_emails",
+      description: "Send a batch of multiple emails. Note: This mutable operation requires explicit user consent via a popover with all email details before sending.",
+      parameters: {
+        type: "object",
+        properties: {
+          emails: {
+            type: "array",
+            description: "Array of email objects to send.",
+            items: {
+              type: "object",
+              properties: {
+                to: {
+                  type: "array",
+                  items: { type: "string" },
+                  description: "Recipient email addresses.",
+                },
+                subject: {
+                  type: "string",
+                  description: "Subject of the email.",
+                },
+                body: {
+                  type: "string",
+                  description: "Body content of the email.",
+                },
+                cc: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                bcc: {
+                  type: "array",
+                  items: { type: "string" },
+                },
+                thread_id: {
+                  type: "string",
+                },
+              },
+              required: ["to", "subject", "body"],
+            },
+          },
+        },
+        required: ["emails"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "move_emails",
+      description: "Move one or more email threads to a folder (e.g. 'Archive', 'Trash', 'Spam', 'Inbox', or custom folder). Note: This is a mutable operation that requires explicit user consent showing the affected emails.",
+      parameters: {
+        type: "object",
+        properties: {
+          thread_ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of thread IDs to move.",
+          },
+          folder: {
+            type: "string",
+            description: "Destination folder name or mailbox path (e.g. 'Archive', 'Trash', 'Spam', 'Inbox').",
+          },
+        },
+        required: ["thread_ids", "folder"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "relabel_emails",
+      description: "Apply or remove labels on one or more email threads. Note: This is a mutable operation that requires explicit user consent showing the affected emails and label changes.",
+      parameters: {
+        type: "object",
+        properties: {
+          thread_ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of thread IDs to modify.",
+          },
+          add_labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "Labels to add to the threads.",
+          },
+          remove_labels: {
+            type: "array",
+            items: { type: "string" },
+            description: "Labels to remove from the threads.",
+          },
+        },
+        required: ["thread_ids"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_emails",
+      description: "Delete one or more email threads (moves to Trash by default, or permanently deletes if permanent=true). Note: This is a mutable operation that requires explicit user consent.",
+      parameters: {
+        type: "object",
+        properties: {
+          thread_ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "List of thread IDs to delete.",
+          },
+          permanent: {
+            type: "boolean",
+            description: "Set to true to permanently delete. Defaults to false (moves to Trash).",
+          },
+        },
+        required: ["thread_ids"],
+      },
+    },
+  },
 ];
 
 /**
@@ -284,6 +469,7 @@ export async function executePiEmailTool(
   toolName: string,
   args: Record<string, unknown>,
   accountId: string,
+  options?: ExecutePiEmailToolOptions,
 ): Promise<ToolExecutionResult> {
   switch (toolName) {
     case "search_emails": {
@@ -534,6 +720,268 @@ export async function executePiEmailTool(
       return {
         text: "Filter suggestion captured successfully.",
         data: args,
+      };
+    }
+
+    case "send_email": {
+      const to = Array.isArray(args.to)
+        ? (args.to as string[])
+        : typeof args.to === "string"
+          ? [args.to]
+          : [];
+      if (to.length === 0) {
+        return { text: "Error: 'to' recipient email address is required." };
+      }
+      const subject = typeof args.subject === "string" ? args.subject : "(no subject)";
+      const body = typeof args.body === "string" ? args.body : "";
+      const cc = Array.isArray(args.cc)
+        ? (args.cc as string[])
+        : typeof args.cc === "string"
+          ? [args.cc]
+          : undefined;
+      const bcc = Array.isArray(args.bcc)
+        ? (args.bcc as string[])
+        : typeof args.bcc === "string"
+          ? [args.bcc]
+          : undefined;
+      const threadId = typeof args.thread_id === "string" ? args.thread_id : undefined;
+
+      const consentRequest = await buildConsentRequest("send_email", args, accountId);
+      const granted = options?.onConsentRequest
+        ? await options.onConsentRequest(consentRequest)
+        : await requestAgentConsent(consentRequest);
+
+      if (!granted) {
+        return {
+          text: `Consent was refused by the user for sending email to ${to.join(", ")}. Action was cancelled.`,
+          consentRefused: true,
+        };
+      }
+
+      try {
+        let fromAddress: string | undefined;
+        try {
+          const account = useAccountStore.getState().accounts.find((a) => a.id === accountId);
+          fromAddress = account?.email;
+        } catch {
+          // ignore
+        }
+
+        const raw = buildRawEmail({
+          from: fromAddress || "me",
+          to,
+          cc,
+          bcc,
+          subject,
+          htmlBody: body.includes("<") && body.includes(">") ? body : `<p>${body.replace(/\n/g, "<br/>")}</p>`,
+          threadId,
+        });
+
+        const sendResult = await sendEmail(accountId, raw, threadId);
+        if (!sendResult.success) {
+          return { text: `Failed to send email: ${sendResult.error ?? "Unknown error"}` };
+        }
+        return { text: `Email sent successfully to ${to.join(", ")}.` };
+      } catch (err) {
+        return { text: `Error sending email: ${err instanceof Error ? err.message : String(err)}` };
+      }
+    }
+
+    case "batch_send_emails": {
+      const rawEmails = Array.isArray(args.emails) ? (args.emails as Record<string, unknown>[]) : [];
+      if (rawEmails.length === 0) {
+        return { text: "Error: 'emails' list cannot be empty for batch send." };
+      }
+
+      const consentRequest = await buildConsentRequest("batch_send_emails", args, accountId);
+      const granted = options?.onConsentRequest
+        ? await options.onConsentRequest(consentRequest)
+        : await requestAgentConsent(consentRequest);
+
+      if (!granted) {
+        return {
+          text: `Consent was refused by the user for sending a batch of ${rawEmails.length} emails. Action was cancelled.`,
+          consentRefused: true,
+        };
+      }
+
+      let fromAddress: string | undefined;
+      try {
+        const account = useAccountStore.getState().accounts.find((a) => a.id === accountId);
+        fromAddress = account?.email;
+      } catch {
+        // ignore
+      }
+
+      let sentCount = 0;
+      const errors: string[] = [];
+      for (const item of rawEmails) {
+        const to = Array.isArray(item.to) ? (item.to as string[]) : typeof item.to === "string" ? [item.to] : [];
+        const subject = typeof item.subject === "string" ? item.subject : "(no subject)";
+        const body = typeof item.body === "string" ? item.body : "";
+        const cc = Array.isArray(item.cc) ? (item.cc as string[]) : typeof item.cc === "string" ? [item.cc] : undefined;
+        const bcc = Array.isArray(item.bcc) ? (item.bcc as string[]) : typeof item.bcc === "string" ? [item.bcc] : undefined;
+        const threadId = typeof item.thread_id === "string" ? item.thread_id : undefined;
+
+        try {
+          const raw = buildRawEmail({
+            from: fromAddress || "me",
+            to,
+            cc,
+            bcc,
+            subject,
+            htmlBody: body.includes("<") && body.includes(">") ? body : `<p>${body.replace(/\n/g, "<br/>")}</p>`,
+            threadId,
+          });
+          const res = await sendEmail(accountId, raw, threadId);
+          if (res.success) {
+            sentCount++;
+          } else {
+            errors.push(`Failed sending to ${to.join(", ")}: ${res.error}`);
+          }
+        } catch (e) {
+          errors.push(`Failed sending to ${to.join(", ")}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      if (errors.length > 0) {
+        return { text: `Sent ${sentCount} of ${rawEmails.length} emails. Errors:\n${errors.join("\n")}` };
+      }
+      return { text: `Successfully sent all ${sentCount} emails in the batch.` };
+    }
+
+    case "move_emails": {
+      const threadIds = Array.isArray(args.thread_ids)
+        ? (args.thread_ids as string[])
+        : typeof args.thread_id === "string"
+          ? [args.thread_id]
+          : [];
+      const folder = typeof args.folder === "string" ? args.folder.trim() : "";
+      if (threadIds.length === 0 || !folder) {
+        return { text: "Error: 'thread_ids' and 'folder' are required to move emails." };
+      }
+
+      const consentRequest = await buildConsentRequest("move_emails", args, accountId);
+      const granted = options?.onConsentRequest
+        ? await options.onConsentRequest(consentRequest)
+        : await requestAgentConsent(consentRequest);
+
+      if (!granted) {
+        return {
+          text: `Consent was refused by the user for moving ${threadIds.length} email thread(s) to '${folder}'. Action was cancelled.`,
+          consentRefused: true,
+        };
+      }
+
+      const folderLower = folder.toLowerCase();
+      for (const tid of threadIds) {
+        let messageIds: string[] = [];
+        try {
+          const msgs = await getMessagesForThread(accountId, tid);
+          messageIds = msgs.map((m) => m.id);
+        } catch {
+          // ignore
+        }
+        if (folderLower === "trash") {
+          await trashThread(accountId, tid, messageIds);
+        } else if (folderLower === "archive") {
+          await archiveThread(accountId, tid, messageIds);
+        } else if (folderLower === "spam") {
+          await spamThread(accountId, tid, messageIds, true);
+        } else {
+          await moveThread(accountId, tid, messageIds, folder);
+        }
+      }
+
+      return { text: `Successfully moved ${threadIds.length} email thread(s) to '${folder}'.` };
+    }
+
+    case "relabel_emails": {
+      const threadIds = Array.isArray(args.thread_ids)
+        ? (args.thread_ids as string[])
+        : typeof args.thread_id === "string"
+          ? [args.thread_id]
+          : [];
+      const addLabels = Array.isArray(args.add_labels)
+        ? (args.add_labels as string[])
+        : typeof args.add_label === "string"
+          ? [args.add_label]
+          : [];
+      const removeLabels = Array.isArray(args.remove_labels)
+        ? (args.remove_labels as string[])
+        : typeof args.remove_label === "string"
+          ? [args.remove_label]
+          : [];
+
+      if (threadIds.length === 0 || (addLabels.length === 0 && removeLabels.length === 0)) {
+        return { text: "Error: 'thread_ids' and at least one of 'add_labels' or 'remove_labels' are required." };
+      }
+
+      const consentRequest = await buildConsentRequest("relabel_emails", args, accountId);
+      const granted = options?.onConsentRequest
+        ? await options.onConsentRequest(consentRequest)
+        : await requestAgentConsent(consentRequest);
+
+      if (!granted) {
+        return {
+          text: `Consent was refused by the user for updating labels on ${threadIds.length} email thread(s). Action was cancelled.`,
+          consentRefused: true,
+        };
+      }
+
+      for (const tid of threadIds) {
+        for (const l of addLabels) {
+          await addThreadLabel(accountId, tid, l);
+        }
+        for (const l of removeLabels) {
+          await removeThreadLabel(accountId, tid, l);
+        }
+      }
+
+      return { text: `Successfully updated labels on ${threadIds.length} email thread(s).` };
+    }
+
+    case "delete_emails": {
+      const threadIds = Array.isArray(args.thread_ids)
+        ? (args.thread_ids as string[])
+        : typeof args.thread_id === "string"
+          ? [args.thread_id]
+          : [];
+      const permanent = Boolean(args.permanent);
+
+      if (threadIds.length === 0) {
+        return { text: "Error: 'thread_ids' is required to delete emails." };
+      }
+
+      const consentRequest = await buildConsentRequest("delete_emails", args, accountId);
+      const granted = options?.onConsentRequest
+        ? await options.onConsentRequest(consentRequest)
+        : await requestAgentConsent(consentRequest);
+
+      if (!granted) {
+        return {
+          text: `Consent was refused by the user for deleting ${threadIds.length} email thread(s). Action was cancelled.`,
+          consentRefused: true,
+        };
+      }
+
+      for (const tid of threadIds) {
+        let messageIds: string[] = [];
+        try {
+          const msgs = await getMessagesForThread(accountId, tid);
+          messageIds = msgs.map((m) => m.id);
+        } catch {
+          // ignore
+        }
+        if (permanent) {
+          await permanentDeleteThread(accountId, tid, messageIds);
+        } else {
+          await trashThread(accountId, tid, messageIds);
+        }
+      }
+
+      return {
+        text: `Successfully ${permanent ? "permanently deleted" : "moved to trash"} ${threadIds.length} email thread(s).`,
       };
     }
 

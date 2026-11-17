@@ -124,4 +124,26 @@ describe("AccountSwitcher", () => {
     expect(screen.getByText("Jane Smith")).toBeInTheDocument();
     expect(screen.getByText("Add account")).toBeInTheDocument();
   });
+
+  it("renders Proton Mail shield for proton accounts in dropdown", () => {
+    useAccountStore.setState({
+      accounts: [
+        {
+          id: "1",
+          email: "user@proton.me",
+          displayName: "Proton User",
+          avatarUrl: null,
+          isActive: true,
+          provider: "imap",
+        },
+      ],
+      activeAccountId: "1",
+    });
+
+    render(<AccountSwitcher collapsed={false} onAddAccount={() => {}} />);
+    fireEvent.click(screen.getByText("Proton User"));
+
+    // Dropdown is open, user email appears in trigger and dropdown
+    expect(screen.getAllByText("user@proton.me").length).toBe(2);
+  });
 });

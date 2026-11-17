@@ -116,6 +116,13 @@ describe("findWellKnownProvider", () => {
     expect(result!.acceptInvalidCerts).toBe(true);
   });
 
+  it("returns settings for protonmail.ch", () => {
+    const result = findWellKnownProvider("protonmail.ch");
+    expect(result).not.toBeNull();
+    expect(result!.settings.imapHost).toBe("127.0.0.1");
+    expect(result!.acceptInvalidCerts).toBe(true);
+  });
+
   it("does not set acceptInvalidCerts for regular providers", () => {
     const result = findWellKnownProvider("outlook.com");
     expect(result).not.toBeNull();

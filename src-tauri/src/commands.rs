@@ -311,3 +311,18 @@ pub async fn smtp_send_email(
 pub async fn smtp_test_connection(config: SmtpConfig) -> Result<SmtpSendResult, String> {
     smtp_client::test_connection(&config).await
 }
+
+// ---------- Proton Mail Bridge commands ----------
+
+#[tauri::command]
+pub async fn check_proton_bridge_status(
+    custom_imap_port: Option<u16>,
+    custom_smtp_port: Option<u16>,
+) -> Result<crate::proton_bridge::ProtonBridgeStatus, String> {
+    crate::proton_bridge::check_status(custom_imap_port, custom_smtp_port).await
+}
+
+#[tauri::command]
+pub async fn launch_proton_bridge() -> Result<bool, String> {
+    crate::proton_bridge::launch().await
+}

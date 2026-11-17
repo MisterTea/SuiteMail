@@ -1,0 +1,3 @@
+[submodule "submodules/proton-bridge"]
+	path = submodules/proton-bridge
+	url = https://github.com/protonmail/proton-bridge

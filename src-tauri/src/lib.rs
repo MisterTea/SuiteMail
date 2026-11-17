@@ -14,6 +14,7 @@ mod imap;
 mod oauth;
 mod smtp;
 mod ai_backend;
+mod proton_bridge;
 
 #[tauri::command]
 fn close_splashscreen(app: tauri::AppHandle) {
@@ -136,6 +137,8 @@ pub fn run() {
             commands::imap_delta_check,
             commands::smtp_send_email,
             commands::smtp_test_connection,
+            commands::check_proton_bridge_status,
+            commands::launch_proton_bridge,
             ai_backend::start_llama_server,
             ai_backend::stop_llama_server,
             ai_backend::get_llama_server_status,

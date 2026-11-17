@@ -46,7 +46,7 @@ Most email clients are slow, bloated, or send your data to someone else's server
 
 ### Email
 
-- Multi-account support: Gmail (API) and IMAP/SMTP (Outlook, Yahoo, iCloud, Fastmail, and more) with instant switching
+- Multi-account support: Gmail (API), Proton Mail (via Proton Mail Bridge with end-to-end encryption), and IMAP/SMTP (Outlook, Yahoo, iCloud, Fastmail, and more) with instant switching
 - Threaded conversations with collapsible messages
 - Full-text search with Gmail-style operators (`from:`, `to:`, `subject:`, `has:attachment`, `label:`, etc.)
 - Command palette (`/` or `Ctrl+K`) for quick actions

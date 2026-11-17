@@ -117,7 +117,7 @@ const wellKnownProviders: WellKnownProvider[] = [
     authMethods: ["password"],
   },
   {
-    domains: ["protonmail.com", "proton.me", "pm.me"],
+    domains: ["protonmail.com", "proton.me", "pm.me", "protonmail.ch"],
     settings: {
       imapHost: "127.0.0.1",
       imapPort: 1143,

@@ -63,7 +63,7 @@ velo/
 │   │   ├── settings/         # SettingsPage, FilterEditor, LabelEditor,
 │   │   │                     # SubscriptionManager, ContactEditor,
 │   │   │                     # QuickStepEditor, SmartFolderEditor
-│   │   ├── accounts/         # AddAccount, AddImapAccount, AccountSwitcher, SetupClientId
+│   │   ├── accounts/         # AddAccount, AddImapAccount, AddProtonAccount, AccountSwitcher, SetupClientId
 │   │   ├── calendar/         # CalendarPage, MonthView, WeekView, DayView,
 │   │   │                     # EventCard, EventCreateModal
 │   │   ├── attachments/      # AttachmentLibrary, AttachmentGridItem, AttachmentListItem
@@ -81,6 +81,7 @@ velo/
 │   │   ├── gmail/            # GmailClient, tokenManager, syncManager
 │   │   ├── imap/             # IMAP sync, folder mapper, auto-discovery,
 │   │   │                     # config builder, Tauri command wrappers
+│   │   ├── proton/           # Proton Mail Bridge detection, status probe, launch automation
 │   │   ├── threading/        # JWZ threading engine for IMAP conversations
 │   │   ├── ai/               # AI service, 3 providers, categorization, Ask Inbox,
 │   │   │                     # writing style analysis, auto-drafts, task extraction
@@ -135,7 +136,7 @@ The Rust layer (`src-tauri/src/`) handles system integration and performance-cri
 - **Custom titlebar** -- Overlay on macOS, frameless on Windows/Linux
 - **Windows AUMID** -- Set for proper notification identity
 
-**Tauri commands:** `start_oauth_server`, `close_splashscreen`, `set_tray_tooltip`, `open_devtools`, 11 IMAP commands (`imap_test_connection`, `imap_list_folders`, `imap_fetch_messages`, etc.), 2 SMTP commands (`smtp_send_email`, `smtp_test_connection`)
+**Tauri commands:** `start_oauth_server`, `close_splashscreen`, `set_tray_tooltip`, `open_devtools`, `check_proton_bridge_status`, `launch_proton_bridge`, 11 IMAP commands (`imap_test_connection`, `imap_list_folders`, `imap_fetch_messages`, etc.), 2 SMTP commands (`smtp_send_email`, `smtp_test_connection`)
 
 **Plugins (13):** sql, notification, opener, log, dialog, fs, http, single-instance, autostart, deep-link, global-shortcut
 

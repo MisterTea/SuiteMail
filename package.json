@@ -13,6 +13,8 @@
     "test:e2e": "playwright test",
     "tauri": "tauri",
     "dev:landing": "npm run dev --prefix landing",
+    "build:bridge": "cd submodules/proton-bridge && go build -o ../../src-tauri/bin/proton-bridge ./cmd/Desktop-Bridge",
+    "submodule:update": "git submodule update --init --recursive",
     "flatpak": "flatpak-builder --force-clean --user --install --install-deps-from=flathub build-dir com.velomail.app.yml"
   },
   "dependencies": {
