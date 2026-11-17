@@ -13,4 +13,8 @@ describe("tauri.conf.json", () => {
     expect(mainWindow).toBeDefined();
     expect(mainWindow.dragDropEnabled).toBe(false);
   });
+
+  it("should configure devCsp to null for Hot Module Reloading in development", () => {
+    expect(config.app.security.devCsp).toBeNull();
+  });
 });

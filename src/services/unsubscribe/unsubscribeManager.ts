@@ -5,8 +5,12 @@ import { normalizeEmail } from "@/utils/emailUtils";
 
 async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   if (isTauri()) {
-    const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
-    return tauriFetch(input, init);
+    try {
+      const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
+      return await tauriFetch(input, init);
+    } catch {
+      // Fallback to standard web fetch in browser / test environments
+    }
   }
   return fetch(input, init);
 }

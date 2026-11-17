@@ -26,7 +26,7 @@ export function getTauriBridgeScript(fakeServerPort = 3333): string {
         invoke: async (cmd, args = {}) => {
           // SQL Plugin handling -> delegate to Fake Server SQLite
           if (cmd === 'plugin:sql|load') {
-            return 'sqlite:velo.db';
+            return args.db || 'sqlite:suitemail.db';
           }
           if (cmd === 'plugin:sql|execute' || cmd === 'plugin:sql|select') {
             try {
@@ -104,6 +104,23 @@ export function getTauriBridgeScript(fakeServerPort = 3333): string {
             return { uidvalidity: 1, uidnext: 2, exists: 0, unseen: 0, highest_modseq: null };
           }
 
+          if (cmd === 'smtp_send_email') {
+            try {
+              await window.fetch(SERVER_URL + '/api/smtp/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(args)
+              });
+            } catch (err) {
+              console.warn('[TauriBridge] SMTP send error:', err);
+            }
+            return { success: true, message: 'Message sent successfully' };
+          }
+
+          if (cmd === 'smtp_test_connection') {
+            return { success: true, message: 'Connected' };
+          }
+
           if (cmd.startsWith('plugin:http|')) {
             throw new TypeError('Tauri plugin:http invoke not available, use browser fetch');
           }
@@ -119,6 +136,8 @@ export function getTauriBridgeScript(fakeServerPort = 3333): string {
           if (cmd.startsWith('plugin:global-shortcut|')) return false;
           if (cmd.startsWith('plugin:event|')) return 1;
           if (cmd.startsWith('plugin:notification|')) return true;
+          if (cmd.startsWith('plugin:dialog|')) return null;
+          if (cmd.startsWith('plugin:opener|')) return null;
 
           console.log('[TauriBridge] Default fallback for unhandled cmd:', cmd, args);
           return null;

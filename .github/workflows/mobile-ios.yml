@@ -60,14 +60,14 @@ jobs:
         run: |
           mkdir -p ios-artifacts
           if [ -d "src-tauri/gen/apple/build" ]; then
-            tar -czf ios-artifacts/velo-ios-build.tar.gz -C src-tauri/gen/apple build
+            tar -czf ios-artifacts/suitemail-ios-build.tar.gz -C src-tauri/gen/apple build
           else
-            tar -czf ios-artifacts/velo-ios-project.tar.gz -C src-tauri/gen apple
+            tar -czf ios-artifacts/suitemail-ios-project.tar.gz -C src-tauri/gen apple
           fi
 
       - name: Upload iOS artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: supermail-ios
+          name: suitemail-ios
           path: ios-artifacts/*.tar.gz
           if-no-files-found: error

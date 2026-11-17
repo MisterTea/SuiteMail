@@ -9,7 +9,7 @@ export async function getDb(): Promise<SqlDatabase> {
       db = window.supermail.db;
     } else if (isTauri()) {
       const { default: TauriDatabase } = await import("@tauri-apps/plugin-sql");
-      db = await TauriDatabase.load("sqlite:velo.db");
+      db = await TauriDatabase.load("sqlite:suitemail.db");
     } else {
       throw new Error(
         "No database provider available. Initialize window.supermail.db or run in Tauri.",

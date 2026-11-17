@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Velo",
+  "productName": "SuiteMail",
   "version": "0.4.21",
-  "identifier": "com.velomail.app",
+  "identifier": "com.suitemail.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Velo",
+        "title": "SuiteMail",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -39,7 +39,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://www.googleapis.com https://oauth2.googleapis.com https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://www.gravatar.com https://login.microsoftonline.com https://graph.microsoft.com https://api.login.yahoo.com http://localhost:11434 http://localhost:1234 http://127.0.0.1:11434 http://127.0.0.1:1234 http://localhost:3000 http://127.0.0.1:3000 https://models.github.ai; img-src 'self' data: https://www.gravatar.com https://lh3.googleusercontent.com https://*.googleusercontent.com; font-src 'self' data:; frame-src 'self'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://www.googleapis.com https://oauth2.googleapis.com https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://www.gravatar.com https://login.microsoftonline.com https://graph.microsoft.com https://api.login.yahoo.com http://localhost:11434 http://localhost:1234 http://127.0.0.1:11434 http://127.0.0.1:1234 http://localhost:3000 http://127.0.0.1:3000 https://models.github.ai ws://localhost:1420 ws://127.0.0.1:1420 ws://localhost:1421 ws://127.0.0.1:1421; img-src 'self' data: https://www.gravatar.com https://lh3.googleusercontent.com https://*.googleusercontent.com; font-src 'self' data:; frame-src 'self'",
+      "devCsp": null
     },
     "trayIcon": null
   },
@@ -61,13 +62,14 @@
   "plugins": {
     "sql": {
       "preload": [
+        "sqlite:suitemail.db",
         "sqlite:velo.db"
       ]
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwODdGRUFFN0Y2RjJCN0IKUldSN0syOS9ydjZIOEJjYUh3UkVEZERSWjlzaHhURXpNVTYwUlJjUmd3d0gxRWEzSndIaU9XN0kK",
       "endpoints": [
-        "https://github.com/MisterTea/SuperMail/releases/latest/download/latest.json"
+        "https://github.com/MisterTea/SuiteMail/releases/latest/download/latest.json"
       ]
     },
     "deep-link": {

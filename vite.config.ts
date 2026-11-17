@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import wasm from "vite-plugin-wasm";
@@ -7,35 +7,44 @@ import path from "path";
 
 const host = process.env.TAURI_DEV_HOST;
 
-export default defineConfig({
-  plugins: [wasm(), react(), tailwindcss()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const gmailClientId = env.GMAIL_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID || "";
+
+  return {
+    envPrefix: ["VITE_", "GMAIL_"],
+    define: {
+      "import.meta.env.GMAIL_OAUTH_CLIENT_ID": JSON.stringify(gmailClientId),
     },
-  },
-  build: {
-    target: "esnext",
-    rollupOptions: {
-      input: {
-        main: path.resolve(__dirname, "index.html"),
+    plugins: [wasm(), react(), tailwindcss()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
       },
     },
-  },
-  clearScreen: false,
-  server: {
-    port: 1420,
-    strictPort: true,
-    host: host || false,
-    hmr: host
-      ? {
-          protocol: "ws",
-          host,
-          port: 1421,
-        }
-      : undefined,
-    watch: {
-      ignored: ["**/src-tauri/**"],
+    build: {
+      target: "esnext",
+      rollupOptions: {
+        input: {
+          main: path.resolve(__dirname, "index.html"),
+        },
+      },
     },
-  },
+    clearScreen: false,
+    server: {
+      port: 1420,
+      strictPort: true,
+      host: host || false,
+      hmr: host
+        ? {
+            protocol: "ws",
+            host,
+            port: 1421,
+          }
+        : undefined,
+      watch: {
+        ignored: ["**/src-tauri/**"],
+      },
+    },
+  };
 });

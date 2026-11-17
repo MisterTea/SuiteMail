@@ -15,7 +15,7 @@ export async function updateBadgeCount(): Promise<void> {
         await getCurrentWindow().setBadgeCount(count > 0 ? count : undefined);
       } catch {}
 
-      const tooltip = count > 0 ? `Velo - ${count} unread` : "Velo";
+      const tooltip = count > 0 ? `SuiteMail - ${count} unread` : "SuiteMail";
       try {
         await platformInvoke("set_tray_tooltip", { tooltip });
       } catch {}

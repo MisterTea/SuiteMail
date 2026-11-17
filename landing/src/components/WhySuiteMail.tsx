@@ -31,7 +31,7 @@ const cardVariants = {
   }),
 }
 
-export function WhyVelo() {
+export function WhySuiteMail() {
   return (
     <section id="features" className="relative py-24 md:py-32 px-6 dot-grid">
       {/* Subtle top/bottom fade to blend the dot grid */}
@@ -60,3 +60,5 @@ export function WhyVelo() {
     </section>
   )
 }
+
+export const WhyVelo = WhySuiteMail

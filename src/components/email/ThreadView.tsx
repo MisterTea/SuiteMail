@@ -1,11 +1,10 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { platformSaveFile } from "@/platform";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
-import { useThreadStore, type Thread } from "@/stores/threadStore";
+import type { Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { markThreadRead } from "@/services/emailActions";
@@ -65,7 +64,6 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
   const [showTaskExtract, setShowTaskExtract] = useState(false);
-  const updateThread = useThreadStore((s) => s.updateThread);
   const [messages, setMessages] = useState<DbMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const markedReadRef = useRef<string | null>(null);
@@ -109,11 +107,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // Auto-mark unread threads as read when opened (respects mark-as-read setting)
   const markAsReadBehavior = useUIStore((s) => s.markAsReadBehavior);
   useEffect(() => {
-    if (!activeAccountId || thread.isRead || markedReadRef.current === thread.id) return;
-    if (markAsReadBehavior === "manual") return;
+    if (!activeAccountId) return;
+    if (markedReadRef.current === thread.id) return;
+    markedReadRef.current = thread.id;
+
+    if (thread.isRead || markAsReadBehavior === "manual") return;
 
     const markRead = () => {
-      markedReadRef.current = thread.id;
       markThreadRead(activeAccountId, thread.id, [], true).catch((err) => {
         console.error("Failed to mark thread as read:", err);
       });
@@ -126,7 +126,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
     // instant
     markRead();
-  }, [activeAccountId, thread.id, thread.isRead, updateThread, markAsReadBehavior]);
+  }, [activeAccountId, thread.id, markAsReadBehavior]);
 
   const openComposer = useComposerStore((s) => s.openComposer);
   const openMenu = useContextMenuStore((s) => s.openMenu);
@@ -434,23 +434,14 @@ export function ThreadView({ thread }: ThreadViewProps) {
         </div>
       </div>
 
-      {/* Contact sidebar — overlay at narrow widths, inline at wide */}
+      {/* Contact sidebar */}
       {contactSidebarVisible && primarySender && activeAccountId && (
-        <>
-          {/* Backdrop for overlay mode (narrow widths) */}
-          <div
-            className="absolute inset-0 z-10 bg-black/20 @[640px]:hidden"
-            onClick={toggleContactSidebar}
-          />
-          <div className="absolute right-0 top-0 bottom-0 z-20 shadow-xl @[640px]:relative @[640px]:z-auto @[640px]:shadow-none">
-            <ContactSidebar
-              email={primarySender}
-              name={primarySenderName}
-              accountId={activeAccountId}
-              onClose={toggleContactSidebar}
-            />
-          </div>
-        </>
+        <ContactSidebar
+          email={primarySender}
+          name={primarySenderName}
+          accountId={activeAccountId}
+          onClose={toggleContactSidebar}
+        />
       )}
 
       {/* Task sidebar */}

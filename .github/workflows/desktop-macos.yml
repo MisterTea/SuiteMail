@@ -87,7 +87,7 @@ jobs:
       - name: Package .app bundle
         run: |
           cd src-tauri/target/universal-apple-darwin/release/bundle/macos
-          tar -czf ../dmg/Velo-macos.app.tar.gz *.app
+          tar -czf ../dmg/SuiteMail-macos.app.tar.gz *.app
 
       - name: Clean up keychain
         if: always() && steps.signing-check.outputs.has_signing == 'true'

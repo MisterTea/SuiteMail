@@ -64,7 +64,7 @@ interface UIState {
 export const useUIStore = create<UIState>((set) => ({
   theme: "system",
   sidebarCollapsed: false,
-  contactSidebarVisible: true,
+  contactSidebarVisible: false,
   readingPanePosition: "right",
   readFilter: "all",
   emailListWidth: 320,

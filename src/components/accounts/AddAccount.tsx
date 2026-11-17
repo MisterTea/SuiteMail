@@ -184,7 +184,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
         <div className="space-y-3">
           <button
-            onClick={() => setView("gmail")}
+            onClick={() => {
+              setView("gmail");
+              handleAddGmailAccount();
+            }}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-bg-tertiary flex items-center justify-center">

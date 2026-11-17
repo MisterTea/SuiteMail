@@ -1,4 +1,4 @@
-%global app_name velo
+%global app_name suitemail
 # x-release-please-start-version
 %global app_version 0.4.21
 # x-release-please-end
@@ -10,7 +10,7 @@ Release: %{app_release}%{?dist}
 Summary: Fast, beautiful desktop email client
 
 License: Apache-2.0
-URL:     https://github.com/avihaymenahem/velo
+URL:     https://github.com/MisterTea/SuiteMail
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 # Build Dependencies
@@ -30,7 +30,7 @@ Requires: libappindicator-gtk3
 Requires: hicolor-icon-theme
 
 %description
-Velo is a fast, beautiful, and open-source desktop email client built with
+SuiteMail is a fast, beautiful, and open-source desktop email client built with
 modern web technologies, using Tauri, React, and Vite.
 
 %prep
@@ -48,14 +48,14 @@ npx tauri build -b rpm
 cd %{buildroot}
 rpm2cpio %{_builddir}/%{name}-%{version}/src-tauri/target/release/bundle/rpm/*.rpm | cpio -idmv
 
+# Ensure the desktop file has the proper category
+desktop-file-install --dir=%{buildroot}%{_datadir}/applications %{buildroot}%{_datadir}/applications/SuiteMail.desktop
+
 %files
 %{_bindir}/%{app_name}
-%{_datadir}/applications/Velo.desktop
-%{_datadir}/icons/hicolor/32x32/apps/%{app_name}.png
-%{_datadir}/icons/hicolor/128x128/apps/%{app_name}.png
-%{_datadir}/icons/hicolor/256x256/apps/%{app_name}.png
-%license LICENSE
+%{_datadir}/applications/SuiteMail.desktop
+%{_datadir}/icons/hicolor/*/apps/%{app_name}.png
 
 %changelog
-* Fri Feb 20 2026 Camden Bock <camden.bock@maine.edu> - 0.4.10-1
-- Initial RPM packaging
+* Fri Feb 20 2026 SuiteMail Team <contact@suitemail.app> - 0.4.21-1
+- Rebranding to SuiteMail

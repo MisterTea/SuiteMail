@@ -20,7 +20,7 @@ export function formatSingleEml(msg: ExportableMessage): string {
   const from = msg.from_name
     ? `"${msg.from_name.replace(/"/g, '\\"')}" <${msg.from_address || "unknown@localhost"}>`
     : (msg.from_address || "unknown@localhost");
-  const messageId = msg.message_id_header || `<${msg.id}@velo.local>`;
+  const messageId = msg.message_id_header || `<${msg.id}@suitemail.local>`;
   const contentType = msg.body_html
     ? "text/html; charset=UTF-8"
     : "text/plain; charset=UTF-8";

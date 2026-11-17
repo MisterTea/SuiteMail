@@ -45,14 +45,39 @@ export function removeClient(accountId: string): void {
 }
 
 /**
- * Get the Google OAuth client ID from settings.
+ * Read GMAIL_OAUTH_CLIENT_ID from environment variables (.env via Vite or process.env).
+ */
+export function getEnvGmailClientId(): string | undefined {
+  const metaEnv =
+    typeof import.meta !== "undefined"
+      ? (import.meta as unknown as { env?: Record<string, string> }).env?.GMAIL_OAUTH_CLIENT_ID
+      : undefined;
+  if (typeof metaEnv === "string" && metaEnv.trim()) {
+    return metaEnv.trim();
+  }
+
+  const proc = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process;
+  const procEnv = proc?.env?.GMAIL_OAUTH_CLIENT_ID;
+  if (typeof procEnv === "string" && procEnv.trim()) {
+    return procEnv.trim();
+  }
+
+  return undefined;
+}
+
+/**
+ * Get the Google OAuth client ID from environment or settings.
  */
 export async function getClientId(): Promise<string> {
+  const envClientId = getEnvGmailClientId();
+  if (envClientId) {
+    return envClientId;
+  }
   const clientId = await getSetting("google_client_id");
-  if (!clientId) {
+  if (!clientId || !clientId.trim()) {
     throw new Error("Google Client ID not configured. Go to Settings to set it up.");
   }
-  return clientId;
+  return clientId.trim();
 }
 
 /**
@@ -68,7 +93,7 @@ export async function getClientSecret(): Promise<string | undefined> {
  */
 export async function initializeClients(): Promise<void> {
   const accounts = await getAllAccounts();
-  const clientId = await getSetting("google_client_id");
+  const clientId = await getClientId().catch(() => null);
   if (!clientId) return;
   const clientSecret = (await getSecureSetting("google_client_secret")) ?? undefined;
 

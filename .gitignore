@@ -75,6 +75,7 @@ playwright-report/
 # Packaging Artifacts
 build-dir/
 repo/
+suitemail-*.tar.gz
 velo-*.tar.gz
 *.flatpak
 *.rpm

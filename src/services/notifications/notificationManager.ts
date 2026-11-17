@@ -150,7 +150,7 @@ export function queueNewEmailNotification(
     if (pendingCount === 1) {
       notifyPlatform(from, subject || "(No subject)");
     } else if (pendingCount > 1) {
-      notifyPlatform("Velo", `${pendingCount} new emails`);
+      notifyPlatform("SuiteMail", `${pendingCount} new emails`);
     }
     pendingCount = 0;
     notifyTimer = null;

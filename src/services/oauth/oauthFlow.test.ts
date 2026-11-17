@@ -1,17 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { OAuthProviderConfig } from "./providers";
 
-// Mock Tauri APIs
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
+// Mock Platform APIs
+vi.mock("@/platform", () => ({
+  platformInvoke: vi.fn(),
+  platformOpenUrl: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
-}));
-
-import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { platformInvoke as invoke, platformOpenUrl as openUrl } from "@/platform";
 import { refreshProviderToken, startProviderOAuthFlow } from "./oauthFlow";
 
 const googleProvider: OAuthProviderConfig = {

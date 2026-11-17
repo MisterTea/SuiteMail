@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=Velo
+Name=SuiteMail
 Comment=Fast, beautiful desktop email client
-Exec=velo
-Icon=com.velomail.app
+Exec=suitemail
+Icon=com.suitemail.app
 Type=Application
 Categories=Network;Email;
-StartupWMClass=Velo
+StartupWMClass=SuiteMail
 StartupNotify=true

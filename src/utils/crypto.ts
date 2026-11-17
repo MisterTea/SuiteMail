@@ -6,7 +6,8 @@
 
 import { isTauri } from "@/platform";
 
-const KEY_FILE_NAME = "velo.key";
+const KEY_FILE_NAME = "suitemail.key";
+const LEGACY_KEY_FILE_NAME = "velo.key";
 const ALGORITHM = "AES-GCM";
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
@@ -35,6 +36,9 @@ async function readKeyFile(): Promise<string | null> {
     if (await window.supermail.fs.exists(KEY_FILE_NAME)) {
       return await window.supermail.fs.readTextFile(KEY_FILE_NAME);
     }
+    if (await window.supermail.fs.exists(LEGACY_KEY_FILE_NAME)) {
+      return await window.supermail.fs.readTextFile(LEGACY_KEY_FILE_NAME);
+    }
     return null;
   }
   if (isTauri()) {
@@ -42,10 +46,13 @@ async function readKeyFile(): Promise<string | null> {
     if (await exists(KEY_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
       return await readTextFile(KEY_FILE_NAME, { baseDir: BaseDirectory.AppData });
     }
+    if (await exists(LEGACY_KEY_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
+      return await readTextFile(LEGACY_KEY_FILE_NAME, { baseDir: BaseDirectory.AppData });
+    }
     return null;
   }
   if (typeof localStorage !== "undefined") {
-    return localStorage.getItem(KEY_FILE_NAME);
+    return localStorage.getItem(KEY_FILE_NAME) || localStorage.getItem(LEGACY_KEY_FILE_NAME);
   }
   return null;
 }

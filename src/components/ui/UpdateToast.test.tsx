@@ -27,7 +27,7 @@ describe("UpdateToast", () => {
   it("renders when an update is available on mount", () => {
     mockGetAvailableUpdate.mockReturnValue({ version: "2.0.0", body: null });
     render(<UpdateToast />);
-    expect(screen.getByText("Velo v2.0.0 is available")).toBeTruthy();
+    expect(screen.getByText("SuiteMail v2.0.0 is available")).toBeTruthy();
     expect(screen.getByText("Later")).toBeTruthy();
     expect(screen.getByText("Update Now")).toBeTruthy();
   });
@@ -48,7 +48,7 @@ describe("UpdateToast", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Velo v3.0.0 is available")).toBeTruthy();
+      expect(screen.getByText("SuiteMail v3.0.0 is available")).toBeTruthy();
     });
   });
 
@@ -58,7 +58,7 @@ describe("UpdateToast", () => {
     fireEvent.click(screen.getByText("Later"));
 
     await waitFor(() => {
-      expect(screen.queryByText("Velo v2.0.0 is available")).toBeNull();
+      expect(screen.queryByText("SuiteMail v2.0.0 is available")).toBeNull();
     });
   });
 

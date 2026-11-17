@@ -5,8 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Development — starts Tauri app with Vite dev server (port 1420)
-npm run tauri dev
+# Desktop Development — starts Tauri desktop app with Vite HMR (port 1420)
+npm run dev:desktop
+# or: npm run tauri dev
 
 # Build production app
 npm run tauri build
