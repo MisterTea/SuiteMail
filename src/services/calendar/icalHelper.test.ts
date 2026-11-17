@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent } from "./icalHelper";
+import { generateVEvent, generateVEventReply, parseVEvent } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -159,6 +159,42 @@ describe("generateVEvent", () => {
     const result = generateVEvent(event);
 
     expect(result).toContain("DTSTAMP:20250615T100000Z");
+  });
+});
+
+describe("generateVEventReply", () => {
+  it("generates an iTIP REPLY with ACCEPTED status", () => {
+    const result = generateVEventReply({
+      uid: "invite-123",
+      summary: "Sprint Planning",
+      organizerEmail: "boss@acme.com",
+      userEmail: "dev@acme.com",
+      userDisplayName: "Lead Developer",
+      startTime: 1750428000,
+      endTime: 1750431600,
+      responseStatus: "accepted",
+    });
+
+    expect(result).toContain("METHOD:REPLY");
+    expect(result).toContain("UID:invite-123");
+    expect(result).toContain("ORGANIZER:mailto:boss@acme.com");
+    expect(result).toContain("ATTENDEE;PARTSTAT=ACCEPTED;CN=Lead Developer:mailto:dev@acme.com");
+    expect(result).toContain("SUMMARY:Sprint Planning");
+  });
+
+  it("generates an iTIP REPLY with DECLINED status and comment", () => {
+    const result = generateVEventReply({
+      uid: "invite-456",
+      summary: "Conflict Meeting",
+      organizerEmail: "organizer@example.com",
+      userEmail: "me@example.com",
+      responseStatus: "declined",
+      comment: "I have a conflict at this time.",
+    });
+
+    expect(result).toContain("METHOD:REPLY");
+    expect(result).toContain("ATTENDEE;PARTSTAT=DECLINED:mailto:me@example.com");
+    expect(result).toContain("COMMENT:I have a conflict at this time.");
   });
 });
 

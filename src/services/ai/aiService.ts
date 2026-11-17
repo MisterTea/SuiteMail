@@ -14,6 +14,7 @@ import {
   ASK_INBOX_PROMPT,
   SMART_LABEL_PROMPT,
   EXTRACT_TASK_PROMPT,
+  TRANSLATE_PROMPT,
 } from "./prompts";
 
 async function callAi(systemPrompt: string, userContent: string): Promise<string> {
@@ -233,6 +234,14 @@ export async function extractTaskFromThread(
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = `<email_content>Subject: ${subject}\n\n${formatted}</email_content>`.slice(0, 6000);
   return callAi(EXTRACT_TASK_PROMPT, combined);
+}
+
+export async function translateEmail(
+  text: string,
+  targetLanguage = "English",
+): Promise<string> {
+  const userContent = `Target language: ${targetLanguage}\n\nEmail to translate:\n<email_content>${text}</email_content>`;
+  return callAi(TRANSLATE_PROMPT, userContent);
 }
 
 export async function testConnection(): Promise<boolean> {

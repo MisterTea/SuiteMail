@@ -22,6 +22,7 @@ import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
+import { exportThreadToFile } from "@/utils/mailboxExport";
 
 interface ThreadViewProps {
   thread: Thread;
@@ -321,43 +322,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
   const handleExport = useCallback(async () => {
     if (messages.length === 0) return;
-    try {
-      const { save } = await import("@tauri-apps/plugin-dialog");
-      const { writeTextFile } = await import("@tauri-apps/plugin-fs");
-
-      const emlParts = messages.map((msg) => {
-        const date = new Date(msg.date).toUTCString();
-        const from = msg.from_name
-          ? `${msg.from_name} <${msg.from_address}>`
-          : (msg.from_address ?? "");
-        const lines = [
-          `From: ${from}`,
-          `To: ${msg.to_addresses ?? ""}`,
-          msg.cc_addresses ? `Cc: ${msg.cc_addresses}` : null,
-          `Subject: ${msg.subject ?? ""}`,
-          `Date: ${date}`,
-          `Message-ID: <${msg.id}>`,
-          `MIME-Version: 1.0`,
-          `Content-Type: text/html; charset=UTF-8`,
-          ``,
-          msg.body_html ?? msg.body_text ?? "",
-        ].filter((l): l is string => l !== null);
-        return lines.join("\r\n");
-      });
-
-      const content = emlParts.join("\r\n\r\n");
-      const defaultName = `${(thread.subject ?? "email").replace(/[^a-zA-Z0-9_-]/g, "_")}.eml`;
-
-      const filePath = await save({
-        defaultPath: defaultName,
-        filters: [{ name: "Email", extensions: ["eml"] }],
-      });
-      if (filePath) {
-        await writeTextFile(filePath, content);
-      }
-    } catch (err) {
-      console.error("Failed to export thread:", err);
-    }
+    await exportThreadToFile(thread.subject ?? "email", messages);
   }, [messages, thread.subject]);
 
   if (loading) {

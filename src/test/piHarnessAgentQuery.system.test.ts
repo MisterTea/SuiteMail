@@ -243,6 +243,7 @@ describe("System Test: Pi Harness + Gemma 4 E4B with SQLite Tool Calling", () =>
     const tools = (firstCall?.body as any)?.tools;
     expect(tools.map((t: any) => t.function.name)).toEqual([
       "search_emails",
+      "semantic_search_emails",
       "get_thread",
       "get_email_stats",
       "run_readonly_sql",

@@ -54,6 +54,10 @@ import {
   stopPreCacheManager,
 } from "./services/attachments/preCacheManager";
 import {
+  startAllIdle,
+  stopAllIdle,
+} from "./services/imap/idleManager";
+import {
   startUpdateChecker,
   stopUpdateChecker,
 } from "./services/updateManager";
@@ -62,6 +66,7 @@ import { getGmailClient } from "./services/gmail/tokenManager";
 import { invoke } from "@tauri-apps/api/core";
 import { DndProvider } from "./components/dnd/DndProvider";
 import { TitleBar } from "./components/layout/TitleBar";
+import { MobileNavBar } from "./components/layout/MobileNavBar";
 import { useShortcutStore } from "./stores/shortcutStore";
 import { getIncompleteTaskCount } from "./services/db/tasks";
 import { useTaskStore } from "./stores/taskStore";
@@ -355,6 +360,9 @@ export default function App() {
           startBackgroundSync(activeIds);
         }
 
+        // Start IMAP IDLE push listeners
+        startAllIdle(dbAccounts);
+
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers
         startSnoozeChecker();
         startScheduledSendChecker();
@@ -395,6 +403,7 @@ export default function App() {
 
     return () => {
       stopBackgroundSync();
+      stopAllIdle();
       stopSnoozeChecker();
       stopScheduledSendChecker();
       stopFollowUpChecker();
@@ -590,6 +599,8 @@ export default function App() {
           <Outlet />
         </DndProvider>
       </div>
+
+      <MobileNavBar />
 
       {/* Sync status bar */}
       {syncStatus && (

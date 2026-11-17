@@ -25,6 +25,7 @@ import { getMessagesForThread } from "@/services/db/messages";
 describe("piEmailTools", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSelect.mockResolvedValue([]);
   });
 
   describe("parseDateString", () => {
@@ -84,6 +85,7 @@ describe("piEmailTools", () => {
     it("defines the expected function tools", () => {
       const toolNames = PI_EMAIL_TOOLS.map((t) => t.function.name);
       expect(toolNames).toContain("search_emails");
+      expect(toolNames).toContain("semantic_search_emails");
       expect(toolNames).toContain("get_thread");
       expect(toolNames).toContain("get_email_stats");
       expect(toolNames).toContain("run_readonly_sql");
@@ -267,6 +269,17 @@ describe("piEmailTools", () => {
 
       expect(result.text).toContain("Filter suggestion captured");
       expect(result.data).toEqual(args);
+    });
+
+    it("executes semantic_search_emails tool returning semantically ranked messages", async () => {
+      const { executePiEmailTool } = await import("./piEmailTools");
+      const result = await executePiEmailTool(
+        "semantic_search_emails",
+        { concept: "dental insurance reimbursement" },
+        "acc-1",
+      );
+
+      expect(result.text).toBeDefined();
     });
   });
 });

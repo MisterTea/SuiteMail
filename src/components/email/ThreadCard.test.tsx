@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ThreadCard } from "./ThreadCard";
 import type { Thread } from "@/stores/threadStore";
+
+const mockArchiveThread = vi.fn();
+const mockStarThread = vi.fn();
+
+vi.mock("@/services/emailActions", () => ({
+  archiveThread: (...args: unknown[]) => mockArchiveThread(...args),
+  starThread: (...args: unknown[]) => mockStarThread(...args),
+}));
 
 vi.mock("@dnd-kit/core", () => ({
   useDraggable: () => ({
@@ -100,5 +108,35 @@ describe("ThreadCard", () => {
     );
     const button = container.querySelector("button")!;
     expect(button.className).toContain("bg-red-500/8");
+  });
+
+  it("triggers archive when swiped left past threshold", async () => {
+    const { container } = render(
+      <ThreadCard thread={makeThread()} isSelected={false} onClick={onClick} />,
+    );
+    const button = container.querySelector("button")!;
+
+    fireEvent.touchStart(button, { touches: [{ clientX: 200 }] });
+    fireEvent.touchMove(button, { touches: [{ clientX: 100 }] }); // -100px swipe
+    fireEvent.touchEnd(button);
+
+    await waitFor(() => {
+      expect(mockArchiveThread).toHaveBeenCalledWith("a1", "t1", expect.any(Array));
+    });
+  });
+
+  it("triggers star when swiped right past threshold", async () => {
+    const { container } = render(
+      <ThreadCard thread={makeThread({ isStarred: false })} isSelected={false} onClick={onClick} />,
+    );
+    const button = container.querySelector("button")!;
+
+    fireEvent.touchStart(button, { touches: [{ clientX: 100 }] });
+    fireEvent.touchMove(button, { touches: [{ clientX: 200 }] }); // +100px swipe
+    fireEvent.touchEnd(button);
+
+    await waitFor(() => {
+      expect(mockStarThread).toHaveBeenCalledWith("a1", "t1", expect.any(Array), true);
+    });
   });
 });

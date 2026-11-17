@@ -1,4 +1,4 @@
-import type { CalendarEventData, CreateEventInput, UpdateEventInput } from "./types";
+import type { CalendarEventData, CreateEventInput, UpdateEventInput, EventReplyInput } from "./types";
 
 /**
  * Generate a VEVENT iCalendar string from event input.
@@ -42,6 +42,49 @@ export function generateVEvent(event: CreateEventInput | UpdateEventInput, uid?:
     for (const attendee of event.attendees) {
       lines.push(`ATTENDEE;RSVP=TRUE:mailto:${attendee.email}`);
     }
+  }
+
+  lines.push("END:VEVENT");
+  lines.push("END:VCALENDAR");
+
+  return lines.join("\r\n");
+}
+
+/**
+ * Generate an iTIP REPLY (RFC 5546) iCalendar string for responding to an event invite.
+ */
+export function generateVEventReply(input: EventReplyInput): string {
+  const now = formatDateTimeUTC(new Date());
+  const partStat = input.responseStatus.toUpperCase();
+  const cnParam = input.userDisplayName ? `;CN=${escapeICalText(input.userDisplayName)}` : "";
+
+  const lines: string[] = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Velo Mail//Calendar Client//EN",
+    "METHOD:REPLY",
+    "BEGIN:VEVENT",
+    `UID:${input.uid}`,
+    `DTSTAMP:${now}`,
+    `ORGANIZER:mailto:${input.organizerEmail}`,
+    `ATTENDEE;PARTSTAT=${partStat}${cnParam}:mailto:${input.userEmail}`,
+    `SUMMARY:${escapeICalText(input.summary)}`,
+  ];
+
+  if (input.startTime && input.endTime) {
+    const startDate = typeof input.startTime === "number" ? new Date(input.startTime * 1000) : new Date(input.startTime);
+    const endDate = typeof input.endTime === "number" ? new Date(input.endTime * 1000) : new Date(input.endTime);
+    if (input.isAllDay) {
+      lines.push(`DTSTART;VALUE=DATE:${formatDateOnly(startDate)}`);
+      lines.push(`DTEND;VALUE=DATE:${formatDateOnly(endDate)}`);
+    } else {
+      lines.push(`DTSTART:${formatDateTimeUTC(startDate)}`);
+      lines.push(`DTEND:${formatDateTimeUTC(endDate)}`);
+    }
+  }
+
+  if (input.comment) {
+    lines.push(`COMMENT:${escapeICalText(input.comment)}`);
   }
 
   lines.push("END:VEVENT");

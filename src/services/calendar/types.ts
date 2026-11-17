@@ -66,3 +66,33 @@ export interface CalendarProvider {
 
   testConnection(): Promise<{ success: boolean; message: string }>;
 }
+
+export type InviteResponseStatus = "accepted" | "declined" | "tentative";
+
+export interface EventReplyInput {
+  uid: string;
+  summary: string;
+  organizerEmail: string;
+  userEmail: string;
+  userDisplayName?: string;
+  startTime?: number | string | null;
+  endTime?: number | string | null;
+  isAllDay?: boolean;
+  responseStatus: InviteResponseStatus;
+  comment?: string;
+}
+
+export interface InviteDetails {
+  uid: string;
+  summary: string;
+  description: string | null;
+  location: string | null;
+  startTime: number;
+  endTime: number;
+  isAllDay: boolean;
+  status: string;
+  organizerEmail: string | null;
+  attendees: Array<{ email: string; displayName?: string; responseStatus?: string }>;
+  icalData: string;
+  method?: string;
+}

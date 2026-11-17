@@ -818,6 +818,21 @@ export const MIGRATIONS = [
       UPDATE threads SET is_filtered = 1;
     `,
   },
+  {
+    version: 26,
+    description: "Add email_embeddings table for semantic vector search",
+    sql: `
+      CREATE TABLE IF NOT EXISTS email_embeddings (
+        message_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        embedding_json TEXT NOT NULL,
+        text_chunk TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch()),
+        PRIMARY KEY (account_id, message_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_embeddings_acct ON email_embeddings(account_id);
+    `,
+  },
 ];
 
 /**

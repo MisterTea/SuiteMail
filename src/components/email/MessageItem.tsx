@@ -5,9 +5,17 @@ import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
-import { MailMinus } from "lucide-react";
+import { MailMinus, Languages } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
+import { CalendarInviteBanner } from "./CalendarInviteBanner";
+import { TrackingPixelBadge } from "./TrackingPixelBadge";
+import { PackageTrackingCard } from "./PackageTrackingCard";
+import { DetectedEventChip } from "./DetectedEventChip";
+import { detectInviteFromMessage } from "@/services/calendar/inviteDetector";
+import { detectShipmentsAndFlights } from "@/utils/trackingDetector";
+import { detectDateTime } from "@/utils/dateTimeDetector";
+import type { DetectedTracker } from "@/utils/trackingPixels";
 
 interface MessageItemProps {
   message: DbMessage;
@@ -25,7 +33,51 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
+  const [detectedTrackers, setDetectedTrackers] = useState<DetectedTracker[]>([]);
   const attachmentsLoadedRef = useRef(false);
+
+  const calendarInvite = useMemo(
+    () => detectInviteFromMessage(message, attachments),
+    [message, attachments],
+  );
+
+  const trackingItems = useMemo(
+    () => detectShipmentsAndFlights(message.body_text || message.snippet),
+    [message.body_text, message.snippet],
+  );
+
+  const detectedMeetingTime = useMemo(
+    () => detectDateTime(message.body_text || message.snippet),
+    [message.body_text, message.snippet],
+  );
+
+  const [translatedText, setTranslatedText] = useState<string | null>(null);
+  const [translating, setTranslating] = useState(false);
+  const [showTranslation, setShowTranslation] = useState(false);
+
+  const handleTranslate = async () => {
+    if (showTranslation) {
+      setShowTranslation(false);
+      return;
+    }
+    if (translatedText) {
+      setShowTranslation(true);
+      return;
+    }
+
+    setTranslating(true);
+    try {
+      const { translateEmail } = await import("@/services/ai/aiService");
+      const content = message.body_text || message.snippet || "";
+      const res = await translateEmail(content, "English");
+      setTranslatedText(res);
+      setShowTranslation(true);
+    } catch (err) {
+      console.error("Translation error:", err);
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const loadAttachments = async () => {
     if (attachmentsLoadedRef.current) return;
@@ -88,9 +140,10 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               {fromDisplay[0]?.toUpperCase()}
             </div>
             <div className="min-w-0">
-              <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">
+              <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1.5 flex-wrap">
                 {fromDisplay}
                 <AuthBadge authResults={message.auth_results} />
+                <TrackingPixelBadge trackers={detectedTrackers} />
               </span>
               {!expanded && (
                 <span className="text-xs text-text-tertiary truncate block">
@@ -123,15 +176,59 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             />
           )}
 
-          {message.list_unsubscribe && (
-            <UnsubscribeLink
-              header={message.list_unsubscribe}
-              postHeader={message.list_unsubscribe_post}
-              accountId={accountId ?? message.account_id}
-              threadId={threadId ?? message.thread_id}
-              fromAddress={message.from_address}
-              fromName={message.from_name}
+          {calendarInvite && (
+            <CalendarInviteBanner message={message} invite={calendarInvite} />
+          )}
+
+          {!calendarInvite && detectedMeetingTime && (
+            <DetectedEventChip
+              detected={detectedMeetingTime}
+              accountId={message.account_id}
+              defaultTitle={message.subject || "Meeting"}
             />
+          )}
+
+          {trackingItems.length > 0 && (
+            <PackageTrackingCard items={trackingItems} />
+          )}
+
+          <div className="flex items-center gap-3 mb-2 flex-wrap">
+            {message.list_unsubscribe && (
+              <UnsubscribeLink
+                header={message.list_unsubscribe}
+                postHeader={message.list_unsubscribe_post}
+                accountId={accountId ?? message.account_id}
+                threadId={threadId ?? message.thread_id}
+                fromAddress={message.from_address}
+                fromName={message.from_name}
+              />
+            )}
+            <button
+              onClick={handleTranslate}
+              disabled={translating}
+              className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+            >
+              <Languages size={12} />
+              <span>{translating ? "Translating..." : showTranslation ? "Show Original" : "Translate"}</span>
+            </button>
+          </div>
+
+          {showTranslation && translatedText && (
+            <div className="mb-3 p-3 rounded-lg border border-accent/30 bg-accent/5 text-xs text-text-primary leading-relaxed">
+              <div className="flex items-center justify-between font-semibold text-accent mb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Languages size={13} />
+                  <span>English Translation (AI)</span>
+                </span>
+                <button
+                  onClick={() => setShowTranslation(false)}
+                  className="text-text-tertiary hover:text-text-primary text-[11px]"
+                >
+                  Hide
+                </button>
+              </div>
+              <p className="whitespace-pre-wrap">{translatedText}</p>
+            </div>
           )}
 
           {blockImages != null ? (
@@ -144,6 +241,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               senderAllowlisted={senderAllowlisted}
               messageId={message.id}
               inlineAttachments={attachments.filter((a) => a.content_id)}
+              onTrackersDetected={setDetectedTrackers}
             />
           ) : (
             <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>

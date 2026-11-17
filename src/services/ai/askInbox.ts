@@ -72,7 +72,32 @@ export async function askMyInbox(
   }
 
   // Search messages using existing FTS
-  const results = await searchMessages(terms, accountId, 15);
+  let results = await searchMessages(terms, accountId, 15);
+
+  // Hybrid search: augment with vector embeddings if few results or conceptual query
+  try {
+    const { searchSimilarMessages } = await import("./embeddingService");
+    const semanticResults = await searchSimilarMessages(accountId, question, 8);
+    const existingIds = new Set(results.map((r) => r.message_id));
+    for (const sem of semanticResults) {
+      if (!existingIds.has(sem.messageId)) {
+        existingIds.add(sem.messageId);
+        results.push({
+          message_id: sem.messageId,
+          account_id: accountId,
+          thread_id: sem.threadId,
+          subject: sem.subject,
+          snippet: sem.snippet,
+          from_name: sem.fromName,
+          from_address: sem.fromAddress,
+          date: sem.date,
+          rank: -sem.similarityScore,
+        });
+      }
+    }
+  } catch {
+    // Non-critical: continue with FTS results
+  }
 
   if (results.length === 0) {
     return {

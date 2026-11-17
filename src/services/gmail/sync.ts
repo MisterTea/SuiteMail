@@ -261,6 +261,11 @@ export async function initialSync(
   // Store the latest history ID for delta sync
   await updateAccountSyncState(accountId, historyId);
 
+  // Fire-and-forget vector embedding for new messages
+  import("@/services/ai/embeddingIndexer")
+    .then(({ indexBatchForAccount }) => indexBatchForAccount(accountId, 100))
+    .catch((err) => console.error("Embedding indexing error:", err));
+
   onProgress?.({
     phase: "done",
     current: threadStubs.length,
@@ -442,6 +447,11 @@ export async function deltaSync(
     import("@/services/ai/categorizationManager")
       .then(({ categorizeNewThreads }) => categorizeNewThreads(accountId))
       .catch((err) => console.error("Categorization error:", err));
+
+    // Fire-and-forget vector embedding for new messages
+    import("@/services/ai/embeddingIndexer")
+      .then(({ indexBatchForAccount }) => indexBatchForAccount(accountId, 50))
+      .catch((err) => console.error("Embedding indexing error:", err));
   } catch (err) {
     // historyId might be too old — need full re-sync
     const message = err instanceof Error ? err.message : String(err);

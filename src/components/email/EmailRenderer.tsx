@@ -2,6 +2,7 @@ import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } fr
 import { ImageOff } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
+import { auditTrackingPixels, type DetectedTracker } from "@/utils/trackingPixels";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { useUIStore } from "@/stores/uiStore";
@@ -16,6 +17,7 @@ interface EmailRendererProps {
   senderAllowlisted?: boolean;
   messageId?: string | null;
   inlineAttachments?: DbAttachment[];
+  onTrackersDetected?: (trackers: DetectedTracker[]) => void;
 }
 
 export function EmailRenderer({
@@ -27,6 +29,7 @@ export function EmailRenderer({
   senderAllowlisted = false,
   messageId,
   inlineAttachments,
+  onTrackersDetected,
 }: EmailRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
@@ -86,8 +89,13 @@ export function EmailRenderer({
   // Sanitize once — reused by both content and blocked-image check
   const sanitizedBody = useMemo(() => {
     if (!html) return null;
-    return sanitizeHtml(html);
-  }, [html]);
+    const sanitized = sanitizeHtml(html);
+    const audit = auditTrackingPixels(sanitized);
+    if (audit.hasTrackers && onTrackersDetected) {
+      onTrackersDetected(audit.trackers);
+    }
+    return audit.sanitizedHtml;
+  }, [html, onTrackersDetected]);
 
   const isPlainText = !sanitizedBody;
 

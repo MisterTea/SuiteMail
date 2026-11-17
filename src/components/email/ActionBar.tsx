@@ -322,7 +322,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
 
         {/* Utility group */}
         <Button variant="secondary" iconOnly icon={<Printer size={15} />} onClick={onPrint} title="Print" />
-        <Button variant="secondary" iconOnly icon={<Download size={15} />} onClick={onExport} title="Export as .eml" />
+        <Button variant="secondary" iconOnly icon={<Download size={15} />} onClick={onExport} title="Export thread (.eml, .mbox)" />
         <Button variant="secondary" iconOnly icon={<ExternalLink size={15} />} onClick={onPopOut} title="Open in new window" />
         <Button
           variant="secondary"

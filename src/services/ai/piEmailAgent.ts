@@ -45,11 +45,12 @@ You have direct access to the user's local SQLite email database via tools.
 Guidelines:
 1. Always search or query before answering questions about the user's emails.
 2. Use 'search_emails' for finding emails by sender, keywords, dates, or read/unread state.
-3. If an email thread snippet is insufficient, use 'get_thread' with the thread_id to inspect the full conversation history.
-4. Use 'get_email_stats' when the user asks for counts, volume, top contacts, or statistics.
-5. Use 'run_readonly_sql' only if standard tools cannot satisfy the specific aggregation or query requested.
-6. Provide concise, clear, and direct answers. Cite dates, senders, and subjects where helpful.
-7. If no relevant emails are found after searching, honestly inform the user. Never invent email content.`;
+3. Use 'semantic_search_emails' when searching for broad concepts, topics, or ideas that might be phrased in multiple ways without knowing the exact words.
+4. If an email thread snippet is insufficient, use 'get_thread' with the thread_id to inspect the full conversation history.
+5. Use 'get_email_stats' when the user asks for counts, volume, top contacts, or statistics.
+6. Use 'run_readonly_sql' only if standard tools cannot satisfy the specific aggregation or query requested.
+7. Provide concise, clear, and direct answers. Cite dates, senders, and subjects where helpful.
+8. If no relevant emails are found after searching, honestly inform the user. Never invent email content.`;
 
 /**
  * Extract a markdown-embedded JSON tool call if Gemma produces a text-based tool invocation.
@@ -65,6 +66,7 @@ function extractTextToolCall(content: string): { toolName: string; args: Record<
     const args = parsed.parameters ?? parsed.arguments ?? parsed.args ?? {};
     const validTools = [
       "search_emails",
+      "semantic_search_emails",
       "get_thread",
       "get_email_stats",
       "run_readonly_sql",

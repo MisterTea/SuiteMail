@@ -1,11 +1,11 @@
-import { memo, useMemo } from "react";
+import { memo, useMemo, useState, useRef } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
-import { Paperclip, Star, Check, Pin, BellRing, VolumeX } from "lucide-react";
+import { Paperclip, Star, Check, Pin, BellRing, VolumeX, Archive } from "lucide-react";
 import type { DragData } from "@/components/dnd/DndProvider";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -70,27 +70,97 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     "?"
   ).toUpperCase();
 
+  const [touchOffset, setTouchOffset] = useState(0);
+  const touchStartXRef = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartXRef.current = e.touches[0]?.clientX ?? null;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartXRef.current === null) return;
+    const currentX = e.touches[0]?.clientX ?? 0;
+    const diff = currentX - touchStartXRef.current;
+    if (Math.abs(diff) < 120) {
+      setTouchOffset(diff);
+    }
+  };
+
+  const handleTouchEnd = async () => {
+    if (touchStartXRef.current === null) return;
+    const finalOffset = touchOffset;
+    setTouchOffset(0);
+    touchStartXRef.current = null;
+
+    const SWIPE_THRESHOLD = 75;
+    if (finalOffset < -SWIPE_THRESHOLD) {
+      try {
+        const { archiveThread } = await import("@/services/emailActions");
+        await archiveThread(thread.accountId, thread.id, []);
+      } catch (err) {
+        console.error("Failed to archive on swipe:", err);
+      }
+    } else if (finalOffset > SWIPE_THRESHOLD) {
+      try {
+        const { starThread } = await import("@/services/emailActions");
+        await starThread(thread.accountId, thread.id, [], !thread.isStarred);
+      } catch (err) {
+        console.error("Failed to star on swipe:", err);
+      }
+    }
+  };
+
   return (
-    <button
-      ref={setNodeRef}
-      {...attributes}
-      {...listeners}
-      onClick={handleClick}
-      onContextMenu={handleContextMenu}
-      aria-label={`${thread.isRead ? "" : "Unread "}email from ${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
-      aria-selected={isSelected}
-      className={`w-full text-left border-b border-border-secondary group hover-lift press-scale ${
-        emailDensity === "compact" ? "px-3 py-1.5" : emailDensity === "spacious" ? "px-4 py-4" : "px-4 py-3"
-      } ${
-        isDragging
-          ? "opacity-50"
-          : isMultiSelected
-            ? "bg-accent/10"
-            : isSelected
-              ? "bg-bg-selected"
-              : "hover:bg-bg-hover"
-      } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}
-    >
+    <div className="relative overflow-hidden border-b border-border-secondary">
+      {touchOffset !== 0 && (
+        <div
+          className={`absolute inset-0 flex items-center px-4 transition-colors ${
+            touchOffset > 0
+              ? "justify-start bg-amber-500/20 text-amber-500"
+              : "justify-end bg-emerald-500/20 text-emerald-500"
+          }`}
+        >
+          {touchOffset > 0 ? (
+            <div className="flex items-center gap-1.5 font-medium text-xs">
+              <Star size={16} className={thread.isStarred ? "" : "fill-current"} />
+              <span>{thread.isStarred ? "Unstar" : "Star"}</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 font-medium text-xs">
+              <Archive size={16} />
+              <span>Archive</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        ref={setNodeRef}
+        {...attributes}
+        {...listeners}
+        onClick={handleClick}
+        onContextMenu={handleContextMenu}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{
+          transform: touchOffset ? `translateX(${touchOffset}px)` : undefined,
+          transition: touchOffset === 0 ? "transform 0.2s ease-out" : undefined,
+        }}
+        aria-label={`${thread.isRead ? "" : "Unread "}email from ${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
+        aria-selected={isSelected}
+        className={`w-full text-left group hover-lift press-scale ${
+          emailDensity === "compact" ? "px-3 py-1.5" : emailDensity === "spacious" ? "px-4 py-4" : "px-4 py-3"
+        } ${
+          isDragging
+            ? "opacity-50"
+            : isMultiSelected
+              ? "bg-accent/10"
+              : isSelected
+                ? "bg-bg-selected"
+                : "hover:bg-bg-hover"
+        } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}
+      >
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div
@@ -174,6 +244,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
         </div>
       </div>
 
-    </button>
+      </button>
+    </div>
   );
 });

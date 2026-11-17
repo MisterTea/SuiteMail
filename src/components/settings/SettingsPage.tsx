@@ -141,6 +141,7 @@ export function SettingsPage() {
   const [clearingCache, setClearingCache] = useState(false);
   const [reauthStatus, setReauthStatus] = useState<Record<string, "idle" | "authorizing" | "done" | "error">>({});
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
+  const [exportStatus, setExportStatus] = useState<Record<string, "idle" | "exporting" | "done" | "error">>({});
   const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
@@ -372,6 +373,31 @@ export function SettingsPage() {
         setResyncStatus((prev) => ({ ...prev, [accountId]: "error" }));
         setTimeout(() => {
           setResyncStatus((prev) => ({ ...prev, [accountId]: "idle" }));
+        }, 3000);
+      }
+    },
+    [],
+  );
+
+  const handleExportMailbox = useCallback(
+    async (accountId: string, email: string) => {
+      setExportStatus((prev) => ({ ...prev, [accountId]: "exporting" }));
+      try {
+        const { exportAccountToMbox } = await import("@/utils/mailboxExport");
+        const res = await exportAccountToMbox(accountId, email);
+        if (res.filePath) {
+          setExportStatus((prev) => ({ ...prev, [accountId]: "done" }));
+          setTimeout(() => {
+            setExportStatus((prev) => ({ ...prev, [accountId]: "idle" }));
+          }, 3000);
+        } else {
+          setExportStatus((prev) => ({ ...prev, [accountId]: "idle" }));
+        }
+      } catch (err) {
+        console.error("Export mailbox failed:", err);
+        setExportStatus((prev) => ({ ...prev, [accountId]: "error" }));
+        setTimeout(() => {
+          setExportStatus((prev) => ({ ...prev, [accountId]: "idle" }));
         }, 3000);
       }
     },
@@ -941,6 +967,16 @@ export function SettingsPage() {
                                   {resyncStatus[account.id] === "done" && "Done!"}
                                   {resyncStatus[account.id] === "error" && "Failed"}
                                   {(!resyncStatus[account.id] || resyncStatus[account.id] === "idle") && "Resync"}
+                                </button>
+                                <button
+                                  onClick={() => handleExportMailbox(account.id, account.email)}
+                                  disabled={exportStatus[account.id] === "exporting"}
+                                  className="text-xs text-text-secondary hover:text-text-primary transition-colors disabled:opacity-50"
+                                >
+                                  {exportStatus[account.id] === "exporting" && "Exporting..."}
+                                  {exportStatus[account.id] === "done" && "Done!"}
+                                  {exportStatus[account.id] === "error" && "Failed"}
+                                  {(!exportStatus[account.id] || exportStatus[account.id] === "idle") && "Export MBOX"}
                                 </button>
                                 <button
                                   onClick={() => handleRemoveAccount(account.id)}
@@ -1581,6 +1617,13 @@ export function SettingsPage() {
                       Collapse categories into a single row in the inbox. Optionally set a delivery schedule to batch emails.
                     </p>
                     <BundleSettings />
+                  </Section>
+
+                  <Section title="Vector Database & Semantic Search">
+                    <p className="text-xs text-text-tertiary mb-3">
+                      SuperMail indexes email text into dense 384-dimensional vector embeddings, enabling natural language synonym search and agentic queries in Ask Inbox.
+                    </p>
+                    <VectorDatabaseSettings />
                   </Section>
                 </>
               )}
@@ -2512,6 +2555,124 @@ function ToggleRow({
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+function VectorDatabaseSettings() {
+  const accounts = useAccountStore((s) => s.accounts);
+  const activeAccount = accounts.find((a) => a.isActive);
+  const [stats, setStats] = useState<{ totalMessages: number; embeddedCount: number } | null>(null);
+  const [statusText, setStatusText] = useState<string>("idle");
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const { getEmbeddingStats } = await import("@/services/db/embeddings");
+      const res = await getEmbeddingStats(activeAccount?.id);
+      setStats(res);
+    } catch (err) {
+      console.error("Failed to load embedding stats:", err);
+    }
+  }, [activeAccount?.id]);
+
+  useEffect(() => {
+    loadStats();
+  }, [loadStats]);
+
+  const handleIndexUnembedded = async () => {
+    if (!activeAccount) return;
+    setIsProcessing(true);
+    setStatusText("Indexing...");
+    try {
+      const { indexAllForAccount } = await import("@/services/ai/embeddingIndexer");
+      await indexAllForAccount(activeAccount.id, (indexed) => {
+        setStatusText(`Indexed ${indexed} messages...`);
+      });
+      await loadStats();
+      setStatusText("Complete!");
+      setTimeout(() => setStatusText("idle"), 3000);
+    } catch (err) {
+      console.error("Indexing failed:", err);
+      setStatusText("Failed");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleReindexAll = async () => {
+    if (!activeAccount) return;
+    setIsProcessing(true);
+    setStatusText("Clearing index...");
+    try {
+      const { clearAllEmbeddings } = await import("@/services/db/embeddings");
+      await clearAllEmbeddings(activeAccount.id);
+      setStatusText("Re-indexing...");
+      const { indexAllForAccount } = await import("@/services/ai/embeddingIndexer");
+      await indexAllForAccount(activeAccount.id, (indexed) => {
+        setStatusText(`Indexed ${indexed} messages...`);
+      });
+      await loadStats();
+      setStatusText("Re-indexed all!");
+      setTimeout(() => setStatusText("idle"), 3000);
+    } catch (err) {
+      console.error("Re-indexing failed:", err);
+      setStatusText("Failed");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const percent = stats && stats.totalMessages > 0
+    ? Math.min(100, Math.round((stats.embeddedCount / stats.totalMessages) * 100))
+    : 100;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-medium text-text-primary">
+            Vector Embeddings ({stats ? `${stats.embeddedCount} / ${stats.totalMessages}` : "Loading..."})
+          </div>
+          <p className="text-xs text-text-tertiary mt-0.5">
+            Local 384-dimensional dense vectors powering semantic synonym search and AI agent tools.
+          </p>
+        </div>
+        <div className="text-xs font-medium text-text-secondary">
+          {percent}% Indexed
+        </div>
+      </div>
+
+      <div className="w-full bg-bg-tertiary rounded-full h-2 overflow-hidden border border-border-primary">
+        <div
+          className="bg-accent h-full transition-all duration-300"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleIndexUnembedded}
+          disabled={isProcessing || !activeAccount || (stats !== null && stats.embeddedCount >= stats.totalMessages)}
+          className="bg-bg-tertiary text-text-primary border border-border-primary"
+        >
+          {statusText.startsWith("Indexing") ? statusText : "Index Unembedded"}
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleReindexAll}
+          disabled={isProcessing || !activeAccount}
+          className="bg-bg-tertiary text-text-primary border border-border-primary"
+        >
+          {statusText.startsWith("Re-indexing") ? statusText : "Re-index All"}
+        </Button>
+        {statusText !== "idle" && (
+          <span className="text-xs text-text-tertiary">{statusText}</span>
+        )}
+      </div>
     </div>
   );
 }

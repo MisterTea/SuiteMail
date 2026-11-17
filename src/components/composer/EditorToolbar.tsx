@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { InputDialog } from "@/components/ui/InputDialog";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Calendar } from "lucide-react";
+import { ShareAvailabilityModal } from "./ShareAvailabilityModal";
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -12,6 +13,7 @@ interface EditorToolbarProps {
 export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: EditorToolbarProps) {
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
 
   if (!editor) return null;
 
@@ -86,6 +88,16 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
 
       <div className="flex-1" />
 
+      <button
+        type="button"
+        onClick={() => setShowAvailabilityModal(true)}
+        title="Share Availability (Calendar Slots)"
+        className="px-1.5 py-1 text-xs rounded hover:bg-bg-hover transition-colors flex items-center gap-1 text-text-secondary"
+      >
+        <Calendar size={12} />
+        <span>Slots</span>
+      </button>
+
       {onToggleAiAssist && (
         <button
           type="button"
@@ -113,6 +125,11 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
         title="Insert Link"
         fields={[{ key: "url", label: "URL", placeholder: "https://..." }]}
         submitLabel="Insert"
+      />
+      <ShareAvailabilityModal
+        isOpen={showAvailabilityModal}
+        onClose={() => setShowAvailabilityModal(false)}
+        editor={editor}
       />
     </div>
   );

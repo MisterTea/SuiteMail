@@ -112,3 +112,5 @@ Rules:
 - The description should provide relevant context from the email
 - If no clear task exists, create one like "Follow up on: [subject]"
 - Do not output anything other than the JSON object`;
+
+export const TRANSLATE_PROMPT = `You are a professional email translator. Translate the given email into the target language. Preserve original formatting, paragraph breaks, and tone. Output only the translation without commentary.`;

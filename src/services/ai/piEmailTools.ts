@@ -143,6 +143,27 @@ export const PI_EMAIL_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "semantic_search_emails",
+      description: "Perform semantic vector search to find emails by meaning, concept, or topic when exact keywords or synonyms may differ. Returns the most semantically relevant messages with similarity scores.",
+      parameters: {
+        type: "object",
+        properties: {
+          concept: {
+            type: "string",
+            description: "The concept, topic, or question to semantically match against emails.",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of results to return (default 5, max 15).",
+          },
+        },
+        required: ["concept"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_thread",
       description: "Retrieve the complete email thread history and message bodies for a specific thread ID.",
       parameters: {
@@ -312,6 +333,49 @@ export async function executePiEmailTool(
         .join("\n\n");
 
       return { text: formatted, sourceMessages: rows };
+    }
+
+    case "semantic_search_emails": {
+      const concept = typeof args.concept === "string" ? args.concept.trim() : "";
+      if (!concept) {
+        return { text: "Error: concept is required for semantic search." };
+      }
+      const limit = Math.min(Math.max(1, typeof args.limit === "number" ? args.limit : 5), 15);
+      const { searchSimilarMessages } = await import("./embeddingService");
+      const results = await searchSimilarMessages(accountId, concept, limit);
+
+      if (results.length === 0) {
+        return { text: `No semantically similar emails found for concept: "${concept}". Try keyword search with search_emails.` };
+      }
+
+      const formatted = results
+        .map((r, i) => {
+          const date = new Date(r.date > 1e11 ? r.date : r.date * 1000);
+          const dateStr = date.toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          const sender = r.fromName
+            ? `${r.fromName} <${r.fromAddress}>`
+            : (r.fromAddress ?? "Unknown");
+          return `[${i + 1}] Similarity: ${Math.round(r.similarityScore * 100)}% | Message ID: ${r.messageId} | Thread ID: ${r.threadId}\nFrom: ${sender}\nDate: ${dateStr}\nSubject: ${r.subject}\nSnippet: ${r.snippet ?? "(no preview)"}`;
+        })
+        .join("\n\n");
+
+      const sourceMessages: SearchResult[] = results.map((r) => ({
+        message_id: r.messageId,
+        account_id: accountId,
+        thread_id: r.threadId,
+        subject: r.subject,
+        from_name: r.fromName,
+        from_address: r.fromAddress,
+        snippet: r.snippet,
+        date: r.date,
+        rank: -r.similarityScore,
+      }));
+
+      return { text: formatted, sourceMessages, data: results };
     }
 
     case "get_thread": {

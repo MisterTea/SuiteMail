@@ -869,6 +869,10 @@ export async function imapInitialSync(
   // Only mark sync as complete if messages were stored OR no messages exist on server.
   if (storedCount > 0 || totalMessagesFound === 0) {
     await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
+    // Fire-and-forget vector embedding for new messages
+    import("@/services/ai/embeddingIndexer")
+      .then(({ indexBatchForAccount }) => indexBatchForAccount(accountId, 100))
+      .catch((err) => console.error("Embedding indexing error:", err));
   } else {
     console.warn(
       `[imapSync] Found ${totalMessagesFound} messages on server but stored 0 — NOT marking sync as complete so it will be retried`,
@@ -1163,6 +1167,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   // Update sync state timestamp
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
+
+  // Fire-and-forget vector embedding for new messages
+  import("@/services/ai/embeddingIndexer")
+    .then(({ indexBatchForAccount }) => indexBatchForAccount(accountId, 50))
+    .catch((err) => console.error("Embedding indexing error:", err));
 
   return { messages: storedMessages };
 }
