@@ -1,11 +1,44 @@
 import {
   getPendingScheduledEmails,
   updateScheduledEmailStatus,
+  insertScheduledEmail,
 } from "../db/scheduledEmails";
 import { getGmailClient } from "../gmail/tokenManager";
 import { buildRawEmail, type EmailAttachment } from "@/utils/emailBuilder";
 import { getAccount } from "../db/accounts";
 import { createBackgroundChecker } from "../backgroundCheckers";
+
+export function calculateNextScheduledOccurrence(
+  currentTimestamp: number,
+  rule: string,
+): number {
+  const date = new Date(currentTimestamp * 1000);
+  switch (rule.toLowerCase()) {
+    case "daily": {
+      date.setDate(date.getDate() + 1);
+      break;
+    }
+    case "weekdays": {
+      do {
+        date.setDate(date.getDate() + 1);
+      } while (date.getDay() === 0 || date.getDay() === 6);
+      break;
+    }
+    case "weekly": {
+      date.setDate(date.getDate() + 7);
+      break;
+    }
+    case "monthly": {
+      date.setMonth(date.getMonth() + 1);
+      break;
+    }
+    default: {
+      date.setDate(date.getDate() + 7);
+      break;
+    }
+  }
+  return Math.floor(date.getTime() / 1000);
+}
 
 /**
  * Check for scheduled emails that are ready to be sent.
@@ -53,6 +86,28 @@ async function checkScheduledEmails(): Promise<void> {
 
       await client.sendMessage(raw, email.thread_id ?? undefined);
       await updateScheduledEmailStatus(email.id, "sent");
+
+      // Auto-schedule next occurrence if recurring
+      if (email.recurrence_rule && email.recurrence_rule !== "none") {
+        const nextTimestamp = calculateNextScheduledOccurrence(
+          email.scheduled_at,
+          email.recurrence_rule,
+        );
+        await insertScheduledEmail({
+          accountId: email.account_id,
+          toAddresses: email.to_addresses,
+          ccAddresses: email.cc_addresses,
+          bccAddresses: email.bcc_addresses,
+          subject: email.subject,
+          bodyHtml: email.body_html,
+          replyToMessageId: email.reply_to_message_id,
+          threadId: email.thread_id,
+          scheduledAt: nextTimestamp,
+          signatureId: email.signature_id,
+          attachmentPaths: email.attachment_paths,
+          recurrenceRule: email.recurrence_rule,
+        });
+      }
     } catch (err) {
       console.error(`Failed to send scheduled email ${email.id}:`, err);
       // Distinguish transient vs permanent errors

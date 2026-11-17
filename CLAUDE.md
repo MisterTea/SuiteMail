@@ -56,7 +56,7 @@ Tauri v2 desktop app: Rust backend + React 19 frontend communicating via Tauri I
    - `followup/` — `followupManager.ts` checks for follow-up reminders (threads with no reply after user-set delay).
    - `bundles/` — `bundleManager.ts` manages newsletter bundling with delivery schedules.
    - `notifications/` — `notificationManager.ts` provides OS notifications via tauri-plugin-notification with VIP sender filtering.
-   - `contacts/` — `gravatar.ts` fetches Gravatar profile images for contacts.
+   - `contacts/` — `gravatar.ts` fetches Gravatar profile images for contacts. `contactsSync.ts` handles two-way contact sync via Google People API and CardDAV. `vcardParser.ts` parses and formats vCard payloads.
    - `attachments/` — `cacheManager.ts` handles local attachment caching with size limits. `preCacheManager.ts` background pre-caches recent small attachments (<5MB, 7 days) every 15 minutes.
    - `unsubscribe/` — `unsubscribeManager.ts` handles one-click unsubscribe (RFC 8058 List-Unsubscribe-Post and mailto: fallback).
    - `quickSteps/` — Custom action chain executor with 18 action types. `executor.ts` runs action sequences on threads. `defaults.ts` provides preset templates. `types.ts` defines action chain schema.
@@ -64,16 +64,16 @@ Tauri v2 desktop app: Rust backend + React 19 frontend communicating via Tauri I
    - `tasks/` — `taskManager.ts` handles recurring task logic: `parseRecurrenceRule`, `calculateNextOccurrence` (daily/weekly/monthly/yearly), `handleRecurringTaskCompletion` (completes current, creates next).
    - `smartLabels/` — AI-powered auto-labeling. `smartLabelService.ts` two-phase matching (criteria fast path + AI classification). `smartLabelManager.ts` sync integration orchestrator. `backfillService.ts` batch-applies to existing inbox emails.
    - Root-level services: `emailActions.ts` (centralized offline-aware email action service — optimistic UI, local DB updates, offline queueing), `badgeManager.ts` (taskbar badge count), `deepLinkHandler.ts` (`mailto:` protocol handling), `globalShortcut.ts` (system-wide compose shortcut).
-   - `utils/` — Sanitization, tracking pixel detection, package/flight tracking code detection, natural language date-time detection, MBOX/EML export formatting (`mailboxExport.ts`).
+   - `utils/` — Sanitization, tracking pixel detection, package/flight tracking code detection, natural language date-time detection, MBOX/EML export formatting (`mailboxExport.ts`), CSV mail merge campaign parsing and interpolation (`csvMailMerge.ts`).
 
 3. **UI layer** (`src/components/`, `src/stores/`): Nine Zustand stores (`uiStore`, `accountStore`, `threadStore`, `composerStore`, `labelStore`, `contextMenuStore`, `shortcutStore`, `smartFolderStore`, `taskStore`) — simple synchronous state, no middleware. Components subscribe directly via hooks.
 
 ### Component organization
 
-14 groups, ~94 component files:
+14 groups, ~96 component files:
 - `layout/` — Sidebar, EmailList, ReadingPane, TitleBar, MobileNavBar (bottom navigation for mobile viewports)
 - `email/` — ThreadView, ThreadCard (with touch swipe actions), MessageItem (with inline AI translation), EmailRenderer, ActionBar, AttachmentList, SnoozeDialog, ContactSidebar, FollowUpDialog, InlineAttachmentPreview, InlineReply, SmartReplySuggestions, ThreadSummary, AuthBadge, AuthWarningBanner, PhishingBanner, LinkConfirmDialog, CategoryTabs, MoveToFolderDialog, CalendarInviteBanner, TrackingPixelBadge, PackageTrackingCard, DetectedEventChip
-- `composer/` — Composer (TipTap v3 rich text editor), AddressInput, EditorToolbar (with Share Availability slot inserter), AttachmentPicker, ScheduleSendDialog, SignatureSelector, TemplatePicker, UndoSendToast, AiAssistPanel, FromSelector, ShareAvailabilityModal
+- `composer/` — Composer (TipTap v3 rich text editor with inline snippet suggestions), AddressInput, EditorToolbar (with Share Availability slot inserter & Mail Merge), AttachmentPicker, ScheduleSendDialog (with recurrence repeat options), SignatureSelector, TemplatePicker, UndoSendToast, AiAssistPanel, FromSelector, ShareAvailabilityModal, MailMergeModal, SnippetSuggestionPopup
 - `search/` — CommandPalette, SearchBar, ShortcutsHelp, AskInbox
 - `settings/` — SettingsPage, FilterEditor, LabelEditor, SignatureEditor, TemplateEditor, ContactEditor, SubscriptionManager, QuickStepEditor, SmartFolderEditor
 - `accounts/` — AddAccount, AddImapAccount, AccountSwitcher, SetupClientId

@@ -86,18 +86,20 @@ export async function deleteContact(id: string): Promise<void> {
 export async function upsertContact(
   email: string,
   displayName: string | null,
+  avatarUrl: string | null = null,
 ): Promise<void> {
   const db = await getDb();
   const id = crypto.randomUUID();
   await db.execute(
-    `INSERT INTO contacts (id, email, display_name, last_contacted_at)
-     VALUES ($1, $2, $3, unixepoch())
+    `INSERT INTO contacts (id, email, display_name, avatar_url, last_contacted_at)
+     VALUES ($1, $2, $3, $4, unixepoch())
      ON CONFLICT(email) DO UPDATE SET
        display_name = COALESCE($3, display_name),
+       avatar_url = COALESCE($4, avatar_url),
        frequency = frequency + 1,
        last_contacted_at = unixepoch(),
        updated_at = unixepoch()`,
-    [id, normalizeEmail(email), displayName],
+    [id, normalizeEmail(email), displayName, avatarUrl],
   );
 }
 

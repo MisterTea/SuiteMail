@@ -833,6 +833,13 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_embeddings_acct ON email_embeddings(account_id);
     `,
   },
+  {
+    version: 27,
+    description: "Add recurrence_rule to scheduled_emails for recurring scheduled sends",
+    sql: `
+      ALTER TABLE scheduled_emails ADD COLUMN recurrence_rule TEXT;
+    `,
+  },
 ];
 
 /**

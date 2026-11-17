@@ -917,6 +917,13 @@ export function SettingsPage() {
                     </p>
                     <SubscriptionManager />
                   </Section>
+
+                  <Section title="Address Book Sync (Google & CardDAV)">
+                    <p className="text-xs text-text-tertiary mb-3">
+                      Synchronize your address book from Google Contacts (People API) or CardDAV servers (iCloud, Fastmail, Nextcloud) to keep recipient auto-complete up to date.
+                    </p>
+                    <ContactsSyncSection />
+                  </Section>
                 </>
               )}
 
@@ -2672,6 +2679,53 @@ function VectorDatabaseSettings() {
         {statusText !== "idle" && (
           <span className="text-xs text-text-tertiary">{statusText}</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ContactsSyncSection() {
+  const [syncing, setSyncing] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncStatus("Syncing contacts...");
+    try {
+      const { syncAllContacts } = await import("@/services/contacts/contactsSync");
+      const { totalSynced } = await syncAllContacts();
+      setSyncStatus(`Successfully synced ${totalSynced} contact${totalSynced === 1 ? "" : "s"}!`);
+      setTimeout(() => setSyncStatus(null), 4000);
+    } catch (err) {
+      console.error("Contacts sync failed:", err);
+      setSyncStatus("Sync failed. Check connection.");
+      setTimeout(() => setSyncStatus(null), 4000);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between py-2 px-3 bg-bg-secondary rounded-lg border border-border-primary text-xs">
+      <div>
+        <div className="font-medium text-text-primary">Two-Way Address Book Sync</div>
+        <p className="text-text-tertiary text-[0.7rem] mt-0.5">
+          Syncs contacts across all connected accounts into your local contact book.
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        {syncStatus && (
+          <span className="text-text-secondary text-[0.7rem]">{syncStatus}</span>
+        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={handleSync}
+          disabled={syncing}
+          className="bg-bg-tertiary text-text-primary border border-border-primary"
+        >
+          {syncing ? "Syncing..." : "Sync Contacts Now"}
+        </Button>
       </div>
     </div>
   );

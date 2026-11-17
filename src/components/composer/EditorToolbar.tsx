@@ -1,8 +1,10 @@
 import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { InputDialog } from "@/components/ui/InputDialog";
-import { Sparkles, Calendar } from "lucide-react";
+import { Sparkles, Calendar, Users } from "lucide-react";
 import { ShareAvailabilityModal } from "./ShareAvailabilityModal";
+import { MailMergeModal } from "./MailMergeModal";
+import { useComposerStore } from "@/stores/composerStore";
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -14,6 +16,8 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+  const [showMailMergeModal, setShowMailMergeModal] = useState(false);
+  const subject = useComposerStore((s) => s.subject);
 
   if (!editor) return null;
 
@@ -98,6 +102,16 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
         <span>Slots</span>
       </button>
 
+      <button
+        type="button"
+        onClick={() => setShowMailMergeModal(true)}
+        title="Mail Merge Campaign from CSV"
+        className="px-1.5 py-1 text-xs rounded hover:bg-bg-hover transition-colors flex items-center gap-1 text-text-secondary"
+      >
+        <Users size={12} />
+        <span>Merge</span>
+      </button>
+
       {onToggleAiAssist && (
         <button
           type="button"
@@ -130,6 +144,12 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
         isOpen={showAvailabilityModal}
         onClose={() => setShowAvailabilityModal(false)}
         editor={editor}
+      />
+      <MailMergeModal
+        isOpen={showMailMergeModal}
+        onClose={() => setShowMailMergeModal(false)}
+        subjectTemplate={subject || ""}
+        bodyHtmlTemplate={editor.getHTML()}
       />
     </div>
   );

@@ -14,6 +14,7 @@ import { AttachmentPicker } from "./AttachmentPicker";
 import { ScheduleSendDialog } from "./ScheduleSendDialog";
 import { SignatureSelector } from "./SignatureSelector";
 import { TemplatePicker } from "./TemplatePicker";
+import { SnippetSuggestionPopup } from "./SnippetSuggestionPopup";
 import { FromSelector } from "./FromSelector";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
@@ -67,8 +68,51 @@ export function Composer() {
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
   const templateShortcutsRef = useRef<DbTemplate[]>([]);
+  const [snippetSuggestions, setSnippetSuggestions] = useState<DbTemplate[]>([]);
+  const [snippetIndex, setSnippetIndex] = useState(0);
+  const snippetTriggerRangeRef = useRef<{ from: number; to: number } | null>(null);
+  const snippetSuggestionsRef = useRef(snippetSuggestions);
+  snippetSuggestionsRef.current = snippetSuggestions;
+  const snippetIndexRef = useRef(snippetIndex);
+  snippetIndexRef.current = snippetIndex;
   const dragCounterRef = useRef(0);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  const applySnippet = useCallback(
+    async (tmpl: DbTemplate, range?: { from: number; to: number }) => {
+      if (!editor) return;
+      const state = useComposerStore.getState();
+      const account = accounts.find((a) => a.id === activeAccountId);
+      const resolved = await interpolateVariables(tmpl.body_html, {
+        recipientEmail: state.to[0],
+        senderEmail: account?.email,
+        senderName: account?.displayName ?? undefined,
+        subject: state.subject || undefined,
+      });
+
+      const targetRange = range ?? snippetTriggerRangeRef.current;
+      if (targetRange && targetRange.from >= 0 && targetRange.to >= targetRange.from) {
+        editor
+          .chain()
+          .focus()
+          .deleteRange(targetRange)
+          .insertContent(resolved)
+          .run();
+      } else {
+        editor.chain().focus().insertContent(resolved).run();
+      }
+
+      if (tmpl.subject && !state.subject) {
+        setSubject(tmpl.subject);
+      }
+      setSnippetSuggestions([]);
+      snippetTriggerRangeRef.current = null;
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- editor reference is stable
+    [accounts, activeAccountId, setSubject],
+  );
+  const applySnippetRef = useRef(applySnippet);
+  applySnippetRef.current = applySnippet;
 
   const editor = useEditor({
     extensions: [
@@ -77,7 +121,7 @@ export function Composer() {
         link: { openOnClick: false },
       }),
       Placeholder.configure({
-        placeholder: "Write your message...",
+        placeholder: "Write your message... (type ;shortcut to expand snippets)",
       }),
       Image.configure({
         inline: true,
@@ -88,45 +132,68 @@ export function Composer() {
     onUpdate: ({ editor: ed }) => {
       useComposerStore.getState().setBodyHtml(ed.getHTML());
 
-      // Check for template shortcut triggers
+      // Check for snippet shortcut triggers
       const templates = templateShortcutsRef.current;
       if (templates.length === 0) return;
 
-      const text = ed.state.doc.textContent;
-      for (const tmpl of templates) {
-        if (!tmpl.shortcut) continue;
-        if (text.endsWith(tmpl.shortcut)) {
-          // Delete the shortcut text and insert template body with variables resolved
-          const { from } = ed.state.selection;
-          const deleteFrom = from - tmpl.shortcut.length;
-          if (deleteFrom >= 0) {
-            const state = useComposerStore.getState();
-            const account = useAccountStore.getState().accounts.find(
-              (a) => a.id === useAccountStore.getState().activeAccountId,
-            );
-            interpolateVariables(tmpl.body_html, {
-              recipientEmail: state.to[0],
-              senderEmail: account?.email,
-              senderName: account?.displayName ?? undefined,
-              subject: state.subject || undefined,
-            }).then((resolved) => {
-              ed.chain()
-                .deleteRange({ from: deleteFrom, to: from })
-                .insertContent(resolved)
-                .run();
-            });
-            if (tmpl.subject && !state.subject) {
-              setSubject(tmpl.subject);
-            }
-          }
-          break;
+      const { from } = ed.state.selection;
+      const textBefore = ed.state.doc.textBetween(Math.max(0, from - 30), from, "\n");
+      const match = textBefore.match(/(?:^|\s)([;/])([a-zA-Z0-9_-]*)$/);
+      if (match && match[1] !== undefined && match[2] !== undefined) {
+        const triggerChar = match[1];
+        const query = match[2].toLowerCase();
+        const triggerLen = triggerChar.length + match[2].length;
+        snippetTriggerRangeRef.current = { from: from - triggerLen, to: from };
+
+        const matched = templates.filter((t) => {
+          if (!t.shortcut) return false;
+          const clean = t.shortcut.replace(/^[;/]/, "").toLowerCase();
+          return clean.startsWith(query);
+        });
+
+        if (matched.length > 0) {
+          setSnippetSuggestions(matched);
+          setSnippetIndex(0);
+          return;
         }
       }
+      setSnippetSuggestions([]);
+      snippetTriggerRangeRef.current = null;
     },
     editorProps: {
       attributes: {
         class:
           "prose prose-sm max-w-none px-4 py-3 min-h-[200px] focus:outline-none text-text-primary",
+      },
+      handleKeyDown: (_view, event) => {
+        const suggestions = snippetSuggestionsRef.current;
+        if (suggestions.length > 0) {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setSnippetIndex((i) => (i + 1) % suggestions.length);
+            return true;
+          }
+          if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setSnippetIndex((i) => (i - 1 + suggestions.length) % suggestions.length);
+            return true;
+          }
+          if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            const tmpl = suggestions[snippetIndexRef.current];
+            if (tmpl) {
+              applySnippetRef.current(tmpl);
+            }
+            return true;
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setSnippetSuggestions([]);
+            snippetTriggerRangeRef.current = null;
+            return true;
+          }
+        }
+        return false;
       },
       handleDrop: (_view, event) => {
         // Prevent TipTap from handling file drops as inline content.
@@ -299,7 +366,7 @@ export function Composer() {
     closeComposer();
   }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
 
-  const handleSchedule = useCallback(async (scheduledAt: number) => {
+  const handleSchedule = useCallback(async (scheduledAt: number, recurrenceRule?: string | null) => {
     if (!activeAccountId || !activeAccount) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
@@ -325,26 +392,9 @@ export function Composer() {
       threadId: state.threadId,
       scheduledAt,
       signatureId: null,
+      attachmentPaths: attachmentData,
+      recurrenceRule: recurrenceRule ?? null,
     });
-
-    // Store attachment data if present
-    if (attachmentData) {
-      // The insertScheduledEmail doesn't have an attachmentPaths param,
-      // so we update it separately via the existing column
-      const { getDb } = await import("@/services/db/connection");
-      const db = await getDb();
-      // Get the most recently inserted scheduled email for this account
-      const rows = await db.select<{ id: string }[]>(
-        "SELECT id FROM scheduled_emails WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
-        [activeAccountId],
-      );
-      if (rows[0]) {
-        await db.execute(
-          "UPDATE scheduled_emails SET attachment_paths = $1 WHERE id = $2",
-          [attachmentData, rows[0].id],
-        );
-      }
-    }
 
     stopAutoSave();
     // Delete the draft if exists
@@ -537,7 +587,15 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="relative flex-1 overflow-y-auto">
+          {snippetSuggestions.length > 0 && (
+            <SnippetSuggestionPopup
+              suggestions={snippetSuggestions}
+              selectedIndex={snippetIndex}
+              onSelect={(tmpl) => applySnippet(tmpl)}
+              onClose={() => setSnippetSuggestions([])}
+            />
+          )}
           <EditorContent editor={editor} />
           {signatureHtml && (
             <div
