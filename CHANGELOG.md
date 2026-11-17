@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.22](https://github.com/MisterTea/SuperMail/compare/velo-v0.4.21...velo-v0.4.22) (2026-11-17)
+
+
+### Features
+
+* add .settings IMAP sidecar sync and store PGP keys in global settings ([7af1630](https://github.com/MisterTea/SuperMail/commit/7af16309893116307ba8265fa5011a79bc336a6f))
+* add Android target support and build desktop + android versions ([d887a64](https://github.com/MisterTea/SuperMail/commit/d887a645739cb0bc7a8e072e315eec3df013e400))
+* add desktop llama server loader, android aicore integration, and live gemma evaluation ([68f68af](https://github.com/MisterTea/SuperMail/commit/68f68afa3aad0689f05e0d16a6be21261418cb83))
+* add Gmail IMAP/SMTP OAuth2 auto-discovery and AI filter suggestion ([4a123b0](https://github.com/MisterTea/SuperMail/commit/4a123b094b655e794d2d77e341a068f37ecaed74))
+* add Pi harness provider with local Gemma 4 E4B and email summary system test ([ec8a98e](https://github.com/MisterTea/SuperMail/commit/ec8a98e75829374f0f8e718ea64484575263c48c))
+* add Pi harness SQLite tool calling agent with FTS5 search and system tests ([1a77136](https://github.com/MisterTea/SuperMail/commit/1a7713698288fe2be388f179d6499ee27f531faa))
+* calendar invites RSVP, vector search agent, mobile ergonomics, tracking detection, and MBOX export ([e4faa5e](https://github.com/MisterTea/SuperMail/commit/e4faa5e84e26dea304cef219f2b6e9dcfd16959a))
+* configure updater endpoint and public key for GitHub releases ([17396a2](https://github.com/MisterTea/SuperMail/commit/17396a2b3ed1a6412cbfae8c82c0cd46b676b145))
+* decouple platform layer for Electron and Web runtime support ([0f42f32](https://github.com/MisterTea/SuperMail/commit/0f42f32d166c3add279c32db1788e6ae71a4bbf2))
+* implement IMAP sidecar sync, PGP keyring, and Automerge CRDT conversation metadata ([55d5902](https://github.com/MisterTea/SuperMail/commit/55d5902f415987c18a64bf73de058472ede53b88))
+* inline text snippets, recurring scheduled sends, CSV mail merge, and CardDAV/Google contacts sync ([aa834fe](https://github.com/MisterTea/SuperMail/commit/aa834fed0c1c531fed35f2833108a532caed90bb))
+* integrate proton-bridge submodule and dedicated proton mail bridge support ([91ef1b5](https://github.com/MisterTea/SuperMail/commit/91ef1b5d0795775c61159e5d04e577a212278436))
+
+
+### Bug Fixes
+
+* bind OAuth server to 127.0.0.1 instead of localhost ([ec47a7a](https://github.com/MisterTea/SuperMail/commit/ec47a7a5095bb5deffc24e9b6812e39107508dbe))
+* improve sync status bar UX ([dc76dd7](https://github.com/MisterTea/SuperMail/commit/dc76dd7e60fec0460a39a4ed5c5427723a52ad32))
+
 ## [0.4.21](https://github.com/avihaymenahem/velo/compare/velo-v0.4.20...velo-v0.4.21) (2026-02-27)
 
 
