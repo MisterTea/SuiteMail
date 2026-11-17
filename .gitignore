@@ -64,6 +64,8 @@ debug-*.mjs
 
 # Coverage
 coverage/
+test-results/
+playwright-report/
 
 # Temporary files
 *.tmp

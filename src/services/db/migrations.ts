@@ -1,6 +1,6 @@
 import { getDb } from "./connection";
 
-const MIGRATIONS = [
+export const MIGRATIONS = [
   {
     version: 1,
     description: "Initial schema",
@@ -824,7 +824,7 @@ const MIGRATIONS = [
  * Split a SQL string into individual statements, correctly handling
  * BEGIN...END blocks (e.g. inside CREATE TRIGGER) that contain semicolons.
  */
-function splitStatements(sql: string): string[] {
+export function splitStatements(sql: string): string[] {
   const statements: string[] = [];
   let current = "";
   let depth = 0;
