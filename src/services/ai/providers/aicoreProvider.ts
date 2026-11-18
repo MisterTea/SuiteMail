@@ -7,9 +7,9 @@ export interface AiCoreStatus {
 }
 
 let instance: AiProviderClient | null = null;
-let currentModel: string = "gemma-4-e4b";
+let currentModel: string = "gemma-4-26b";
 
-export function createAiCoreProvider(model: string = "gemma-4-e4b"): AiProviderClient {
+export function createAiCoreProvider(model: string = "gemma-4-26b"): AiProviderClient {
   if (instance && currentModel === model) {
     return instance;
   }

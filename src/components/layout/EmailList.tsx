@@ -21,13 +21,21 @@ import { useComposerStore } from "@/stores/composerStore";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
-import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
+import { markThreadRead, starThread } from "@/services/emailActions";
+import { BatchActionBar } from "../email/BatchActionBar";
+import { MoveToFolderDialog } from "../email/MoveToFolderDialog";
+import { Trash2, X, Filter, ChevronRight, Package, FolderSearch, Pin, PenSquare, Menu, RotateCcw, Search, RefreshCw } from "lucide-react";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { EmptyState } from "../ui/EmptyState";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
   NoAccountIllustration,
   GenericEmptyIllustration,
+  StarredEmptyIllustration,
+  DraftsEmptyIllustration,
+  SnoozedEmptyIllustration,
+  TrashEmptyIllustration,
 } from "../ui/illustrations";
 
 const PAGE_SIZE = 50;
@@ -52,6 +60,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const setThreads = useThreadStore((s) => s.setThreads);
   const setLoading = useThreadStore((s) => s.setLoading);
   const removeThreads = useThreadStore((s) => s.removeThreads);
+  const updateThread = useThreadStore((s) => s.updateThread);
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -61,6 +70,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
   const userLabels = useLabelStore((s) => s.labels);
   const smartFolders = useSmartFolderStore((s) => s.folders);
+  const [isMoveFolderOpen, setIsMoveFolderOpen] = useState(false);
 
   // Detect smart folder mode
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
@@ -137,18 +147,44 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         threadId: thread.id,
         draftId,
       });
+      // Set initial saved timestamp so resumed draft immediately shows "Saved" status
+      useComposerStore.getState().setLastSavedAt(draftMsg.date ? draftMsg.date * 1000 : Date.now());
     } catch (err) {
       console.error("Failed to open draft:", err);
     }
   }, [activeAccountId, openComposer]);
 
   const handleThreadClick = useCallback((thread: Thread) => {
-    if (activeLabel === "drafts") {
+    if (activeLabel === "drafts" || thread.labelIds.includes("DRAFT")) {
       handleDraftClick(thread);
     } else {
       navigateToThread(thread.id);
     }
   }, [activeLabel, handleDraftClick]);
+
+  const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
+  const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
+
+  const handleEmptyTrash = async () => {
+    if (!activeAccountId || threads.length === 0) return;
+    setIsEmptyingTrash(true);
+    const ids = threads.map((t) => t.id);
+    removeThreads(ids);
+    try {
+      const client = await getGmailClient(activeAccountId);
+      await Promise.all(
+        ids.map(async (id) => {
+          await client.deleteThread(id);
+          await deleteThreadFromDb(activeAccountId, id);
+        }),
+      );
+    } catch (err) {
+      console.error("Empty trash failed:", err);
+    } finally {
+      setIsEmptyingTrash(false);
+      setShowEmptyTrashConfirm(false);
+    }
+  };
 
   const handleBulkDelete = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
@@ -199,6 +235,35 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     }
   };
 
+  const selectedThreads = useMemo(() => {
+    return threads.filter((t) => selectedThreadIds.has(t.id));
+  }, [threads, selectedThreadIds]);
+
+  const allRead = selectedThreads.length > 0 && selectedThreads.every((t) => t.isRead);
+  const allStarred = selectedThreads.length > 0 && selectedThreads.every((t) => t.isStarred);
+
+  const handleBulkMarkRead = useCallback(async (targetRead: boolean) => {
+    if (!activeAccountId || multiSelectCount === 0) return;
+    const ids = [...selectedThreadIds];
+    ids.forEach((id) => updateThread(id, { isRead: targetRead }));
+    try {
+      await Promise.all(ids.map((id) => markThreadRead(activeAccountId, id, [], targetRead)));
+    } catch (err) {
+      console.error("Bulk mark read failed:", err);
+    }
+  }, [activeAccountId, multiSelectCount, selectedThreadIds, updateThread]);
+
+  const handleBulkStar = useCallback(async (targetStar: boolean) => {
+    if (!activeAccountId || multiSelectCount === 0) return;
+    const ids = [...selectedThreadIds];
+    ids.forEach((id) => updateThread(id, { isStarred: targetStar }));
+    try {
+      await Promise.all(ids.map((id) => starThread(activeAccountId, id, [], targetStar)));
+    } catch (err) {
+      console.error("Bulk star failed:", err);
+    }
+  }, [activeAccountId, multiSelectCount, selectedThreadIds, updateThread]);
+
   const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
   const searchQuery = useThreadStore((s) => s.searchQuery);
 
@@ -211,8 +276,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     // Apply read filter
     if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
-    // Category filtering is now server-side (Phase 4) — no client-side filter needed
-    return filtered;
+    // Dock pinned threads cleanly at the top of the list, preserving recency within pinned and unpinned groups
+    return [...filtered].sort((a, b) => {
+      const aPinned = a.isPinned ? 1 : 0;
+      const bPinned = b.isPinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      return b.lastMessageAt - a.lastMessageAt;
+    });
   }, [threads, readFilter, searchThreadIds]);
 
   // Pre-compute bundled category Set for O(1) lookups in filter
@@ -231,6 +301,15 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       return true;
     });
   }, [filteredThreads, activeLabel, activeCategory, categoryMap, bundledCategorySet, heldThreadIds]);
+
+  const pinnedCount = useMemo(
+    () => visibleThreads.filter((t) => t.isPinned).length,
+    [visibleThreads],
+  );
+  const unpinnedCount = useMemo(
+    () => visibleThreads.length - pinnedCount,
+    [visibleThreads, pinnedCount],
+  );
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
     const filteredDbThreads = dbThreads.filter((t) => t.is_filtered === undefined || t.is_filtered === null || t.is_filtered === 1);
@@ -252,6 +331,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           labelIds,
           fromName: t.from_name,
           fromAddress: t.from_address,
+          toAddresses: t.to_addresses ?? null,
           isFiltered: t.is_filtered !== undefined && t.is_filtered !== null ? t.is_filtered === 1 : true,
         };
       }),
@@ -260,13 +340,16 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
+  useEffect(() => {
+    clearSearch();
+  }, [activeAccountId, activeLabel, activeCategory, clearSearch]);
+
   const loadThreads = useCallback(async () => {
     if (!activeAccountId) {
       setThreads([]);
       return;
     }
 
-    clearSearch();
     setLoading(true);
     setHasMore(true);
     try {
@@ -306,7 +389,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoading(false);
     }
-  }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads]);
 
   const loadMore = useCallback(async () => {
     if (!activeAccountId || loadingMore || !hasMore) return;
@@ -487,22 +570,37 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   return (
     <div
       ref={listRef}
-      className={`flex flex-col bg-bg-secondary/50 glass-panel ${
+      className={`relative flex flex-col bg-bg-secondary/50 glass-panel overflow-hidden flex-1 ${
         readingPanePosition === "right"
-          ? "min-w-[240px] shrink-0"
+          ? "w-full md:w-[var(--email-list-width,320px)] min-w-0 md:min-w-[240px] shrink-0"
           : readingPanePosition === "bottom"
             ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
             : "w-full flex-1"
       }`}
-      style={readingPanePosition === "right" && width ? { width } : undefined}
+      style={
+        readingPanePosition === "right" && width
+          ? ({ "--email-list-width": `${width}px` } as React.CSSProperties)
+          : undefined
+      }
     >
-      {/* Search */}
-      <div className="px-3 py-2 border-b border-border-secondary">
-        <SearchBar />
+      {/* Search + Mobile Menu Trigger */}
+      <div className="px-3 py-2 border-b border-border-secondary flex items-center gap-2 bg-bg-secondary/30">
+        <button
+          onClick={() => useUIStore.getState().toggleMobileSidebar()}
+          data-testid="mobile-menu-button"
+          aria-label="Open menu"
+          title="Open menu"
+          className="md:hidden min-w-[44px] min-h-[44px] p-2.5 rounded-xl text-text-secondary hover:text-text-primary hover:bg-bg-hover active:scale-95 active:bg-bg-hover/80 transition-all shrink-0 flex items-center justify-center touch-manipulation cursor-pointer"
+        >
+          <Menu size={20} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <SearchBar />
+        </div>
       </div>
 
       {/* Header */}
-      <div className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
+      <div className="px-4 py-2.5 border-b border-border-primary/80 bg-bg-secondary/40 backdrop-blur-xs flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
@@ -514,14 +612,23 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   ? activeLabel
                   : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
-          <span className="text-xs text-text-tertiary">
-            {filteredThreads.length} conversation{filteredThreads.length !== 1 ? "s" : ""}
+          <span className="text-xs text-text-tertiary flex items-center gap-1.5 mt-0.5">
+            {searchQuery.trim().length > 0 ? (
+              <>
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                <span className="font-medium text-text-secondary">
+                  {filteredThreads.length} {filteredThreads.length === 1 ? "matching conversation" : "matching conversations"}
+                </span>
+              </>
+            ) : (
+              `${filteredThreads.length} conversation${filteredThreads.length !== 1 ? "s" : ""}`
+            )}
           </span>
         </div>
         <select
           value={readFilter}
           onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
-          className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+          className="text-xs bg-bg-primary text-text-secondary px-2.5 py-1 rounded-md border border-border-primary/80 shadow-2xs hover:border-accent/40 focus:ring-1 focus:ring-accent/50 outline-none transition-all cursor-pointer"
         >
           <option value="all">All</option>
           <option value="unread">Unread</option>
@@ -538,57 +645,61 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         />
       )}
 
-      {/* Multi-select action bar */}
-      <CSSTransition nodeRef={multiSelectBarRef} in={multiSelectCount > 0} timeout={150} classNames="slide-down" unmountOnExit>
-        <div ref={multiSelectBarRef} className="px-3 py-2 border-b border-border-primary bg-accent/5 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-text-primary">
-              {multiSelectCount} selected
+      {/* Trash policy banner and empty action */}
+      {activeLabel === "trash" && (
+        <div className="px-3.5 sm:px-4 py-2 sm:py-2.5 bg-red-500/5 dark:bg-red-500/10 border-b border-red-500/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 text-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5 min-w-0 text-text-secondary">
+            <span className="p-1 rounded-md bg-red-500/10 text-red-600 dark:text-red-400 shrink-0">
+              <Trash2 size={15} />
             </span>
-            {multiSelectCount < filteredThreads.length && (
-              <button
-                onClick={selectAll}
-                className="text-xs text-accent hover:text-accent-hover transition-colors"
-              >
-                Select all
-              </button>
-            )}
+            <span className="leading-snug">
+              Messages in Trash for more than 30 days are automatically deleted.
+            </span>
           </div>
-          <div className="flex items-center gap-1">
+          {filteredThreads.length > 0 && (
             <button
-              onClick={handleBulkArchive}
-              title="Archive selected"
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+              onClick={() => setShowEmptyTrashConfirm(true)}
+              className="self-start sm:self-auto shrink-0 font-semibold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 px-3 py-1.5 sm:py-1 rounded-full sm:rounded border border-red-500/25 sm:border-transparent hover:bg-red-500/10 active:bg-red-500/20 active:scale-95 transition-all text-xs touch-manipulation min-h-[38px] sm:min-h-0 flex items-center justify-center cursor-pointer"
             >
-              <Archive size={14} />
+              Empty Trash now
             </button>
-            <button
-              onClick={handleBulkDelete}
-              title="Delete selected"
-              className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
-            >
-              <Trash2 size={14} />
-            </button>
-            <button
-              onClick={handleBulkSpam}
-              title={activeLabel === "spam" ? "Not spam" : "Report spam"}
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            >
-              <Ban size={14} />
-            </button>
-            <button
-              onClick={clearMultiSelect}
-              title="Clear selection"
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            >
-              <X size={14} />
-            </button>
-          </div>
+          )}
         </div>
-      </CSSTransition>
+      )}
+
+      {/* Search query chip / filter summary bar */}
+      {searchQuery.trim().length > 0 && (
+        <div className="px-3.5 py-2 sm:py-1.5 bg-accent/[0.08] dark:bg-accent/[0.12] border-b border-accent/20 flex items-center justify-between gap-2 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-text-tertiary shrink-0 text-xs font-medium hidden sm:inline">Search:</span>
+            <span className="inline-flex items-center gap-1 font-semibold text-accent bg-accent/15 px-2.5 py-1 sm:py-0.5 rounded-full truncate max-w-[160px] sm:max-w-[200px] text-xs shadow-2xs">
+              &ldquo;{searchQuery.trim()}&rdquo;
+            </span>
+            <span
+              data-testid="search-results-badge"
+              className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-bg-secondary text-text-secondary border border-border-secondary/80 shrink-0 shadow-2xs"
+            >
+              {filteredThreads.length} {filteredThreads.length === 1 ? "result" : "results"}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={clearSearch}
+            className="min-h-[36px] sm:min-h-0 px-2.5 py-1 sm:py-0.5 flex items-center gap-1.5 text-xs font-medium text-text-secondary hover:text-text-primary active:scale-95 rounded-lg hover:bg-bg-hover active:bg-bg-hover/80 transition-all shrink-0 touch-manipulation border border-border-secondary/40 sm:border-transparent cursor-pointer"
+            title="Clear search"
+            aria-label="Clear search"
+          >
+            <X size={14} className="sm:w-3 sm:h-3" />
+            <span>Clear</span>
+          </button>
+        </div>
+      )}
 
       {/* Thread list */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className={`flex-1 overflow-y-auto ${multiSelectCount > 0 ? "pb-20" : ""}`}
+      >
         {isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
@@ -598,6 +709,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             activeLabel={activeLabel}
             readFilter={readFilter}
             activeCategory={activeCategory}
+            onClearSearch={clearSearch}
+            onRefresh={loadThreads}
+            isRefreshing={isLoading}
           />
         ) : (
           <>
@@ -659,18 +773,38 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
               );
             })}
             {visibleThreads.map((thread, idx) => {
-              const prevThread = idx > 0 ? filteredThreads[idx - 1] : undefined;
+              const prevThread = idx > 0 ? visibleThreads[idx - 1] : undefined;
+              const isFirstPinned = idx === 0 && thread.isPinned;
               const showDivider = prevThread?.isPinned && !thread.isPinned;
               return (
                 <div
                   key={thread.id}
                   data-thread-id={thread.id}
-                  className={idx < 15 ? "stagger-in" : undefined}
+                  className={`transition-all duration-200 ease-out ${thread.isPinned ? "bg-accent/[0.02]" : ""} ${idx < 15 ? "stagger-in" : ""}`}
                   style={idx < 15 ? { animationDelay: `${idx * 30}ms` } : undefined}
                 >
+                  {isFirstPinned && (
+                    <div className="sticky top-0 z-10 flex items-center justify-between px-3.5 sm:px-4 py-2 text-[11px] font-bold text-accent uppercase tracking-wider bg-accent/10 dark:bg-accent/15 backdrop-blur-md border-b border-accent/20 select-none shadow-2xs">
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center shrink-0">
+                          <Pin size={11} className="fill-current -rotate-45 text-accent pin-animate" />
+                        </div>
+                        <span>Pinned</span>
+                      </div>
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-accent/20 dark:bg-accent/30 text-accent border border-accent/25 shadow-2xs">
+                        {pinnedCount}
+                      </span>
+                    </div>
+                  )}
                   {showDivider && (
-                    <div className="px-4 py-1.5 text-xs font-medium text-text-tertiary uppercase tracking-wider bg-bg-tertiary/50 border-b border-border-secondary">
-                      Other emails
+                    <div className="sticky top-0 z-10 flex items-center justify-between px-3.5 sm:px-4 py-2 text-[11px] font-bold text-text-tertiary uppercase tracking-wider bg-bg-secondary/95 dark:bg-bg-secondary/90 backdrop-blur-md border-y border-border-secondary/80 select-none shadow-2xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1.5 h-1.5 rounded-full bg-text-tertiary/60" />
+                        <span>Other emails</span>
+                      </div>
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-bg-primary text-text-tertiary border border-border-secondary/60 shadow-2xs">
+                        {unpinnedCount}
+                      </span>
                     </div>
                   )}
                   <ThreadCard
@@ -698,6 +832,59 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           </>
         )}
       </div>
+
+      {/* Floating Multi-select batch action bar */}
+      <CSSTransition
+        nodeRef={multiSelectBarRef}
+        in={multiSelectCount > 0}
+        timeout={200}
+        classNames="batch-bar"
+        unmountOnExit
+      >
+        <div
+          ref={multiSelectBarRef}
+          className="absolute bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto"
+        >
+          <BatchActionBar
+            selectedCount={multiSelectCount}
+            totalCount={filteredThreads.length}
+            allRead={allRead}
+            allStarred={allStarred}
+            isSpamView={activeLabel === "spam"}
+            onArchive={handleBulkArchive}
+            onDelete={handleBulkDelete}
+            onMarkRead={handleBulkMarkRead}
+            onStar={handleBulkStar}
+            onMoveToFolder={() => setIsMoveFolderOpen(true)}
+            onSpam={handleBulkSpam}
+            onClear={clearMultiSelect}
+            onSelectAll={selectAll}
+          />
+        </div>
+      </CSSTransition>
+
+      {/* Move to folder modal */}
+      {isMoveFolderOpen && (
+        <MoveToFolderDialog
+          isOpen={isMoveFolderOpen}
+          threadIds={[...selectedThreadIds]}
+          onClose={() => {
+            setIsMoveFolderOpen(false);
+            clearMultiSelect();
+          }}
+        />
+      )}
+
+      <ConfirmDialog
+        isOpen={showEmptyTrashConfirm}
+        onClose={() => setShowEmptyTrashConfirm(false)}
+        onConfirm={handleEmptyTrash}
+        title="Empty Trash"
+        message={`Are you sure you want to permanently delete all ${threads.length} conversation${threads.length !== 1 ? "s" : ""} in Trash? This action cannot be undone.`}
+        confirmLabel={isEmptyingTrash ? "Emptying..." : "Empty Trash"}
+        variant="danger"
+        loading={isEmptyingTrash}
+      />
     </div>
   );
 }
@@ -708,15 +895,48 @@ function EmptyStateForContext({
   activeLabel,
   readFilter,
   activeCategory,
+  onClearSearch,
+  onRefresh,
+  isRefreshing,
 }: {
   searchQuery: string | null;
   activeAccountId: string | null;
   activeLabel: string;
   readFilter: string;
   activeCategory: string;
+  onClearSearch?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }) {
-  if (searchQuery) {
-    return <EmptyState illustration={NoSearchResultsIllustration} title="No results found" subtitle="Try a different search term" />;
+  if (searchQuery && searchQuery.trim().length > 0) {
+    const query = searchQuery.trim();
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-text-tertiary px-6 py-12 text-center animate-in fade-in duration-200">
+        <div className="relative mb-4">
+          <NoSearchResultsIllustration size={130} className="opacity-85 drop-shadow-sm" />
+          <div className="absolute -bottom-1 -right-1 w-8 h-8 rounded-full bg-accent/15 border-2 border-bg-primary flex items-center justify-center text-accent shadow-xs">
+            <Search size={15} />
+          </div>
+        </div>
+        <h3 className="text-base sm:text-lg font-semibold text-text-primary max-w-[320px] leading-snug">
+          No emails matching &ldquo;{query}&rdquo;
+        </h3>
+        <p className="text-xs sm:text-sm mt-1.5 max-w-[280px] text-text-tertiary leading-relaxed">
+          No conversations found. Check for typos or try searching with fewer keywords.
+        </p>
+        {onClearSearch && (
+          <button
+            type="button"
+            onClick={onClearSearch}
+            aria-label="Reset search"
+            className="mt-5 min-h-[44px] px-5 py-2.5 text-xs sm:text-sm font-semibold text-white bg-accent hover:bg-accent-hover active:scale-95 rounded-xl shadow-xs transition-all flex items-center justify-center gap-2 touch-manipulation cursor-pointer"
+          >
+            <RotateCcw size={15} />
+            <span>Reset search</span>
+          </button>
+        )}
+      </div>
+    );
   }
   if (readFilter !== "all") {
     return <EmptyState icon={Filter} title={`No ${readFilter} emails`} subtitle="Try changing the filter" />;
@@ -726,29 +946,91 @@ function EmptyStateForContext({
   }
 
   switch (activeLabel) {
-    case "inbox":
+    case "inbox": {
+      const refreshAction = onRefresh ? (
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 text-xs sm:text-sm font-medium text-text-primary bg-bg-secondary hover:bg-bg-hover active:bg-bg-tertiary active:scale-95 border border-border-primary/80 rounded-full shadow-xs transition-all touch-manipulation group disabled:opacity-50 cursor-pointer"
+        >
+          <RefreshCw
+            size={14}
+            className={`text-accent transition-transform group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`}
+          />
+          <span>{isRefreshing ? "Checking for mail..." : "Check for new mail"}</span>
+        </button>
+      ) : undefined;
+
       if (activeCategory !== "All") {
         const categoryMessages: Record<string, { title: string; subtitle: string }> = {
-          Primary: { title: "Primary is clear", subtitle: "No important conversations" },
+          Primary: { title: "Primary is clear", subtitle: "No important conversations — your inbox is clear" },
           Updates: { title: "No updates", subtitle: "Notifications and transactional emails appear here" },
           Promotions: { title: "No promotions", subtitle: "Marketing and promotional emails appear here" },
           Social: { title: "No social emails", subtitle: "Social network notifications appear here" },
           Newsletters: { title: "No newsletters", subtitle: "Newsletters and subscriptions appear here" },
         };
         const msg = categoryMessages[activeCategory];
-        if (msg) return <EmptyState illustration={InboxClearIllustration} title={msg.title} subtitle={msg.subtitle} />;
+        if (msg) {
+          return (
+            <EmptyState
+              illustration={InboxClearIllustration}
+              title={msg.title}
+              subtitle={msg.subtitle}
+              badge="Inbox Zero"
+              action={refreshAction}
+            />
+          );
+        }
       }
-      return <EmptyState illustration={InboxClearIllustration} title="You're all caught up" subtitle="No new conversations" />;
+      return (
+        <EmptyState
+          illustration={InboxClearIllustration}
+          title="You're all caught up"
+          subtitle="No new conversations — enjoy your day!"
+          badge="Inbox Zero"
+          action={refreshAction}
+        />
+      );
+    }
     case "starred":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No starred conversations" subtitle="Star emails to find them here" />;
+      return (
+        <EmptyState
+          illustration={StarredEmptyIllustration}
+          badge="Starred & Flagged"
+          title="No starred conversations"
+          subtitle="Star important emails from your inbox or press 's' to keep them easily accessible here."
+        />
+      );
     case "snoozed":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No snoozed emails" subtitle="Snoozed emails will appear here" />;
+      return <EmptyState illustration={SnoozedEmptyIllustration} title="No snoozed emails" subtitle="Emails you snooze will take a break and return when you're ready" />;
     case "sent":
       return <EmptyState illustration={GenericEmptyIllustration} title="No sent messages" />;
     case "drafts":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No drafts" />;
+      return (
+        <EmptyState
+          illustration={DraftsEmptyIllustration}
+          title="No drafts"
+          subtitle="Drafts you start composing are automatically saved here so you can pick them up anytime."
+          action={
+            <button
+              onClick={() => useComposerStore.getState().openComposer({ mode: "new" })}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md shadow-xs transition-colors hover-lift press-scale"
+            >
+              <PenSquare size={13} />
+              <span>New draft</span>
+            </button>
+          }
+        />
+      );
     case "trash":
-      return <EmptyState illustration={GenericEmptyIllustration} title="Trash is empty" />;
+      return (
+        <EmptyState
+          illustration={TrashEmptyIllustration}
+          title="Trash is empty"
+          subtitle="Items moved to Trash are automatically purged after 30 days"
+        />
+      );
     case "spam":
       return <EmptyState illustration={GenericEmptyIllustration} title="No spam" subtitle="Looking good!" />;
     case "all":

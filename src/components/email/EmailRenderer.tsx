@@ -141,29 +141,74 @@ export function EmailRenderer({
     doc.write(`<!DOCTYPE html>
 <html>
 <head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
   <style>
-    body {
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+    html, body {
       margin: 0;
-      padding: 16px;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      font-size: 14px;
-      line-height: 1.6;
-      color: ${plainTextDark ? "#e5e7eb" : "#1f2937"};
+      padding: 0;
+      width: 100%;
+      -webkit-text-size-adjust: 100%;
+      -moz-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+    }
+    body {
+      padding: ${isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
+      font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.65;
+      color: ${plainTextDark ? "#f1f5f9" : "#0f172a"};
       background: ${htmlDark ? "#f8f9fa" : "transparent"};
       word-wrap: break-word;
       overflow-wrap: break-word;
-      overflow: hidden;
+      overflow-x: auto;
+      touch-action: pan-y pinch-zoom;
     }
-    img { max-width: 100%; height: auto; }
-    a { color: ${plainTextDark ? "#60a5fa" : "#3b82f6"}; }
+    @media (min-width: 640px) {
+      body {
+        padding: ${isPlainText ? "8px 2px 14px 2px" : "16px"};
+        font-size: 14px;
+        line-height: 1.6;
+      }
+    }
+    img {
+      max-width: 100% !important;
+      height: auto !important;
+      object-fit: contain;
+    }
+    table {
+      max-width: 100% !important;
+      border-collapse: collapse;
+    }
+    a {
+      color: ${plainTextDark ? "#818cf8" : "#4338ca"};
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      touch-action: manipulation;
+    }
+    a:hover {
+      text-decoration: underline;
+    }
     blockquote {
-      border-left: 3px solid ${plainTextDark ? "#4b5563" : "#d1d5db"};
+      border-left: 3px solid ${plainTextDark ? "#4b5563" : "#cbd5e1"};
       margin: 8px 0;
       padding: 4px 12px;
-      color: ${plainTextDark ? "#9ca3af" : "#6b7280"};
+      color: ${plainTextDark ? "#9ca3af" : "#64748b"};
     }
-    pre { overflow-x: auto; }
-    table { max-width: 100%; }
+    pre {
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
   </style>
 </head>
 <body>${bodyHtml}</body>
@@ -173,7 +218,11 @@ export function EmailRenderer({
     // Calculate and set height synchronously before paint
     const applyHeight = () => {
       if (!doc.body) return;
-      const h = doc.body.scrollHeight;
+      const h = Math.max(
+        doc.body.scrollHeight,
+        doc.documentElement.scrollHeight,
+        doc.body.offsetHeight,
+      );
       if (h > 0) {
         iframe.style.height = h + "px";
       }
@@ -222,21 +271,21 @@ export function EmailRenderer({
   return (
     <div>
       {blocked && (
-        <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
+        <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
           <ImageOff size={14} className="text-text-tertiary shrink-0" />
           <span className="text-text-secondary">
             Images hidden to protect your privacy.
           </span>
           <button
             onClick={handleLoadImages}
-            className="text-accent hover:text-accent-hover font-medium"
+            className="text-accent hover:text-accent-hover font-semibold min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-md active:bg-accent/15 transition-all touch-manipulation"
           >
             Load images
           </button>
           {senderAddress && accountId && (
             <button
               onClick={handleAlwaysLoad}
-              className="text-accent hover:text-accent-hover font-medium"
+              className="text-accent hover:text-accent-hover font-semibold min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-md active:bg-accent/15 transition-all touch-manipulation"
             >
               Always load from sender
             </button>

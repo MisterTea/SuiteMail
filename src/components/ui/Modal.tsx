@@ -39,10 +39,16 @@ export function Modal({
 
   return createPortal(
     <CSSTransition in={isOpen} timeout={150} classNames="modal" unmountOnExit nodeRef={nodeRef}>
-      <div ref={nodeRef} className={`fixed inset-0 ${zIndex} flex items-center justify-center`} onContextMenu={(e) => e.stopPropagation()}>
-        <div className="absolute inset-0 bg-black/20 glass-backdrop" onClick={onClose} />
+      <div
+        ref={nodeRef}
+        role="dialog"
+        aria-modal="true"
+        className={`fixed inset-0 ${zIndex} flex items-end sm:items-center justify-center p-0 sm:p-4`}
+        onContextMenu={(e) => e.stopPropagation()}
+      >
+        <div className="absolute inset-0 bg-black/40 glass-backdrop transition-opacity" onClick={onClose} />
         <div
-          className={`relative bg-bg-primary border border-border-primary rounded-lg glass-modal ${width}${panelClassName ? ` ${panelClassName}` : ""}`}
+          className={`modal-panel relative bg-bg-primary border border-border-primary rounded-t-2xl sm:rounded-xl glass-modal shadow-2xl w-full sm:w-auto max-w-full sm:max-w-md max-h-[90dvh] overflow-y-auto ${width}${panelClassName ? ` ${panelClassName}` : ""}`}
         >
           {renderHeader !== undefined ? (
             renderHeader
@@ -51,7 +57,8 @@ export function Modal({
               <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
               <button
                 onClick={onClose}
-                className="text-text-tertiary hover:text-text-primary text-lg leading-none"
+                className="w-9 h-9 rounded-lg flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors text-lg leading-none"
+                aria-label="Close"
               >
                 ×
               </button>

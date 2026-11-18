@@ -146,10 +146,11 @@ pub async fn get_llama_server_status(port: Option<u16>) -> Result<LlamaServerInf
 pub async fn aicore_is_available() -> Result<AiCoreStatus, String> {
     #[cfg(target_os = "android")]
     {
-        // On Android, AICore provides Gemma 4 on-device / Gemini Nano
+        // On Android, AICore provides Gemma 4 on-device / Gemini Nano in Max AI mode
         Ok(AiCoreStatus {
             available: true,
             supported_models: vec![
+                "gemma-4-26b".to_string(),
                 "gemma-4-e4b".to_string(),
                 "gemini-nano".to_string(),
             ],
@@ -160,7 +161,10 @@ pub async fn aicore_is_available() -> Result<AiCoreStatus, String> {
     {
         Ok(AiCoreStatus {
             available: false,
-            supported_models: vec!["gemma-4-e4b".to_string()],
+            supported_models: vec![
+                "gemma-4-26b".to_string(),
+                "gemma-4-e4b".to_string(),
+            ],
         })
     }
 }
@@ -173,9 +177,9 @@ pub async fn aicore_generate(
 ) -> Result<String, String> {
     #[cfg(target_os = "android")]
     {
-        // Android AICore on-device inference via system service
-        let _model_name = model.unwrap_or_else(|| "gemma-4-e4b".to_string());
-        log::info!("AICore on-device generation requested: system_len={}, prompt_len={}", system_prompt.len(), prompt.len());
+        // Android AICore on-device inference via system service in Max AI mode
+        let model_name = model.unwrap_or_else(|| "gemma-4-26b".to_string());
+        log::info!("AICore on-device generation requested (max AI mode): model={}, system_len={}, prompt_len={}", model_name, system_prompt.len(), prompt.len());
         
         // When running inside Android, AICore delivers near-instant on-device response
         Ok(format!("AICore on-device response for: {}", prompt))

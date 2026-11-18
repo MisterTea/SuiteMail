@@ -2,11 +2,13 @@ import { useCallback, useRef } from "react";
 import { EmailList } from "./EmailList";
 import { ReadingPane } from "./ReadingPane";
 import { useUIStore } from "@/stores/uiStore";
+import { useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 function ResizableEmailLayout() {
   const emailListWidth = useUIStore((s) => s.emailListWidth);
   const setEmailListWidth = useUIStore((s) => s.setEmailListWidth);
+  const selectedThreadId = useSelectedThreadId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
@@ -38,13 +40,25 @@ function ResizableEmailLayout() {
   }, [emailListWidth, setEmailListWidth]);
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-w-0 flex-row">
-      <EmailList width={emailListWidth} listRef={listRef} />
+    <div ref={containerRef} className="flex flex-1 min-w-0 flex-row pb-14 md:pb-0">
+      <div
+        className={`flex flex-col min-w-0 ${
+          selectedThreadId ? "hidden md:flex" : "flex flex-1 md:flex-initial w-full md:w-auto"
+        }`}
+      >
+        <EmailList width={emailListWidth} listRef={listRef} />
+      </div>
       <div
         onMouseDown={handleMouseDown}
-        className="w-1 cursor-col-resize bg-border-primary hover:bg-accent/50 active:bg-accent transition-colors shrink-0"
+        className="hidden md:block w-1 cursor-col-resize bg-border-primary hover:bg-accent/50 active:bg-accent transition-colors shrink-0"
       />
-      <ReadingPane />
+      <div
+        className={`flex flex-col min-w-0 flex-1 ${
+          selectedThreadId ? "flex w-full" : "hidden md:flex"
+        }`}
+      >
+        <ReadingPane />
+      </div>
     </div>
   );
 }
@@ -61,7 +75,7 @@ export function MailLayout() {
   }
 
   return (
-    <div className={`flex flex-1 min-w-0 ${readingPanePosition === "bottom" ? "flex-col" : "flex-row"}`}>
+    <div className={`flex flex-1 min-w-0 pb-14 md:pb-0 ${readingPanePosition === "bottom" ? "flex-col" : "flex-row"}`}>
       <ErrorBoundary name="EmailList">
         <EmailList />
       </ErrorBoundary>

@@ -104,6 +104,35 @@ function extractTextToolCall(content: string): { toolName: string; args: Record<
 export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentResult> {
   const { question, accountId, maxSteps = 5 } = options;
 
+  // On Android, use AICore with Max AI mode instead of running a local Llama server.
+  // For desktop, continue to use local Llama server.
+  let isAndroid = false;
+  try {
+    const { platform } = await import("@tauri-apps/plugin-os");
+    isAndroid = platform() === "android";
+  } catch {}
+
+  if (isAndroid) {
+    const { createAiCoreProvider } = await import("./providers/aicoreProvider");
+    const aicoreModel = (await getSetting("aicore_model")) ?? "gemma-4-26b";
+    const provider = createAiCoreProvider(aicoreModel);
+    const content = await provider.complete({
+      systemPrompt: PI_AGENT_SYSTEM_PROMPT,
+      userContent: question,
+    });
+    return {
+      answer: content.trim(),
+      sourceMessages: [],
+      toolCallsExecuted: [
+        {
+          tool: "aicore_generate",
+          args: { model: aicoreModel, mode: "max" },
+          output: "Processed on-device via Android AICore (Max AI Mode)",
+        },
+      ],
+    };
+  }
+
   const serverUrl =
     options.serverUrl ??
     (await getSetting("pi_server_url")) ??
@@ -430,6 +459,37 @@ export async function suggestFilterWithPiAgent(
   options: SuggestFilterOptions,
 ): Promise<SuggestFilterResult> {
   const { prompt, accountId, maxSteps = 5 } = options;
+
+  // On Android, use AICore with Max AI mode instead of running a local Llama server.
+  // For desktop, continue to use local Llama server.
+  let isAndroid = false;
+  try {
+    const { platform } = await import("@tauri-apps/plugin-os");
+    isAndroid = platform() === "android";
+  } catch {}
+
+  if (isAndroid) {
+    const { createAiCoreProvider } = await import("./providers/aicoreProvider");
+    const aicoreModel = (await getSetting("aicore_model")) ?? "gemma-4-26b";
+    const provider = createAiCoreProvider(aicoreModel);
+    const content = await provider.complete({
+      systemPrompt: PI_FILTER_AGENT_SYSTEM_PROMPT,
+      userContent: `Please configure an email filter based on this user instruction:\n"${prompt}"`,
+    });
+    const parsedFilter = extractFilterFromContent(content);
+    if (parsedFilter) {
+      return {
+        filter: parsedFilter,
+        toolCallsExecuted: [
+          {
+            tool: "suggest_filter",
+            args: parsedFilter as unknown as Record<string, unknown>,
+            output: "Suggested on-device via Android AICore (Max AI Mode)",
+          },
+        ],
+      };
+    }
+  }
 
   const serverUrl =
     options.serverUrl ??

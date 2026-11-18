@@ -66,6 +66,7 @@ debug-*.mjs
 coverage/
 test-results/
 playwright-report/
+recordings/
 
 # Temporary files
 *.tmp

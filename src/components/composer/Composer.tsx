@@ -4,7 +4,8 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
-import { Clock, Maximize2, Minimize2, ExternalLink } from "lucide-react";
+import { Maximize2, Minimize2, ExternalLink, Reply, ReplyAll, Forward, Users, Send, X, Paperclip, ChevronDown, ChevronUp, Check, Loader2, FileEdit, Trash2 } from "lucide-react";
+import { formatScheduledTime } from "@/utils/date";
 
 import { Button } from "@/components/ui/Button";
 import { AddressInput } from "./AddressInput";
@@ -18,6 +19,8 @@ import { SnippetSuggestionPopup } from "./SnippetSuggestionPopup";
 import { FromSelector } from "./FromSelector";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
+import { useThreadStore } from "@/stores/threadStore";
+import { useToastStore } from "@/stores/toastStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
@@ -45,8 +48,12 @@ export function Composer() {
   const fromEmail = useComposerStore((s) => s.fromEmail);
   const viewMode = useComposerStore((s) => s.viewMode);
   const signatureHtml = useComposerStore((s) => s.signatureHtml);
+  const quotedHtml = useComposerStore((s) => s.quotedHtml);
+  const setQuotedHtml = useComposerStore((s) => s.setQuotedHtml);
   const isSaving = useComposerStore((s) => s.isSaving);
   const lastSavedAt = useComposerStore((s) => s.lastSavedAt);
+  const draftId = useComposerStore((s) => s.draftId);
+  const [showQuote, setShowQuote] = useState(false);
   // Note: bodyHtml intentionally NOT subscribed — TipTap manages its own editor state.
   // Subscribing would cause full re-renders on every keystroke.
   const closeComposer = useComposerStore((s) => s.closeComposer);
@@ -58,6 +65,7 @@ export function Composer() {
   const setFromEmail = useComposerStore((s) => s.setFromEmail);
   const setViewMode = useComposerStore((s) => s.setViewMode);
   const addAttachment = useComposerStore((s) => s.addAttachment);
+  const attachments = useComposerStore((s) => s.attachments);
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
@@ -66,6 +74,7 @@ export function Composer() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAiAssist, setShowAiAssist] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isRecipientsExpanded, setIsRecipientsExpanded] = useState(true);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
   const templateShortcutsRef = useRef<DbTemplate[]>([]);
   const [snippetSuggestions, setSnippetSuggestions] = useState<DbTemplate[]>([]);
@@ -163,7 +172,7 @@ export function Composer() {
     editorProps: {
       attributes: {
         class:
-          "prose prose-sm max-w-none px-4 py-3 min-h-[200px] focus:outline-none text-text-primary",
+          "prose prose-sm max-w-none px-4 py-3 min-h-[220px] pb-32 sm:pb-8 focus:outline-none text-text-primary text-base sm:text-sm leading-relaxed",
       },
       handleKeyDown: (_view, event) => {
         const suggestions = snippetSuggestionsRef.current;
@@ -253,6 +262,23 @@ export function Composer() {
     return () => { stopAutoSave(); };
   }, [isOpen, activeAccountId]);
 
+  // For forwards, expand the quoted email header card by default so user can review what is being forwarded
+  useEffect(() => {
+    if (mode === "forward" && isOpen) {
+      setShowQuote(true);
+    }
+  }, [mode, isOpen]);
+
+  // Synchronize editor content when composer opens with prefilled content
+  useEffect(() => {
+    if (isOpen && editor) {
+      const initialBody = useComposerStore.getState().bodyHtml || "";
+      if (editor.getHTML() !== initialBody) {
+        editor.commands.setContent(initialBody);
+      }
+    }
+  }, [isOpen, editor]);
+
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     dragCounterRef.current++;
@@ -296,9 +322,15 @@ export function Composer() {
 
   const getFullHtml = useCallback(() => {
     const editorHtml = editor?.getHTML() ?? "";
-    if (!signatureHtml) return editorHtml;
-    return `${editorHtml}<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${sanitizeHtml(signatureHtml)}</div>`;
-  }, [editor, signatureHtml]);
+    let finalHtml = editorHtml;
+    if (quotedHtml) {
+      finalHtml += `<br><br>${quotedHtml}`;
+    }
+    if (signatureHtml) {
+      finalHtml += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${sanitizeHtml(signatureHtml)}</div>`;
+    }
+    return finalHtml;
+  }, [editor, quotedHtml, signatureHtml]);
 
   const handleSend = useCallback(async () => {
     if (!activeAccountId || !activeAccount || sendingRef.current) return;
@@ -381,7 +413,7 @@ export function Composer() {
         })))
       : null;
 
-    await insertScheduledEmail({
+    const scheduledId = await insertScheduledEmail({
       accountId: activeAccountId,
       toAddresses: state.to.join(", "),
       ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
@@ -404,20 +436,61 @@ export function Composer() {
       } catch { /* ignore */ }
     }
 
+    // Set rewarding scheduled toast with undo affordance
+    const formatted = formatScheduledTime(scheduledAt);
+    state.setScheduledToast({
+      id: scheduledId,
+      timestamp: scheduledAt,
+      formattedTime: formatted,
+      recipient: state.to.join(", "),
+      subject: state.subject || "(No subject)",
+      recurrenceRule: recurrenceRule ?? null,
+      savedDraft: {
+        to: [...state.to],
+        cc: [...state.cc],
+        bcc: [...state.bcc],
+        subject: state.subject,
+        bodyHtml: html,
+        threadId: state.threadId,
+        inReplyToMessageId: state.inReplyToMessageId,
+      },
+    });
+
     setShowSchedule(false);
     closeComposer();
   }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
     stopAutoSave();
-    // Delete the draft if it was saved
-    const currentDraftId = useComposerStore.getState().draftId;
+    const state = useComposerStore.getState();
+    const currentDraftId = state.draftId;
+    const currentThreadId = state.threadId;
+
     if (currentDraftId && activeAccountId) {
       try {
         await deleteDraftAction(activeAccountId, currentDraftId);
       } catch { /* ignore */ }
     }
+
+    if (currentThreadId) {
+      useThreadStore.getState().removeThreads?.([currentThreadId]);
+      if (activeAccountId) {
+        try {
+          const { deleteThread } = await import("@/services/db/threads");
+          await deleteThread(activeAccountId, currentThreadId);
+        } catch { /* ignore */ }
+      }
+    }
+
     closeComposer();
+
+    useToastStore.getState().showToast({
+      message: "Draft discarded",
+      icon: <Trash2 size={15} className="text-red-500 shrink-0" aria-hidden="true" />,
+    });
+
+    window.dispatchEvent(new CustomEvent("velo-sync-done"));
+    window.dispatchEvent(new CustomEvent("draft-count-changed"));
   }, [activeAccountId, closeComposer]);
 
   const handlePopOutComposer = useCallback(async () => {
@@ -463,24 +536,9 @@ export function Composer() {
 
   const isFullpage = viewMode === "fullpage";
 
-  const modeLabel =
-    mode === "reply"
-      ? "Reply"
-      : mode === "replyAll"
-        ? "Reply All"
-        : mode === "forward"
-          ? "Forward"
-          : "New Message";
-
-  const savedLabel = isSaving
-    ? "Saving..."
-    : lastSavedAt
-      ? "Draft saved"
-      : null;
-
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} className={`fixed inset-0 z-50 flex ${isFullpage ? "items-stretch justify-center p-4" : "items-end justify-center pb-4"} pointer-events-none`}>
+    <div ref={overlayRef} className={`fixed inset-0 z-[60] flex ${isFullpage ? "items-stretch justify-center p-0 sm:p-4" : "items-end justify-center pb-0 sm:pb-4"} pointer-events-none`}>
       {/* Backdrop */}
       <div
         className="absolute inset-0 pointer-events-auto backdrop-animate"
@@ -489,87 +547,280 @@ export function Composer() {
 
       {/* Composer window */}
       <div
-        className={`relative bg-bg-primary border rounded-lg glass-modal pointer-events-auto flex flex-col slide-up-panel ${
-          isFullpage ? "w-full h-full max-w-5xl" : "w-full max-w-2xl max-h-[80vh]"
-        } ${isDragging ? "border-accent border-2" : "border-border-primary"}`}
+        className={`relative bg-bg-primary border rounded-t-2xl sm:rounded-2xl pb-0 glass-modal pointer-events-auto flex flex-col slide-up-panel shadow-2xl shadow-black/15 dark:shadow-black/45 overflow-hidden ${
+          isFullpage ? "w-full h-full max-w-5xl" : "w-full max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[82vh]"
+        } ${isDragging ? "border-accent ring-2 ring-accent/30" : "border-border-primary/80 dark:border-white/10 ring-1 ring-black/[0.04] dark:ring-white/[0.06]"}`}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
+        {/* Mobile Drag Indicator Handle */}
+        <div className="w-10 h-1 bg-border-primary/70 dark:bg-white/20 rounded-full mx-auto mt-2 -mb-1 sm:hidden shrink-0" aria-hidden="true" />
         {isDragging && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-accent/10 rounded-lg pointer-events-none">
-            <span className="text-sm font-medium text-accent">Drop files to attach</span>
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-bg-primary/90 dark:bg-bg-primary/95 backdrop-blur-md rounded-2xl pointer-events-none p-6 animate-in fade-in zoom-in-95 duration-150 border-2 border-dashed border-accent m-2">
+            <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center text-accent mb-3 shadow-inner">
+              <Paperclip size={28} className="animate-bounce" />
+            </div>
+            <span className="text-base font-semibold text-text-primary">Drop files to attach</span>
+            <span className="text-xs text-text-tertiary mt-1">Files up to 24MB will be attached directly</span>
           </div>
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-border-primary bg-bg-secondary rounded-t-lg">
-          <span className="text-sm font-medium text-text-primary">
-            {modeLabel}
-          </span>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md">
+          <div className="flex items-center gap-2">
+            {mode === "replyAll" ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+                  <ReplyAll size={16} className="text-accent shrink-0" />
+                  Reply All
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setIsRecipientsExpanded((prev) => !prev)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-accent/10 hover:bg-accent/20 active:scale-95 text-accent border border-accent/20 transition-all cursor-pointer touch-manipulation"
+                  title={isRecipientsExpanded ? "Collapse recipient details" : "Expand all recipients"}
+                  aria-expanded={isRecipientsExpanded}
+                >
+                  <Users size={12} className="shrink-0" />
+                  <span>{to.length + cc.length + bcc.length} {to.length + cc.length + bcc.length === 1 ? "recipient" : "recipients"}</span>
+                  <ChevronDown size={12} className={`transition-transform duration-200 ${isRecipientsExpanded ? "rotate-180" : ""}`} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (to.length > 0 && to[0]) setTo([to[0]]);
+                    setCc([]);
+                    useComposerStore.setState({ mode: "reply" });
+                  }}
+                  className="text-[11px] text-text-tertiary hover:text-accent font-normal underline-offset-2 hover:underline transition-colors ml-1 hidden sm:inline"
+                  title="Switch to single reply"
+                >
+                  (Switch to single reply)
+                </button>
+              </div>
+            ) : mode === "reply" ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+                  <Reply size={16} className="text-accent shrink-0" />
+                  Reply
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-accent/10 text-accent border border-accent/20">
+                  to sender
+                </span>
+              </div>
+            ) : mode === "forward" ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
+                  <Forward size={16} className="text-accent shrink-0" />
+                  Forward Email
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-full bg-accent/15 text-accent border border-accent/25">
+                  Original message
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold text-text-primary tracking-tight">
+                  New Message
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wider rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 shadow-2xs">
+                  <FileEdit size={10} className="shrink-0 stroke-[2.2]" />
+                  Draft
+                </span>
+              </div>
+            )}
+            {draftId && mode !== "new" && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wider rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 shadow-2xs">
+                <FileEdit size={10} className="shrink-0 stroke-[2.2]" />
+                Draft
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setViewMode(isFullpage ? "modal" : "fullpage")}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
+              className="hidden sm:flex text-text-tertiary hover:text-text-primary p-1.5 items-center justify-center rounded-md hover:bg-bg-hover/80 transition-all duration-150 active:scale-95 cursor-pointer"
               title={isFullpage ? "Collapse" : "Expand"}
             >
-              {isFullpage ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+              {isFullpage ? <Minimize2 size={16} className="sm:w-3.5 sm:h-3.5" /> : <Maximize2 size={16} className="sm:w-3.5 sm:h-3.5" />}
             </button>
             <button
               onClick={handlePopOutComposer}
-              className="text-text-tertiary hover:text-text-primary p-1 rounded transition-colors"
+              className="hidden sm:flex text-text-tertiary hover:text-text-primary p-1.5 items-center justify-center rounded-md hover:bg-bg-hover/80 transition-all duration-150 active:scale-95 cursor-pointer"
               title="Open in new window"
             >
               <ExternalLink size={14} />
             </button>
             <button
               onClick={closeComposer}
-              className="text-text-tertiary hover:text-text-primary text-lg leading-none p-1"
+              className="text-text-tertiary hover:text-danger hover:bg-danger/10 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 flex items-center justify-center rounded-full sm:rounded-md transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer"
+              title="Close"
+              aria-label="Close"
             >
-              ×
+              <X size={18} className="sm:w-[15px] sm:h-[15px]" />
             </button>
           </div>
         </div>
 
         {/* Address fields */}
-        <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary">
+        <div className="px-4 py-2 border-b border-border-secondary/60 bg-bg-primary/50 transition-all">
           <FromSelector
             aliases={aliases}
             selectedEmail={fromEmail ?? activeAccount?.email ?? ""}
             onChange={(alias) => setFromEmail(alias.email)}
           />
-          <AddressInput label="To" addresses={to} onChange={setTo} />
-          {showCcBcc ? (
-            <>
-              <AddressInput label="Cc" addresses={cc} onChange={setCc} />
-              <AddressInput label="Bcc" addresses={bcc} onChange={setBcc} />
-            </>
+
+          {/* Compact recipient summary row when collapsed on mobile */}
+          {!isRecipientsExpanded && (to.length + cc.length > 1) ? (
+            <div className="flex items-center justify-between gap-2 py-1 min-h-[40px]">
+              <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto scrollbar-none py-0.5">
+                <span className="text-xs font-semibold text-text-tertiary w-8 shrink-0 select-none">To</span>
+                {to[0] && (
+                  <span className="inline-flex items-center gap-1.5 bg-bg-secondary text-text-primary text-xs pl-1.5 pr-2.5 py-1 rounded-full border border-border-primary shrink-0 max-w-[200px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                    <span className="truncate">{to[0]}</span>
+                  </span>
+                )}
+                {to.length > 1 && (
+                  <span className="text-[11px] font-medium text-text-secondary px-2 py-1 rounded-full bg-bg-secondary border border-border-secondary shrink-0">
+                    +{to.length - 1} more
+                  </span>
+                )}
+                {cc.length > 0 && (
+                  <span className="text-[11px] font-medium text-accent px-2 py-1 rounded-full bg-accent/10 border border-accent/20 shrink-0 flex items-center gap-1">
+                    <span>Cc:</span>
+                    <span className="truncate max-w-[120px]">{cc[0]}</span>
+                    {cc.length > 1 ? ` (+${cc.length - 1})` : ""}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecipientsExpanded(true)}
+                className="text-xs text-accent font-semibold px-2.5 py-1 rounded-lg bg-accent/10 hover:bg-accent/20 active:scale-95 shrink-0 transition-all cursor-pointer min-h-[36px] flex items-center gap-1 touch-manipulation"
+                title="Expand full recipient list"
+              >
+                <span>Edit</span>
+                <ChevronDown size={12} />
+              </button>
+            </div>
           ) : (
-            <button
-              onClick={() => setShowCcBcc(true)}
-              className="text-xs text-accent hover:text-accent-hover ml-10"
-            >
-              Cc / Bcc
-            </button>
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <AddressInput
+                    label="To"
+                    addresses={to}
+                    onChange={setTo}
+                    autoFocus={mode === "forward" || (mode === "new" && to.length === 0)}
+                    placeholder={mode === "forward" ? "Enter recipient to forward to..." : "Add recipients..."}
+                    isForwardMode={mode === "forward"}
+                  />
+                </div>
+                <div className="flex items-center gap-1 shrink-0 mt-0.5">
+                  {!showCcBcc && (
+                    <button
+                      type="button"
+                      onClick={() => setShowCcBcc(true)}
+                      className="text-xs text-accent hover:text-accent-hover font-medium px-2 py-1.5 rounded-md hover:bg-accent/10 transition-colors cursor-pointer min-h-[36px] sm:min-h-0 flex items-center touch-manipulation"
+                    >
+                      Cc / Bcc
+                    </button>
+                  )}
+                  {(to.length + cc.length > 1) && (
+                    <button
+                      type="button"
+                      onClick={() => setIsRecipientsExpanded(false)}
+                      className="text-xs text-text-tertiary hover:text-text-primary px-2 py-1.5 rounded-md hover:bg-bg-hover transition-colors cursor-pointer min-h-[36px] sm:min-h-0 flex items-center gap-0.5 touch-manipulation"
+                      title="Collapse to compact view"
+                      aria-label="Collapse recipient list"
+                    >
+                      <ChevronUp size={13} />
+                      <span className="hidden sm:inline">Compact</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+              {showCcBcc && (
+                <div className="pt-2 border-t border-border-secondary/60 bg-bg-secondary/35 -mx-4 px-4 py-2 space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <AddressInput label="Cc" addresses={cc} onChange={setCc} />
+                    </div>
+                    {cc.length === 0 && bcc.length === 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowCcBcc(false)}
+                        className="text-[11px] text-text-tertiary hover:text-text-primary px-1.5 py-1 rounded hover:bg-bg-hover transition-colors shrink-0 cursor-pointer min-h-[36px] sm:min-h-0 flex items-center touch-manipulation"
+                        title="Hide Cc and Bcc"
+                      >
+                        Hide
+                      </button>
+                    )}
+                  </div>
+                  <AddressInput label="Bcc" addresses={bcc} onChange={setBcc} />
+                </div>
+              )}
+            </div>
           )}
         </div>
 
         {/* Subject */}
-        <div className="px-3 py-1.5 border-b border-border-secondary">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-text-tertiary w-8 shrink-0">
-              Sub
+        <div className="px-4 py-2 border-b border-border-secondary/60 bg-bg-primary/30">
+          <div className="flex items-center gap-2 group">
+            <span className="text-xs font-medium text-text-tertiary w-12 shrink-0 select-none transition-colors group-focus-within:text-accent">
+              Subject
             </span>
+            {(mode === "forward" || subject.toLowerCase().startsWith("fwd:")) && (
+              <span
+                data-testid="forward-subject-badge"
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold tracking-wider uppercase bg-accent/15 text-accent border border-accent/25 shrink-0 shadow-2xs select-none"
+                title="Forwarded email subject"
+              >
+                <Forward size={10} className="stroke-[2.5]" />
+                Fwd
+              </span>
+            )}
             <input
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="Subject"
-              className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
+              className="flex-1 bg-transparent text-base sm:text-sm font-medium text-text-primary outline-none placeholder:text-text-tertiary/70 py-0.5"
             />
           </div>
         </div>
+
+        {/* Forward context banner */}
+        {mode === "forward" && (
+          <div
+            data-testid="forward-banner"
+            className="flex items-center justify-between px-4 py-2 bg-accent/10 dark:bg-accent/15 border-b border-accent/20 text-xs shadow-2xs"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-accent text-white shadow-2xs shrink-0">
+                <Forward size={11} className="stroke-[2.5]" />
+              </span>
+              <div className="min-w-0">
+                <div className="font-semibold text-text-primary flex items-center gap-1.5 flex-wrap">
+                  <span>Forwarding message</span>
+                  <span className="text-[11px] font-normal text-text-tertiary hidden sm:inline">• Quoted email details preserved below</span>
+                </div>
+                <div className="text-[11px] text-text-secondary truncate sm:hidden">
+                  Original headers & attachments preserved
+                </div>
+              </div>
+            </div>
+            {attachments.length > 0 && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-bg-primary/95 dark:bg-bg-secondary/95 border border-accent/30 rounded-full text-[11px] text-accent font-semibold shadow-2xs shrink-0 ml-2">
+                <Paperclip size={11} className="text-accent" />
+                {attachments.length} {attachments.length === 1 ? "file" : "files"}
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Editor toolbar */}
         <EditorToolbar
@@ -587,7 +838,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className="relative flex-1 overflow-y-auto">
+        <div className="relative flex-1 overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth">
           {snippetSuggestions.length > 0 && (
             <SnippetSuggestionPopup
               suggestions={snippetSuggestions}
@@ -597,6 +848,70 @@ export function Composer() {
             />
           )}
           <EditorContent editor={editor} />
+          {/* Collapsible Quoted Context for replies/forwards */}
+          {quotedHtml && (
+            <div data-testid="quoted-headers-container" className="border-t border-border-secondary/60">
+              {!showQuote ? (
+                <div className="bg-bg-secondary/25 flex items-center justify-between text-xs text-text-tertiary">
+                  <button
+                    type="button"
+                    onClick={() => setShowQuote(true)}
+                    className="flex-1 min-h-[48px] sm:min-h-[36px] px-4 py-2 flex items-center gap-2 hover:text-text-secondary active:bg-bg-secondary/60 transition-colors text-left group cursor-pointer touch-manipulation"
+                    title={mode === "forward" ? "Show forwarded email details" : "Show quoted text"}
+                    aria-expanded={false}
+                  >
+                    <span className="font-mono text-[11px] px-2 py-0.5 rounded-md bg-bg-secondary border border-border-secondary text-text-secondary group-hover:border-accent/40 font-medium shrink-0">···</span>
+                    <span className="font-medium text-text-secondary">
+                      {mode === "forward" ? "Show forwarded email details" : "Show quoted text"}
+                    </span>
+                    <span className="text-[11px] text-text-tertiary hidden sm:inline">
+                      {mode === "forward" ? "• Preserved email headers and body" : "• Previous conversation context"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuotedHtml(null)}
+                    className="min-h-[48px] sm:min-h-[36px] px-4 text-[11px] sm:text-xs text-text-tertiary hover:text-danger active:bg-red-500/10 transition-colors cursor-pointer touch-manipulation flex items-center justify-center shrink-0"
+                    title="Remove quoted text"
+                  >
+                    Remove quote
+                  </button>
+                </div>
+              ) : (
+                <div className="px-4 py-3 bg-bg-secondary/40 animate-in fade-in duration-150">
+                  <div className="flex items-center justify-between mb-2 text-[11px] text-text-tertiary">
+                    <span className="font-semibold text-text-secondary tracking-wide uppercase text-[10px] flex items-center gap-1.5">
+                      {mode === "forward" && <Forward size={11} className="text-accent stroke-[2.5]" />}
+                      {mode === "forward" ? "Forwarded Message Details" : "Quoted Message Context"}
+                    </span>
+                    <div className="flex items-center gap-1 sm:gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowQuote(false)}
+                        className="min-h-[44px] sm:min-h-[32px] px-3 text-xs text-text-secondary hover:text-text-primary flex items-center gap-1 transition-all active:scale-95 cursor-pointer touch-manipulation rounded-lg"
+                        title="Collapse quoted text"
+                        aria-expanded={true}
+                      >
+                        <ChevronUp size={13} /> Hide
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setQuotedHtml(null)}
+                        className="min-h-[44px] sm:min-h-[32px] px-3 text-xs text-text-tertiary hover:text-danger active:bg-red-500/10 transition-all active:scale-95 cursor-pointer touch-manipulation rounded-lg"
+                        title="Remove quoted text"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    className="border-l-[3px] border-accent/60 bg-bg-secondary/80 dark:bg-bg-secondary/50 rounded-r-lg p-3 text-xs text-text-secondary leading-relaxed max-h-48 overflow-y-auto border-y border-r border-border-secondary/50 font-sans"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(quotedHtml) }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
           {signatureHtml && (
             <div
               className="px-4 py-2 border-t border-border-secondary text-xs text-text-tertiary"
@@ -611,41 +926,83 @@ export function Composer() {
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-t border-border-primary bg-bg-secondary rounded-b-lg">
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-text-tertiary">
-              {fromEmail ?? activeAccount?.email ?? "No account"}
+        <div className="flex items-center justify-between px-4 py-2.5 sm:py-2.5 border-t border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md sm:rounded-b-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-tertiary/50 border border-border-primary/40 text-xs text-text-secondary font-medium min-w-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
+              <span className="truncate max-w-[110px] sm:max-w-[170px]">{fromEmail ?? activeAccount?.email ?? "No account"}</span>
             </div>
-            {savedLabel && (
-              <span className={`text-xs text-text-tertiary italic transition-opacity duration-200 ${isSaving ? "animate-pulse" : ""}`}>
-                {savedLabel}
-              </span>
-            )}
+            {/* Auto-save status indicator */}
+            <div
+              data-testid="draft-status-indicator"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-all duration-200 shrink-0 select-none ${
+                isSaving
+                  ? "bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30 shadow-2xs"
+                  : lastSavedAt
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shadow-2xs"
+                    : "bg-bg-tertiary/60 text-text-tertiary border border-border-secondary"
+              }`}
+              title={
+                lastSavedAt
+                  ? `Draft saved at ${new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                  : isSaving
+                    ? "Saving draft changes..."
+                    : "Draft auto-save enabled"
+              }
+            >
+              {isSaving ? (
+                <>
+                  <Loader2 size={12} className="animate-spin text-amber-600 dark:text-amber-400 shrink-0" />
+                  <span className="text-amber-700 dark:text-amber-300 font-medium">Saving...</span>
+                </>
+              ) : lastSavedAt ? (
+                <>
+                  <Check size={12} className="text-emerald-600 dark:text-emerald-400 stroke-[2.5] shrink-0" />
+                  <span className="text-emerald-700 dark:text-emerald-300 font-medium">Saved as draft</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-1.5 h-1.5 rounded-full bg-text-tertiary/60 shrink-0" />
+                  <span className="text-text-tertiary italic">Draft</span>
+                </>
+              )}
+            </div>
             <SignatureSelector />
             <TemplatePicker editor={editor} />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <Button
               variant="secondary"
               onClick={handleDiscard}
+              className="min-h-[48px] sm:min-h-0 px-4 py-2 sm:px-3 sm:py-1.5 hover:text-danger hover:border-danger/30 transition-colors cursor-pointer text-sm sm:text-xs active:scale-95 rounded-xl touch-manipulation"
+              title="Discard this draft and close"
+              aria-label="Discard draft"
             >
               Discard
             </Button>
-            <div className="flex items-center">
+            <div className="inline-flex items-stretch rounded-xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group/split">
               <button
                 onClick={handleSend}
                 disabled={to.length === 0}
-                className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="min-h-[48px] sm:min-h-0 px-5 py-2 sm:px-3.5 sm:py-1.5 text-sm sm:text-xs font-semibold text-white bg-accent hover:bg-accent-hover active:brightness-95 transition-all duration-150 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 touch-manipulation"
               >
-                Send
+                <Send size={15} className="opacity-90" />
+                <span>Send</span>
               </button>
               <button
-                onClick={() => setShowSchedule(true)}
+                onClick={() => setShowSchedule((prev) => !prev)}
                 disabled={to.length === 0}
-                className="px-2 py-1.5 text-white bg-accent hover:bg-accent-hover border-l border-white/20 rounded-r-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="min-h-[48px] min-w-[48px] sm:min-h-0 sm:min-w-0 px-3 py-2 sm:px-2 sm:py-1.5 text-white bg-accent hover:bg-accent-hover active:brightness-95 border-l border-white/25 transition-all duration-150 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 group/btn touch-manipulation"
                 title="Schedule send"
+                aria-label="Schedule send"
+                aria-expanded={showSchedule}
+                aria-haspopup="dialog"
               >
-                <Clock size={12} />
+                <ChevronDown
+                  size={15}
+                  strokeWidth={2.2}
+                  className={`transition-transform duration-200 ${showSchedule ? "rotate-180" : "group-hover/btn:translate-y-0.5"}`}
+                />
               </button>
             </div>
           </div>

@@ -7,13 +7,17 @@ import { useUIStore } from "@/stores/uiStore";
 import type { Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
-import { markThreadRead } from "@/services/emailActions";
+import { markThreadRead, archiveThread } from "@/services/emailActions";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { VolumeX } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { isNoReplyAddress } from "@/utils/noReply";
+import { buildForwardQuote } from "@/utils/forwardQuoteBuilder";
+import { getAttachmentsForMessage } from "@/services/db/attachments";
+import type { ComposerAttachment } from "@/stores/composerStore";
 import { ThreadSummary } from "./ThreadSummary";
+import { UnsubscribeBanner } from "./UnsubscribeBanner";
 import { SmartReplySuggestions } from "./SmartReplySuggestions";
 import { InlineReply } from "./InlineReply";
 import { ContactSidebar } from "./ContactSidebar";
@@ -75,6 +79,22 @@ export function ThreadView({ thread }: ThreadViewProps) {
   useEffect(() => {
     getSetting("block_remote_images").then((val) => setBlockImages(val !== "false"));
   }, []);
+
+  const [isUnsubscribeDismissed, setIsUnsubscribeDismissed] = useState(false);
+  useEffect(() => {
+    setIsUnsubscribeDismissed(false);
+  }, [thread.id]);
+
+  const unsubscribeMessage = messages.find((m) => m.list_unsubscribe);
+
+  const handleAutoArchive = useCallback(async () => {
+    if (!activeAccountId) return;
+    try {
+      await archiveThread(activeAccountId, thread.id, []);
+    } catch (err) {
+      console.error("Failed to auto-archive thread:", err);
+    }
+  }, [activeAccountId, thread.id]);
 
   // Load messages
   useEffect(() => {
@@ -140,7 +160,8 @@ export function ThreadView({ thread }: ThreadViewProps) {
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildQuote(lastMessage),
+      bodyHtml: "",
+      quotedHtml: buildQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
     });
@@ -163,23 +184,50 @@ export function ThreadView({ thread }: ThreadViewProps) {
       to: Array.from(allRecipients),
       cc: ccList,
       subject: `Re: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildQuote(lastMessage),
+      bodyHtml: "",
+      quotedHtml: buildQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
     });
   }, [lastMessage, openComposer]);
 
-  const handleForward = useCallback(() => {
+  const handleForward = useCallback(async () => {
     if (!lastMessage) return;
+    let initialAttachments: ComposerAttachment[] = [];
+    if (activeAccountId) {
+      try {
+        const dbAtts = await getAttachmentsForMessage(activeAccountId, lastMessage.id);
+        initialAttachments = dbAtts
+          .filter((a) => !a.is_inline && a.filename)
+          .map((a) => ({
+            id: crypto.randomUUID(),
+            filename: a.filename ?? "attachment",
+            mimeType: a.mime_type ?? "application/octet-stream",
+            size: a.size ?? 0,
+            content: "",
+          }));
+      } catch (err) {
+        console.error("Failed to load attachments for forward:", err);
+      }
+    }
+
+    const rawSub = lastMessage.subject ?? "";
+    const cleanSub = rawSub.startsWith("Fwd:") ? rawSub : `Fwd: ${rawSub}`;
+
     openComposer({
       mode: "forward",
       to: [],
-      subject: `Fwd: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildForwardQuote(lastMessage),
+      subject: cleanSub,
+      bodyHtml: "",
+      quotedHtml: buildForwardQuote({
+        ...lastMessage,
+        attachments: initialAttachments,
+      }),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
+      attachments: initialAttachments,
     });
-  }, [lastMessage, openComposer]);
+  }, [lastMessage, activeAccountId, openComposer]);
 
   const handlePrint = useCallback(() => {
     if (messages.length === 0) return;
@@ -344,7 +392,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const primarySenderName = lastMessage?.from_name ?? null;
 
   return (
-    <div className="flex h-full @container relative">
+    <div className="flex h-full @container relative overflow-hidden bg-bg-primary/30">
       <div className="flex flex-col flex-1 min-w-0">
         {/* Unified action bar */}
         <ActionBar
@@ -364,18 +412,34 @@ export function ThreadView({ thread }: ThreadViewProps) {
           onToggleTaskSidebar={() => useUIStore.getState().toggleTaskSidebar()}
         />
 
+        {/* Unsubscribe banner / top utility bar */}
+        {unsubscribeMessage && !isUnsubscribeDismissed && activeAccountId && (
+          <UnsubscribeBanner
+            accountId={activeAccountId}
+            threadId={thread.id}
+            message={unsubscribeMessage}
+            onAutoArchive={handleAutoArchive}
+            onDismiss={() => setIsUnsubscribeDismissed(true)}
+          />
+        )}
+
         {/* Thread subject */}
-        <div className="px-6 py-3 border-b border-border-primary">
-          <h1 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-            {thread.subject ?? "(No subject)"}
-            {thread.isMuted && (
-              <span className="text-warning shrink-0" title="Muted">
-                <VolumeX size={16} />
+        <div className="px-3.5 sm:px-6 py-2.5 sm:py-3.5 @md:px-8 border-b border-border-primary/60 bg-bg-primary/40 backdrop-blur-xs flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-base sm:text-xl font-bold tracking-tight text-text-primary flex items-center gap-2 break-words leading-snug select-text">
+              {thread.subject ?? "(No subject)"}
+              {thread.isMuted && (
+                <span className="text-warning shrink-0" title="Muted">
+                  <VolumeX size={16} />
+                </span>
+              )}
+            </h1>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent border border-accent/20 shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-accent/70" />
+                {messages.length} message{messages.length !== 1 ? "s" : ""} in this thread
               </span>
-            )}
-          </h1>
-          <div className="text-xs text-text-tertiary mt-1">
-            {messages.length} message{messages.length !== 1 ? "s" : ""} in this thread
+            </div>
           </div>
         </div>
 
@@ -389,7 +453,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
         )}
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto overscroll-y-contain px-3 sm:px-6 pt-2.5 sm:pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] md:pb-6 @md:px-8 space-y-3.5">
           <ErrorBoundary name="MessageList">
             {messages.map((msg, i) => (
               <MessageItem
@@ -473,16 +537,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
 }
 
 function buildQuote(msg: DbMessage): string {
-  const date = new Date(msg.date).toLocaleString();
+  const date = new Date(msg.date).toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
   const from = msg.from_name
     ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
     : escapeHtml(msg.from_address ?? "Unknown");
   const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-  return `<br><br><div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666">On ${date}, ${from} wrote:<br>${body}</div>`;
-}
-
-function buildForwardQuote(msg: DbMessage): string {
-  const date = new Date(msg.date).toLocaleString();
-  const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-  return `<br><br>---------- Forwarded message ---------<br>From: ${escapeHtml(msg.from_name ?? "")} &lt;${escapeHtml(msg.from_address ?? "")}&gt;<br>Date: ${date}<br>Subject: ${escapeHtml(msg.subject ?? "")}<br>To: ${escapeHtml(msg.to_addresses ?? "")}<br><br>${body}`;
+  return `<div class="quoted-message" style="border-left:3px solid rgba(99, 102, 241, 0.45);padding-left:12px;margin-left:0;margin-top:14px;margin-bottom:8px;color:#6b7280;font-size:13px;line-height:1.5;"><div style="font-weight:500;margin-bottom:4px;color:#4b5563;">On ${date}, ${from} wrote:</div><div>${body}</div></div>`;
 }

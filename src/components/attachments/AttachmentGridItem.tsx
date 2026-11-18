@@ -1,5 +1,6 @@
 import { Download, Eye, ExternalLink } from "lucide-react";
-import { formatFileSize, getFileIcon, canPreview } from "@/utils/fileTypeHelpers";
+import { formatFileSize, canPreview, getFileTypeMeta } from "@/utils/fileTypeHelpers";
+import { FilePreviewCanvas } from "./FileTypeIcon";
 import type { AttachmentWithContext } from "@/services/db/attachments";
 
 interface AttachmentGridItemProps {
@@ -26,56 +27,83 @@ function formatRelativeDate(timestamp: number | null): string {
 export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpToEmail }: AttachmentGridItemProps) {
   const previewable = canPreview(attachment.mime_type, attachment.filename);
   const senderName = attachment.from_name || attachment.from_address || "Unknown";
+  const meta = getFileTypeMeta(attachment.mime_type, attachment.filename);
 
   return (
-    <div className="group relative flex flex-col border border-border-primary rounded-lg hover:border-border-secondary hover:bg-bg-hover transition-colors overflow-hidden">
-      {/* Icon area */}
-      <button
-        onClick={previewable ? onPreview : onDownload}
-        className="flex items-center justify-center h-24 bg-bg-secondary text-3xl"
-      >
-        {getFileIcon(attachment.mime_type)}
-      </button>
+    <div
+      onClick={previewable ? onPreview : onDownload}
+      className={`group relative flex flex-col border border-border-primary/80 rounded-xl bg-bg-primary hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer select-none ${meta.cardBorderHover}`}
+    >
+      {/* Visual Canvas Area */}
+      <div className="relative h-28 w-full">
+        <FilePreviewCanvas
+          mimeType={attachment.mime_type}
+          filename={attachment.filename}
+          className="h-28"
+        />
 
-      {/* Info */}
-      <div className="px-3 py-2 flex flex-col gap-0.5 min-w-0">
-        <span className="text-xs font-medium text-text-primary truncate" title={attachment.filename ?? undefined}>
-          {attachment.filename ?? "Unnamed"}
-        </span>
-        <span className="text-[0.6875rem] text-text-tertiary truncate" title={senderName}>
-          {senderName}
-        </span>
-        <div className="flex items-center gap-2 text-[0.6875rem] text-text-tertiary">
-          {attachment.size != null && <span>{formatFileSize(attachment.size)}</span>}
-          {attachment.date && <span>{formatRelativeDate(attachment.date)}</span>}
+        {/* Floating action buttons on hover */}
+        <div
+          className="absolute top-2 right-2 flex items-center gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-all duration-150 backdrop-blur-md bg-bg-primary/90 border border-border-primary/80 shadow-sm rounded-lg p-0.5 z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {previewable && (
+            <button
+              type="button"
+              onClick={onPreview}
+              className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+              title="Preview"
+              aria-label={`Preview ${attachment.filename ?? "attachment"}`}
+            >
+              <Eye size={13} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onDownload}
+            className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            title="Download"
+            aria-label={`Download ${attachment.filename ?? "attachment"}`}
+          >
+            <Download size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={onJumpToEmail}
+            className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            title="Jump to email"
+            aria-label="Jump to email"
+          >
+            <ExternalLink size={13} />
+          </button>
         </div>
       </div>
 
-      {/* Hover actions */}
-      <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-        {previewable && (
-          <button
-            onClick={onPreview}
-            className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
-            title="Preview"
-          >
-            <Eye size={13} />
-          </button>
-        )}
-        <button
-          onClick={onDownload}
-          className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
-          title="Download"
+      {/* Info Area */}
+      <div className="p-3 flex flex-col gap-1 min-w-0 bg-bg-primary">
+        <span
+          className="text-xs font-semibold text-text-primary truncate"
+          title={attachment.filename ?? undefined}
         >
-          <Download size={13} />
-        </button>
-        <button
-          onClick={onJumpToEmail}
-          className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
-          title="Jump to email"
-        >
-          <ExternalLink size={13} />
-        </button>
+          {attachment.filename ?? "Unnamed"}
+        </span>
+
+        <span className="text-[11px] text-text-tertiary truncate" title={senderName}>
+          {senderName}
+        </span>
+
+        <div className="flex items-center justify-between gap-1 mt-1 text-[10px] text-text-tertiary">
+          {attachment.size != null && (
+            <span className="font-mono bg-bg-tertiary/70 px-1.5 py-0.5 rounded text-text-secondary">
+              {formatFileSize(attachment.size)}
+            </span>
+          )}
+          {attachment.date && (
+            <span className="text-text-tertiary whitespace-nowrap">
+              {formatRelativeDate(attachment.date)}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import { Reply, ReplyAll, Forward, Send, Maximize2, RotateCcw, X, Loader2 } from "lucide-react";
+import { Reply, ReplyAll, Forward, Send, Maximize2, RotateCcw, X, Loader2, Users, ChevronDown } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -36,6 +36,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
   const [signatureHtml, setSignatureHtml] = useState("");
   const [autoDraftLoading, setAutoDraftLoading] = useState(false);
   const [hasAutoDraft, setHasAutoDraft] = useState(false);
+  const [showRecipientsList, setShowRecipientsList] = useState(false);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.id === accountId);
   const openComposer = useComposerStore((s) => s.openComposer);
@@ -308,29 +309,46 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
 
   // Collapsed state — show reply buttons
   if (!mode) {
+    const allRecips = new Set<string>();
+    if (lastMessage.reply_to || lastMessage.from_address) allRecips.add(lastMessage.reply_to ?? lastMessage.from_address!);
+    if (lastMessage.to_addresses) lastMessage.to_addresses.split(",").forEach((a) => a.trim() && allRecips.add(a.trim()));
+    if (lastMessage.cc_addresses) lastMessage.cc_addresses.split(",").forEach((a) => a.trim() && allRecips.add(a.trim()));
+    if (activeAccount?.email) allRecips.delete(activeAccount.email);
+    const hasMultipleRecipients = allRecips.size > 1;
+
     return (
-      <div ref={containerRef} className="mx-4 my-3 flex items-center gap-2">
+      <div ref={containerRef} className="mx-2.5 sm:mx-4 my-2.5 sm:my-3 flex flex-wrap sm:flex-nowrap items-center gap-2">
         <button
           onClick={() => activateMode("reply")}
           disabled={noReply}
-          title={noReply ? "This sender does not accept replies" : undefined}
-          className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+          title={noReply ? "This sender does not accept replies" : "Reply (r)"}
+          className="flex-1 sm:flex-initial min-h-[44px] sm:min-h-0 flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold text-text-secondary border border-border-primary/80 bg-bg-primary/80 rounded-xl hover:bg-bg-hover hover:text-text-primary active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary touch-manipulation cursor-pointer"
         >
-          <Reply size={14} />
+          <Reply size={14} className="text-accent" />
           Reply
         </button>
         <button
           onClick={() => activateMode("replyAll")}
           disabled={noReply}
-          title={noReply ? "This sender does not accept replies" : undefined}
-          className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
+          title={noReply ? "This sender does not accept replies" : "Reply All (a)"}
+          className={`flex-1 sm:flex-initial min-h-[44px] sm:min-h-0 flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-semibold rounded-xl active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary touch-manipulation cursor-pointer ${
+            hasMultipleRecipients
+              ? "bg-accent/15 text-accent border border-accent/30 hover:bg-accent hover:text-white"
+              : "text-text-secondary border border-border-primary/80 bg-bg-primary/80 hover:bg-bg-hover hover:text-text-primary"
+          }`}
         >
-          <ReplyAll size={14} />
-          Reply All
+          <ReplyAll size={14} className={hasMultipleRecipients ? "text-accent" : ""} />
+          <span>Reply All</span>
+          {hasMultipleRecipients && (
+            <span className="ml-0.5 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-accent/20 text-accent border border-accent/30">
+              {allRecips.size}
+            </span>
+          )}
         </button>
         <button
           onClick={() => activateMode("forward")}
-          className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors"
+          title="Forward (f)"
+          className="flex-1 sm:flex-initial min-h-[44px] sm:min-h-0 flex items-center justify-center gap-1.5 px-4 py-2.5 sm:py-2 text-xs font-medium text-text-secondary border border-border-primary/80 bg-bg-primary/80 rounded-xl hover:bg-bg-hover hover:text-text-primary active:scale-[0.98] transition-all touch-manipulation cursor-pointer"
         >
           <Forward size={14} />
           Forward
@@ -340,42 +358,123 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
   }
 
   // Expanded state — editor visible
-  const { to } = getRecipients();
+  const { to, cc } = getRecipients();
+  const totalRecipients = to.length + cc.length;
   const modeLabel = mode === "reply" ? "Reply" : mode === "replyAll" ? "Reply All" : "Forward";
 
   return (
-    <div ref={containerRef} className="mx-4 my-3 border border-border-primary rounded-lg overflow-hidden bg-bg-primary">
+    <div ref={containerRef} className="mx-2.5 sm:mx-4 my-2.5 sm:my-3 border border-border-primary rounded-xl overflow-hidden bg-bg-primary shadow-lg ring-1 ring-accent/20 focus-within:ring-2 focus-within:ring-accent/40 transition-all">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 bg-bg-secondary border-b border-border-secondary">
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2 bg-bg-secondary/70 border-b border-border-secondary">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-0.5 bg-bg-primary/80 p-0.5 rounded-lg border border-border-secondary/60 shrink-0 shadow-2xs">
             {(["reply", "replyAll", "forward"] as const).map((m) => (
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                className={`px-2 py-1 text-[0.6875rem] rounded transition-colors ${
+                className={`min-h-[36px] sm:min-h-0 px-2.5 sm:px-2 py-1 text-xs font-semibold rounded-md transition-all active:scale-95 cursor-pointer flex items-center gap-1 touch-manipulation ${
                   mode === m
-                    ? "bg-accent/10 text-accent font-medium"
-                    : "text-text-tertiary hover:text-text-primary"
+                    ? "bg-accent/15 text-accent shadow-2xs ring-1 ring-accent/30 font-bold"
+                    : "text-text-tertiary hover:text-text-primary hover:bg-bg-hover"
                 }`}
               >
-                {m === "reply" ? "Reply" : m === "replyAll" ? "Reply All" : "Forward"}
+                {m === "reply" && <Reply size={12} className="shrink-0" />}
+                {m === "replyAll" && <ReplyAll size={12} className="shrink-0" />}
+                {m === "forward" && <Forward size={12} className="shrink-0" />}
+                <span>{m === "reply" ? "Reply" : m === "replyAll" ? "Reply All" : "Forward"}</span>
+                {m === "replyAll" && totalRecipients > 1 && (
+                  <span className={`text-[10px] px-1 rounded-full font-bold leading-tight ${mode === "replyAll" ? "bg-accent text-white" : "bg-accent/15 text-accent"}`}>
+                    {totalRecipients}
+                  </span>
+                )}
               </button>
             ))}
           </div>
-          {to.length > 0 && (
-            <span className="text-[0.6875rem] text-text-tertiary truncate max-w-[200px]">
-              to {to.join(", ")}
-            </span>
+          {/* Quick tap recipient pill / summary */}
+          {totalRecipients > 0 && mode !== "forward" && (
+            <button
+              type="button"
+              onClick={() => setShowRecipientsList(!showRecipientsList)}
+              aria-expanded={showRecipientsList}
+              title={showRecipientsList ? "Collapse recipients" : "View and manage recipients"}
+              className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary px-2.5 py-1 rounded-full bg-bg-primary/90 hover:bg-bg-hover border border-border-secondary/80 font-medium transition-all max-w-[150px] sm:max-w-[260px] cursor-pointer shadow-2xs active:scale-95 shrink min-h-[36px] sm:min-h-0 touch-manipulation"
+            >
+              <Users size={12} className="text-accent shrink-0" />
+              <span className="truncate text-left">
+                {to[0] ? to[0].split("@")[0] : "Recipients"}
+                {totalRecipients > 1 ? ` +${totalRecipients - 1}` : ""}
+              </span>
+              {cc.length > 0 && (
+                <span className="text-[10px] text-accent font-semibold px-1 py-0.2 rounded bg-accent/10 border border-accent/20 shrink-0 hidden sm:inline">
+                  Cc:{cc.length}
+                </span>
+              )}
+              <ChevronDown size={11} className={`text-text-tertiary transition-transform duration-200 shrink-0 ${showRecipientsList ? "rotate-180" : ""}`} />
+            </button>
           )}
         </div>
-        <button
-          onClick={() => setMode(null)}
-          className="text-xs text-text-tertiary hover:text-text-primary transition-colors"
-        >
-          Cancel
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={handleExpandToComposer}
+            title="Expand to full composer"
+            aria-label="Expand to full composer"
+            className="min-h-[36px] min-w-[36px] sm:min-h-[28px] sm:min-w-[28px] text-text-tertiary hover:text-text-primary hover:bg-bg-hover rounded-lg flex items-center justify-center transition-all active:scale-95 cursor-pointer touch-manipulation"
+          >
+            <Maximize2 size={14} />
+          </button>
+          <button
+            onClick={() => setMode(null)}
+            className="min-h-[36px] px-2.5 sm:min-h-0 text-xs text-text-tertiary hover:text-danger hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer touch-manipulation"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
+
+      {/* Expandable Recipient Detail Drawer in InlineReply */}
+      {showRecipientsList && totalRecipients > 0 && mode !== "forward" && (
+        <div className="px-3.5 py-2.5 bg-bg-secondary/90 dark:bg-bg-secondary/70 border-b border-border-secondary text-xs space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+          <div className="flex items-center justify-between text-text-tertiary text-[11px] font-semibold uppercase tracking-wider">
+            <span className="flex items-center gap-1.5 text-text-secondary">
+              <Users size={12} className="text-accent" />
+              {mode === "replyAll" ? "Reply All Recipients" : "Reply Recipient"} ({totalRecipients})
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowRecipientsList(false)}
+              className="text-xs text-accent hover:underline lowercase font-normal cursor-pointer py-0.5 px-1.5"
+            >
+              hide
+            </button>
+          </div>
+          {to.length > 0 && (
+            <div className="flex items-start gap-2">
+              <span className="text-text-tertiary font-medium w-8 shrink-0 pt-0.5 text-[11px]">To:</span>
+              <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+                {to.map((addr) => (
+                  <span key={addr} className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs bg-bg-primary border border-border-secondary text-text-primary shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                    <span className="truncate max-w-[220px]">{addr}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {cc.length > 0 && (
+            <div className="flex items-start gap-2 pt-1 border-t border-border-secondary/50">
+              <span className="text-text-tertiary font-medium w-8 shrink-0 pt-0.5 text-[11px]">Cc:</span>
+              <div className="flex flex-wrap gap-1.5 flex-1 min-w-0">
+                {cc.map((addr) => (
+                  <span key={addr} className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs bg-bg-primary border border-border-secondary text-text-secondary shadow-2xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                    <span className="truncate max-w-[220px]">{addr}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Editor */}
       <div className="relative">

@@ -28,6 +28,12 @@ async function checkSnoozedThreads(): Promise<void> {
           [thread.account_id, thread.id],
         );
 
+        // Remove SNOOZED label
+        await txDb.execute(
+          "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'SNOOZED'",
+          [thread.account_id, thread.id],
+        );
+
         // Re-add INBOX label
         await txDb.execute(
           "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'INBOX')",
@@ -66,6 +72,33 @@ export async function snoozeThread(
       [accountId, threadId],
     );
   });
+
+  window.dispatchEvent(new Event("velo-sync-done"));
+}
+
+/**
+ * Un-snooze a thread (e.g. on Undo or manual action): restores INBOX label.
+ */
+export async function unsnoozeThread(
+  accountId: string,
+  threadId: string,
+): Promise<void> {
+  await withTransaction(async (db) => {
+    await db.execute(
+      "UPDATE threads SET is_snoozed = 0, snooze_until = NULL WHERE account_id = $1 AND id = $2",
+      [accountId, threadId],
+    );
+    await db.execute(
+      "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'SNOOZED'",
+      [accountId, threadId],
+    );
+    await db.execute(
+      "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'INBOX')",
+      [accountId, threadId],
+    );
+  });
+
+  window.dispatchEvent(new Event("velo-sync-done"));
 }
 
 const snoozeChecker = createBackgroundChecker("Snooze", checkSnoozedThreads);

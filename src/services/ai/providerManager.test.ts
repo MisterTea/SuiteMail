@@ -40,6 +40,11 @@ vi.mock("./providers/piProvider", () => ({
   clearPiProvider: vi.fn(),
 }));
 
+vi.mock("./providers/aicoreProvider", () => ({
+  createAiCoreProvider: vi.fn(() => createMockAiProvider("aicore response")),
+  clearAiCoreProvider: vi.fn(),
+}));
+
 import { getSetting } from "@/services/db/settings";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider } from "./providers/openaiProvider";
@@ -47,6 +52,7 @@ import { createGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider } from "./providers/copilotProvider";
 import { createPiProvider, clearPiProvider } from "./providers/piProvider";
+import { createAiCoreProvider, clearAiCoreProvider } from "./providers/aicoreProvider";
 import {
   getActiveProvider,
   getActiveProviderName,
@@ -214,6 +220,27 @@ describe("providerManager", () => {
       expect(createPiProvider).toHaveBeenCalledWith("http://127.0.0.1:8080", "gemma-4-e4b-it");
     });
 
+    it("creates aicore provider with default gemma-4-26b (Max AI mode)", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "aicore";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createAiCoreProvider).toHaveBeenCalledWith("gemma-4-26b");
+    });
+
+    it("creates aicore provider with custom model", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "aicore";
+        if (key === "aicore_model") return "gemini-nano";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createAiCoreProvider).toHaveBeenCalledWith("gemini-nano");
+    });
+
     it("uses default ollama url and model when not configured", async () => {
       mockGetSetting.mockImplementation(async (key: string) => {
         if (key === "ai_provider") return "ollama";
@@ -353,9 +380,24 @@ describe("providerManager", () => {
 
       expect(await isAiAvailable()).toBe(false);
     });
+
+    it("returns true for aicore without needing external api key or server url", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_enabled") return "true";
+        if (key === "ai_provider") return "aicore";
+        return null;
+      });
+
+      expect(await isAiAvailable()).toBe(true);
+    });
   });
 
   describe("clearProviderClients", () => {
+    it("clears all provider clients including aicore", () => {
+      clearProviderClients();
+      expect(clearAiCoreProvider).toHaveBeenCalled();
+      expect(clearPiProvider).toHaveBeenCalled();
+    });
     it("forces re-creation on next getActiveProvider call", async () => {
       mockGetSetting.mockImplementation(async (key: string) => {
         if (key === "ai_provider") return "claude";

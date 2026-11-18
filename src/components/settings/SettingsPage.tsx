@@ -120,7 +120,8 @@ export function SettingsPage() {
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
   const [piServerUrl, setPiServerUrl] = useState("http://localhost:3000");
   const [piModel, setPiModel] = useState("gemma-4-e4b");
-  const [aicoreModel, setAicoreModel] = useState("gemma-4-e4b");
+  const [aicoreModel, setAicoreModel] = useState("gemma-4-26b");
+  const [isAndroidPlatform, setIsAndroidPlatform] = useState(false);
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
@@ -179,8 +180,21 @@ export function SettingsPage() {
       }
 
       // Load AI settings
+      let isAndroid = false;
+      try {
+        const { platform } = await import("@tauri-apps/plugin-os");
+        if (platform() === "android") {
+          isAndroid = true;
+          setIsAndroidPlatform(true);
+        }
+      } catch {}
+
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") setAiProvider(provider);
+      if (isAndroid && (provider === "pi" || provider === "ollama" || !provider)) {
+        setAiProvider("aicore");
+      } else if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") {
+        setAiProvider(provider);
+      }
       const aicoreModelVal = await getSetting("aicore_model");
       if (aicoreModelVal) setAicoreModel(aicoreModelVal);
       const ollamaUrl = await getSetting("ollama_server_url");
@@ -1143,7 +1157,7 @@ export function SettingsPage() {
                       <select
                         value={aiProvider}
                         onChange={async (e) => {
-                          const val = e.target.value as "claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi";
+                          const val = e.target.value as "claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi" | "aicore";
                           setAiProvider(val);
                           setAiTestResult(null);
                           await setSetting("ai_provider", val);
@@ -1155,10 +1169,15 @@ export function SettingsPage() {
                         <option value="claude">Claude (Anthropic)</option>
                         <option value="openai">OpenAI</option>
                         <option value="gemini">Gemini (Google)</option>
-                        <option value="ollama">Local AI (Ollama / LMStudio)</option>
                         <option value="copilot">GitHub Copilot</option>
-                        <option value="pi">Desktop Llama / Pi Harness (Local)</option>
-                        <option value="aicore">Android AICore (On-Device Mobile)</option>
+                        {isAndroidPlatform ? (
+                          <option value="aicore">Android AICore (Max AI Mode)</option>
+                        ) : (
+                          <>
+                            <option value="ollama">Local AI (Ollama / LMStudio)</option>
+                            <option value="pi">Desktop Llama / Pi Harness (Local)</option>
+                          </>
+                        )}
                       </select>
                     </SettingRow>
                     <p className="text-xs text-text-tertiary">
@@ -1168,7 +1187,7 @@ export function SettingsPage() {
                       {aiProvider === "ollama" && "Connect to a local Ollama or LMStudio server. No API key required."}
                       {aiProvider === "copilot" && `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
                       {aiProvider === "pi" && `Uses ${PROVIDER_MODELS.pi.find((m) => m.id === piModel)?.label ?? piModel} loaded via local Llama server & Pi harness. No cloud API key required.`}
-                      {aiProvider === "aicore" && `Uses on-device ${PROVIDER_MODELS.aicore.find((m) => m.id === aicoreModel)?.label ?? aicoreModel} through Android AICore. Zero cloud latency and fully private.`}
+                      {aiProvider === "aicore" && `Uses on-device ${PROVIDER_MODELS.aicore.find((m) => m.id === aicoreModel)?.label ?? aicoreModel} through Android AICore in Max AI mode. Zero cloud latency and fully private.`}
                     </p>
                   </Section>
 
@@ -1255,7 +1274,7 @@ export function SettingsPage() {
                       </div>
                     </Section>
                   ) : aiProvider === "aicore" ? (
-                    <Section title="Android AICore (On-Device)">
+                    <Section title="Android AICore (Max AI Mode)">
                       <div className="space-y-3">
                         <SettingRow label="On-Device Model">
                           <select

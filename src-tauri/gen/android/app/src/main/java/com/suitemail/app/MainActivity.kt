@@ -1,4 +1,4 @@
-package com.velomail.app
+package com.suitemail.app
 
 import android.os.Bundle
 import androidx.activity.enableEdgeToEdge

@@ -43,6 +43,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
+import { getDraftCountForAccount, getSnoozedCount, getStarredCount } from "@/services/db/threads";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -91,6 +92,9 @@ function DroppableNavItem({
   children: (isOver: boolean) => React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  const isTrash = id === "trash";
+  const isStarred = id === "starred";
+  const isDrafts = id === "drafts";
 
   return (
     <button
@@ -98,14 +102,26 @@ function DroppableNavItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={title}
-      className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
+      className={`flex items-center w-full py-2.5 md:py-2 min-h-[48px] md:min-h-0 text-sm rounded-xl md:rounded-lg transition-colors press-scale touch-manipulation active:scale-[0.98] ${
         collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
       } ${
         isOver
-          ? "bg-accent/20 ring-1 ring-accent"
+          ? isTrash
+            ? "bg-red-500/20 ring-1 ring-red-500/50 text-red-500"
+            : isStarred || isDrafts
+              ? "bg-amber-500/20 ring-1 ring-amber-500/50 text-amber-500"
+              : "bg-accent/20 ring-1 ring-accent"
           : isActive
-            ? "bg-accent/10 text-accent font-medium"
-            : "hover:bg-sidebar-hover text-sidebar-text"
+            ? isTrash
+              ? "bg-red-500/15 text-red-600 dark:text-red-400 font-semibold ring-1 ring-red-500/20 shadow-2xs"
+              : isStarred || isDrafts
+                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold ring-1 ring-amber-500/20"
+                : "bg-accent/10 text-accent font-medium"
+            : isTrash
+              ? "hover:bg-red-500/10 hover:text-red-600 dark:hover:text-red-400 active:bg-red-500/20 active:text-red-600 dark:active:text-red-400 text-sidebar-text"
+              : isStarred || isDrafts
+                ? "hover:bg-amber-500/10 hover:text-amber-600 dark:hover:text-amber-400 text-sidebar-text"
+                : "hover:bg-sidebar-hover text-sidebar-text"
       }`}
     >
       {children(isOver)}
@@ -224,6 +240,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const refreshSmartFolderCounts = useSmartFolderStore((s) => s.refreshUnreadCounts);
   const createSmartFolder = useSmartFolderStore((s) => s.createFolder);
   const SECTION_IDS = new Set(["smart-folders", "labels"]);
+  const [draftCount, setDraftCount] = useState<number>(0);
+  const [snoozedCount, setSnoozedCount] = useState<number>(0);
+  const [starredCount, setStarredCount] = useState<number>(0);
 
   const { visibleNavItems, showSmartFolders, showLabels } = useMemo(() => {
     if (!sidebarNavConfig) {
@@ -258,6 +277,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const isSyncingFolder = useUIStore((s) => s.isSyncingFolder);
+  const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+
+  const handleNavigate = useCallback((labelId: string, opts?: { category?: string }) => {
+    navigateToLabel(labelId, opts as any);
+    setMobileSidebarOpen(false);
+  }, [setMobileSidebarOpen]);
 
   const handleNavContextMenu = useCallback((e: React.MouseEvent, navId: string) => {
     e.preventDefault();
@@ -279,7 +305,30 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     }
   }, [activeAccountId, loadSmartFolders, refreshSmartFolderCounts]);
 
-  // Reload labels and smart folder counts on sync completion (debounced to avoid waterfall from multiple emitters)
+  // Load draft, snoozed, and starred counts when active account changes
+  useEffect(() => {
+    let cancelled = false;
+    if (activeAccountId) {
+      getDraftCountForAccount(activeAccountId).then((c) => {
+        if (!cancelled) setDraftCount(c);
+      }).catch(() => {});
+      getSnoozedCount(activeAccountId).then((c) => {
+        if (!cancelled) setSnoozedCount(c);
+      }).catch(() => {});
+      getStarredCount(activeAccountId).then((c) => {
+        if (!cancelled) setStarredCount(c);
+      }).catch(() => {});
+    } else {
+      setDraftCount(0);
+      setSnoozedCount(0);
+      setStarredCount(0);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeAccountId]);
+
+  // Reload labels, counts, and smart folder counts on sync completion (debounced to avoid waterfall from multiple emitters)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
@@ -288,13 +337,25 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         if (activeAccountId) {
           loadLabels(activeAccountId);
           refreshSmartFolderCounts(activeAccountId);
+          getDraftCountForAccount(activeAccountId).then(setDraftCount).catch(() => {});
+          getSnoozedCount(activeAccountId).then(setSnoozedCount).catch(() => {});
+          getStarredCount(activeAccountId).then(setStarredCount).catch(() => {});
         }
         useUIStore.getState().setSyncingFolder(null);
       }, 500);
     };
+
+    const draftHandler = () => {
+      if (activeAccountId) {
+        getDraftCountForAccount(activeAccountId).then(setDraftCount).catch(() => {});
+      }
+    };
+
     window.addEventListener("velo-sync-done", handler);
+    window.addEventListener("draft-count-changed", draftHandler);
     return () => {
       window.removeEventListener("velo-sync-done", handler);
+      window.removeEventListener("draft-count-changed", draftHandler);
       if (timer) clearTimeout(timer);
     };
   }, [activeAccountId, loadLabels, refreshSmartFolderCounts]);
@@ -342,20 +403,33 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const editingLabel = editingLabelId ? labels.find((l) => l.id === editingLabelId) ?? null : null;
 
   return (
-    <aside
-      className={`no-select hidden md:flex flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
-        collapsed ? "w-16" : "w-60"
-      }`}
-    >
-      <AccountSwitcher collapsed={collapsed} onAddAccount={onAddAccount} />
+    <>
+      {mobileSidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs md:hidden animate-[fadeIn_150ms_ease-out]"
+          onClick={() => setMobileSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`no-select flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${
+          mobileSidebarOpen
+            ? "fixed inset-y-0 left-0 z-50 flex w-72 max-w-[85vw] shadow-2xl"
+            : "hidden md:flex"
+        } ${collapsed && !mobileSidebarOpen ? "md:w-16" : "md:w-60"}`}
+      >
+      <AccountSwitcher collapsed={collapsed && !mobileSidebarOpen} onAddAccount={onAddAccount} />
 
       {/* Compose button */}
       <div className="px-3 py-2">
         <button
-          onClick={() => openComposer()}
-          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white rounded-lg py-2 text-sm font-medium interactive-btn"
+          onClick={() => {
+            openComposer();
+            setMobileSidebarOpen(false);
+          }}
+          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white rounded-lg py-2.5 md:py-2 text-sm font-medium interactive-btn"
         >
-          {collapsed ? <Plus size={16} /> : "Compose"}
+          {collapsed && !mobileSidebarOpen ? <Plus size={16} /> : "Compose"}
         </button>
       </div>
 
@@ -363,17 +437,18 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         {visibleNavItems.map((item) => {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
+          const isEffectiveCollapsed = collapsed && !mobileSidebarOpen;
           return (
             <div key={item.id}>
               <DroppableNavItem
                 id={item.id}
                 isActive={isInbox ? (activeLabel === "inbox" && (inboxViewMode === "unified" || activeCategory === "Primary")) : activeLabel === item.id}
-                collapsed={collapsed}
+                collapsed={isEffectiveCollapsed}
                 onClick={() => {
                   if (isInbox && inboxViewMode === "split") {
-                    navigateToLabel(item.id, { category: "Primary" });
+                    handleNavigate(item.id, { category: "Primary" });
                   } else {
-                    navigateToLabel(item.id);
+                    handleNavigate(item.id);
                   }
                 }}
                 onContextMenu={(e) => handleNavContextMenu(e, item.id)}
@@ -384,17 +459,55 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     {isSyncingFolder === item.id ? (
                       <Loader2 size={18} className="shrink-0 animate-spin text-accent" />
                     ) : (
-                      <Icon size={18} className="shrink-0" />
+                      <Icon
+                        size={18}
+                        className={`shrink-0 transition-all duration-150 ${
+                          item.id === "starred"
+                            ? activeLabel === "starred"
+                              ? "fill-amber-400 text-amber-500 dark:text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.5)] star-animate"
+                              : "text-amber-500/80 group-hover:text-amber-500"
+                            : item.id === "trash"
+                              ? activeLabel === "trash"
+                                ? "text-red-600 dark:text-red-400 drop-shadow-[0_0_6px_rgba(239,68,68,0.4)]"
+                                : "text-red-500/70 group-hover:text-red-500"
+                              : item.id === "drafts"
+                                ? activeLabel === "drafts"
+                                  ? "text-amber-600 dark:text-amber-400 drop-shadow-[0_0_6px_rgba(245,158,11,0.4)]"
+                                  : "text-amber-600/80 group-hover:text-amber-600 dark:text-amber-400"
+                                : ""
+                        }`}
+                      />
                     )}
-                    {!collapsed && (
+                    {!isEffectiveCollapsed && (
                       <span className="flex-1 truncate">{item.label}</span>
                     )}
-                    {item.id === "tasks" && taskIncompleteCount > 0 && !collapsed && (
+                    {item.id === "starred" && starredCount > 0 && !isEffectiveCollapsed && (
+                      <span
+                        data-testid="starred-count-badge"
+                        className="text-[0.625rem] bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold px-1.5 rounded-full leading-normal shadow-2xs"
+                      >
+                        {starredCount}
+                      </span>
+                    )}
+                    {item.id === "tasks" && taskIncompleteCount > 0 && !isEffectiveCollapsed && (
                       <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
                         {taskIncompleteCount}
                       </span>
                     )}
-                    {isInbox && !collapsed && (
+                    {item.id === "snoozed" && snoozedCount > 0 && !isEffectiveCollapsed && (
+                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                        {snoozedCount}
+                      </span>
+                    )}
+                    {item.id === "drafts" && draftCount > 0 && !isEffectiveCollapsed && (
+                      <span
+                        data-testid="drafts-count-badge"
+                        className="text-[0.6875rem] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25 px-2 py-0.5 rounded-full leading-tight shadow-2xs min-w-[1.25rem] text-center"
+                      >
+                        {draftCount}
+                      </span>
+                    )}
+                    {isInbox && !isEffectiveCollapsed && (
                       <span
                         role="button"
                         tabIndex={0}
@@ -432,7 +545,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       <button
                         key={cat.id}
                         onClick={() => {
-                          navigateToLabel("inbox", { category: cat.id });
+                          handleNavigate("inbox", { category: cat.id });
                         }}
                         className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.8125rem] transition-colors ${
                           isCatActive
@@ -475,7 +588,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               return (
                 <button
                   key={folder.id}
-                  onClick={() => navigateToLabel(`smart-folder:${folder.id}`)}
+                  onClick={() => handleNavigate(`smart-folder:${folder.id}`)}
                   title={collapsed ? folder.name : undefined}
                   className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${
                     collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
@@ -530,7 +643,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   label={label}
                   isActive={activeLabel === label.id}
                   collapsed={collapsed}
-                  onClick={() => navigateToLabel(label.id)}
+                  onClick={() => handleNavigate(label.id)}
                   onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                   onEditClick={() => handleEditLabel(label.id)}
                 />
@@ -554,7 +667,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         label={label}
                         isActive={activeLabel === label.id}
                         collapsed={collapsed}
-                        onClick={() => navigateToLabel(label.id)}
+                        onClick={() => handleNavigate(label.id)}
                         onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                         onEditClick={() => handleEditLabel(label.id)}
                       />
@@ -604,7 +717,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       {/* Bottom bar: Settings + collapse toggle */}
       <div className={`py-2 border-t border-border-primary flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
         <button
-          onClick={() => navigateToLabel("settings")}
+          onClick={() => handleNavigate("settings")}
           className={`flex items-center text-sm rounded-md transition-colors ${
             collapsed ? "p-2 justify-center" : "gap-3 flex-1 px-3 py-2 text-left"
           } ${
@@ -618,7 +731,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           {!collapsed && <span>Settings</span>}
         </button>
         <button
-          onClick={() => navigateToLabel("help")}
+          onClick={() => handleNavigate("help")}
           className={`flex items-center text-sm rounded-md transition-colors ${
             collapsed ? "p-2 justify-center" : "p-2"
           } ${
@@ -632,7 +745,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         </button>
         <button
           onClick={toggleSidebar}
-          className="p-2 text-sidebar-text/60 hover:text-sidebar-text hover:bg-sidebar-hover rounded-md transition-colors"
+          className="hidden md:flex p-2 text-sidebar-text/60 hover:text-sidebar-text hover:bg-sidebar-hover rounded-md transition-colors"
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
@@ -659,6 +772,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       {/* Pending operations indicator */}
       <PendingOpsIndicator collapsed={collapsed} />
     </aside>
+    </>
   );
 }
 

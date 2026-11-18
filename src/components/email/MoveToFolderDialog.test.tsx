@@ -208,4 +208,30 @@ describe("MoveToFolderDialog", () => {
     expect(screen.getByText("select")).toBeInTheDocument();
     expect(screen.getByText("close")).toBeInTheDocument();
   });
+
+  it("renders visual section headers for system folders and labels", () => {
+    render(<MoveToFolderDialog {...defaultProps} />);
+
+    expect(screen.getByText("System Folders")).toBeInTheDocument();
+    expect(screen.getByText("Labels")).toBeInTheDocument();
+  });
+
+  it("renders the create new folder affordance button", () => {
+    render(<MoveToFolderDialog {...defaultProps} />);
+
+    const createBtn = screen.getByText("Create new label...");
+    expect(createBtn).toBeInTheDocument();
+
+    fireEvent.click(createBtn);
+    expect(screen.getByPlaceholderText("New label name...")).toBeInTheDocument();
+  });
+
+  it("offers quick create button when query has no exact match", () => {
+    render(<MoveToFolderDialog {...defaultProps} />);
+
+    const input = screen.getByPlaceholderText("Move to...");
+    fireEvent.change(input, { target: { value: "Marketing" } });
+
+    expect(screen.getByText('Create and move to “Marketing”')).toBeInTheDocument();
+  });
 });

@@ -32,22 +32,33 @@ test.describe("Top 20 Email Workflows", () => {
     await expect(page.locator("text=Team Welcome & Onboarding Guide").first()).toBeVisible({ timeout: 15_000 });
   }
 
+  // Helper to navigate via sidebar on mobile (opens drawer if collapsed/hidden) or desktop
+  async function tapSidebarFolder(page: any, folderName: string) {
+    const navBtn = page.locator(`aside button:has-text("${folderName}")`).first();
+    if (!(await navBtn.isVisible())) {
+      const menuBtn = page.locator('[data-testid="mobile-menu-button"]:visible').first();
+      await menuBtn.tap();
+      await expect(navBtn).toBeVisible();
+    }
+    await navBtn.tap();
+  }
+
   // Storyboard 1: Read & Browse Inbox
   test("1. Read & Browse Inbox: navigates to thread, views formatted email, and marks as read", async ({
     page,
   }) => {
     await setupInboxPage(page);
 
-    // Click on the welcome email thread
+    // Tap on the welcome email thread
     const threadCard = page.locator('button[aria-label*="Team Welcome & Onboarding Guide"]').first();
     await expect(threadCard).toBeVisible();
-    await threadCard.click();
+    await threadCard.tap();
 
     // Verify reading pane displays the subject heading
     await expect(page.locator('h1:has-text("Team Welcome & Onboarding Guide")').first()).toBeVisible({ timeout: 10_000 });
 
     // Verify sender info in reading pane
-    await expect(page.locator("text=SuperMail Team").first()).toBeVisible();
+    await expect(page.locator("text=SuperMail Team >> visible=true").first()).toBeVisible();
 
     // Verify body content rendered inside the iframe
     const iframe = page.frameLocator("iframe");
@@ -60,10 +71,10 @@ test.describe("Top 20 Email Workflows", () => {
   }) => {
     await setupInboxPage(page);
 
-    // Click Compose button in the sidebar
-    const composeBtn = page.locator('button:has-text("Compose")').first();
+    // Tap Compose button (in mobile nav bar or sidebar)
+    const composeBtn = page.locator('button:has-text("Compose"):visible').first();
     await expect(composeBtn).toBeVisible();
-    await composeBtn.click();
+    await composeBtn.tap();
 
     // Verify composer modal opened with 'New Message'
     await expect(page.locator("text=New Message").first()).toBeVisible();
@@ -80,13 +91,13 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Enter Body in TipTap editor
     const editor = page.locator(".tiptap.ProseMirror");
-    await editor.click();
+    await editor.tap();
     await editor.fill("Hi Dave, here is the milestone breakdown for our review.");
 
-    // Click Send button
+    // Tap Send button
     const sendBtn = page.locator('button:has-text("Send")').first();
     await expect(sendBtn).toBeEnabled();
-    await sendBtn.click();
+    await sendBtn.tap();
 
     // Verify composer closes
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
@@ -103,12 +114,12 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Select colleague thread
     const threadCard = page.locator('button[aria-label*="Sprint Retrospective Notes"]').first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Reply button in ActionBar
+    // Tap Reply button in ActionBar
     const replyBtn = page.locator('button[title*="Reply (r)"]').first();
     await expect(replyBtn).toBeVisible();
-    await replyBtn.click();
+    await replyBtn.tap();
 
     // Composer opens in Reply mode
     await expect(page.locator(".slide-up-panel")).toBeVisible();
@@ -116,12 +127,12 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Type reply message
     const editor = page.locator(".tiptap.ProseMirror");
-    await editor.click();
+    await editor.tap();
     await editor.fill("Thanks Sarah, looks great! I will review the action items.");
 
-    // Click Send
+    // Tap Send
     const sendBtn = page.locator('button:has-text("Send")').first();
-    await sendBtn.click();
+    await sendBtn.tap();
 
     // Composer closes
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
@@ -136,12 +147,12 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Select multi-recipient thread
     const threadCard = page.locator('button[aria-label*="Quarterly Planning Sync"]').first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Reply All button in ActionBar
+    // Tap Reply All button in ActionBar
     const replyAllBtn = page.locator('button[title*="Reply All (a)"]').first();
     await expect(replyAllBtn).toBeVisible();
-    await replyAllBtn.click();
+    await replyAllBtn.tap();
 
     // Verify Reply All composer title and recipients
     await expect(page.locator(".slide-up-panel")).toBeVisible();
@@ -149,12 +160,12 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Type reply body
     const editor = page.locator(".tiptap.ProseMirror");
-    await editor.click();
+    await editor.tap();
     await editor.fill("Confirmed, see everyone at the sync.");
 
     // Send
     const sendBtn = page.locator('button:has-text("Send")').first();
-    await sendBtn.click();
+    await sendBtn.tap();
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
     expect(fakeServer.state.sentEmails.length).toBeGreaterThanOrEqual(1);
   });
@@ -167,12 +178,12 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Select report thread
     const threadCard = page.locator('button[aria-label*="Quarterly Client Growth Report"]').first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Forward button
+    // Tap Forward button
     const forwardBtn = page.locator('button[title*="Forward (f)"]').first();
     await expect(forwardBtn).toBeVisible();
-    await forwardBtn.click();
+    await forwardBtn.tap();
 
     // Verify Forward composer opened
     await expect(page.locator(".slide-up-panel")).toBeVisible();
@@ -183,9 +194,9 @@ test.describe("Top 20 Email Workflows", () => {
     await toInput.fill("manager@workplace.org");
     await toInput.press("Enter");
 
-    // Click Send
+    // Tap Send
     const sendBtn = page.locator('button:has-text("Send")').first();
-    await sendBtn.click();
+    await sendBtn.tap();
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
     expect(fakeServer.state.sentEmails.length).toBeGreaterThanOrEqual(1);
   });
@@ -200,13 +211,13 @@ test.describe("Top 20 Email Workflows", () => {
     const threadTitle = "DevOps System Maintenance Notification";
     await expect(page.locator(`text=${threadTitle}`).first()).toBeVisible();
 
-    // Click thread and archive it
+    // Tap thread and archive it
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
     const archiveBtn = page.locator('button[title*="Archive (e)"]').first();
     await expect(archiveBtn).toBeVisible();
-    await archiveBtn.click();
+    await archiveBtn.tap();
 
     // Thread is immediately removed from the active inbox list
     await expect(page.locator(`text=${threadTitle}`)).toHaveCount(0);
@@ -221,20 +232,19 @@ test.describe("Top 20 Email Workflows", () => {
     const threadTitle = "Special Limited 50% Off Discount";
     await expect(page.locator(`text=${threadTitle}`).first()).toBeVisible();
 
-    // Click thread and delete it
+    // Tap thread and delete it
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
     const deleteBtn = page.locator('button[title*="Delete (#)"]').first();
     await expect(deleteBtn).toBeVisible();
-    await deleteBtn.click();
+    await deleteBtn.tap();
 
     // Verify removed from Inbox
     await expect(page.locator(`text=${threadTitle}`)).toHaveCount(0);
 
     // Navigate to Trash folder via sidebar nav item
-    const trashNavBtn = page.locator('aside button:has-text("Trash")').first();
-    await trashNavBtn.click();
+    await tapSidebarFolder(page, "Trash");
     await expect(page.locator(`text=${threadTitle}`).first()).toBeVisible({ timeout: 10_000 });
   });
 
@@ -246,19 +256,18 @@ test.describe("Top 20 Email Workflows", () => {
 
     const threadTitle = "Annual Tax Statement & Salary Slip";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Star button in ActionBar
+    // Tap Star button in ActionBar
     const starBtn = page.locator('button[title*="Star (s)"]').first();
     await expect(starBtn).toBeVisible();
-    await starBtn.click();
+    await starBtn.tap();
 
     // Verify button switches to 'Unstar (s)'
     await expect(page.locator('button[title*="Unstar (s)"]').first()).toBeVisible();
 
     // Navigate to Starred view in sidebar
-    const starredNavBtn = page.locator('aside button:has-text("Starred")').first();
-    await starredNavBtn.click();
+    await tapSidebarFolder(page, "Starred");
     await expect(page.locator(`text=${threadTitle}`).first()).toBeVisible({ timeout: 10_000 });
   });
 
@@ -270,15 +279,21 @@ test.describe("Top 20 Email Workflows", () => {
 
     const threadTitle = "URGENT: Production Server Latency Alert";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Pin button in ActionBar
+    // Tap Pin button in ActionBar
     const pinBtn = page.locator('button[title*="Pin (p)"]').first();
     await expect(pinBtn).toBeVisible();
-    await pinBtn.click();
+    await pinBtn.tap();
 
     // Verify pin state toggles to 'Unpin (p)'
     await expect(page.locator('button[title*="Unpin (p)"]').first()).toBeVisible();
+
+    // On mobile single-pane, tap Back to list to see the pinned section
+    const backBtn = page.locator('button[title="Back to list"]:visible').first();
+    if (await backBtn.isVisible()) {
+      await backBtn.tap();
+    }
 
     // Verify 'Other emails' section divider appears separating pinned from unpinned
     await expect(page.locator("text=Other emails").first()).toBeVisible();
@@ -293,6 +308,7 @@ test.describe("Top 20 Email Workflows", () => {
     // Locate SearchBar input
     const searchInput = page.locator('input[placeholder*="Search"]').first();
     await expect(searchInput).toBeVisible();
+    await searchInput.tap();
     await searchInput.fill("Roadmap");
     await searchInput.press("Enter");
 
@@ -301,6 +317,17 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Non-matching thread is filtered out
     await expect(page.locator("text=Special Limited 50% Off Discount")).toHaveCount(0);
+
+    // Results count badge is visible on mobile
+    await expect(page.locator('[data-testid="search-results-badge"]').first()).toBeVisible();
+
+    // Clear search using the ergonomic clear button
+    const clearBtn = page.locator('button[aria-label="Clear search"]').first();
+    await expect(clearBtn).toBeVisible();
+    await clearBtn.tap();
+
+    // Resetting query restores filtered threads
+    await expect(page.locator("text=Special Limited 50% Off Discount").first()).toBeVisible();
   });
 
   // Storyboard 11: Organize / Move to Folder (Apply Label)
@@ -311,19 +338,19 @@ test.describe("Top 20 Email Workflows", () => {
 
     const threadTitle = "Client Alpha Contract Discussion";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Move to folder button in ActionBar
+    // Tap Move to folder button in ActionBar
     const moveBtn = page.locator('button[title*="Move to folder (v)"]').first();
     await expect(moveBtn).toBeVisible();
-    await moveBtn.click();
+    await moveBtn.tap();
 
     // Move modal opens; select 'Projects' destination inside the dialog listbox
     const dialogListbox = page.locator('[role="listbox"]').first();
     await expect(dialogListbox).toBeVisible();
     const projectsOption = dialogListbox.locator('button:has-text("Projects")').first();
     await expect(projectsOption).toBeVisible();
-    await projectsOption.click();
+    await projectsOption.tap();
 
     // Modal closes upon destination selection
     await expect(page.locator('[role="listbox"]')).toHaveCount(0);
@@ -337,12 +364,12 @@ test.describe("Top 20 Email Workflows", () => {
 
     const threadTitle = "Annual Benefits Enrollment Deadline";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Thread is read; click 'Mark unread' button in ActionBar
+    // Thread is read; tap 'Mark unread' button in ActionBar
     const markUnreadBtn = page.locator('button[title="Mark unread"]').first();
     await expect(markUnreadBtn).toBeVisible();
-    await markUnreadBtn.click();
+    await markUnreadBtn.tap();
 
     // Verify button switches to 'Mark read'
     await expect(page.locator('button[title="Mark read"]').first()).toBeVisible();
@@ -356,24 +383,23 @@ test.describe("Top 20 Email Workflows", () => {
 
     const threadTitle = "Weekly Book Club Suggestions";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
-    // Click Snooze button
+    // Tap Snooze button
     const snoozeBtn = page.locator('button[title*="Snooze (h)"]').first();
     await expect(snoozeBtn).toBeVisible();
-    await snoozeBtn.click();
+    await snoozeBtn.tap();
 
-    // In SnoozeDialog modal, click 'Tomorrow' preset
+    // In SnoozeDialog modal, tap 'Tomorrow' preset
     const tomorrowBtn = page.locator('button:has-text("Tomorrow")').first();
     await expect(tomorrowBtn).toBeVisible();
-    await tomorrowBtn.click();
+    await tomorrowBtn.tap();
 
     // Thread is removed from active inbox
     await expect(page.locator(`text=${threadTitle}`)).toHaveCount(0);
 
     // Navigate to Snoozed view in sidebar
-    const snoozedNavBtn = page.locator('aside button:has-text("Snoozed")').first();
-    await snoozedNavBtn.click();
+    await tapSidebarFolder(page, "Snoozed");
     await expect(page.locator(`text=${threadTitle}`).first()).toBeVisible({ timeout: 10_000 });
   });
 
@@ -384,8 +410,8 @@ test.describe("Top 20 Email Workflows", () => {
     await setupInboxPage(page);
 
     // Open composer
-    const composeBtn = page.locator('button:has-text("Compose")').first();
-    await composeBtn.click();
+    const composeBtn = page.locator('button:has-text("Compose"):visible').first();
+    await composeBtn.tap();
 
     // Enter recipient and subject
     const toInput = page.locator('input[aria-label="To"]');
@@ -395,15 +421,15 @@ test.describe("Top 20 Email Workflows", () => {
     const subjectInput = page.locator('input[placeholder="Subject"]');
     await subjectInput.fill("Morning Standup Agenda");
 
-    // Click Schedule Send trigger button
+    // Tap Schedule Send trigger button
     const scheduleTrigger = page.locator('button[title="Schedule send"]').first();
     await expect(scheduleTrigger).toBeVisible();
-    await scheduleTrigger.click();
+    await scheduleTrigger.tap();
 
     // Select Tomorrow morning preset
     const presetBtn = page.locator('button:has-text("Tomorrow morning")').first();
     await expect(presetBtn).toBeVisible();
-    await presetBtn.click();
+    await presetBtn.tap();
 
     // Composer closes upon successful scheduling
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
@@ -416,14 +442,13 @@ test.describe("Top 20 Email Workflows", () => {
     await setupInboxPage(page);
 
     // Navigate to Drafts via sidebar
-    const draftsNavBtn = page.locator('aside button:has-text("Drafts")').first();
-    await draftsNavBtn.click();
+    await tapSidebarFolder(page, "Drafts");
 
     // Draft thread is present in Drafts view
     const draftTitle = "Draft Proposal for Q3 Campaign";
     const draftCard = page.locator(`text=${draftTitle}`).first();
     await expect(draftCard).toBeVisible({ timeout: 15_000 });
-    await draftCard.click();
+    await draftCard.tap();
 
     // Composer automatically opens with pre-populated draft content
     await expect(page.locator('input[value="Draft Proposal for Q3 Campaign"]')).toBeVisible();
@@ -431,7 +456,7 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Discard draft cleanly
     const discardBtn = page.locator('button:has-text("Discard")').first();
-    await discardBtn.click();
+    await discardBtn.tap();
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
   });
 
@@ -443,14 +468,13 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Open email containing attachment
     const threadCard = page.locator('button[aria-label*="Financial Report Attached"]').first();
-    await threadCard.click();
+    await threadCard.tap();
 
     // Verify attachment badge / pill in reading pane
     await expect(page.locator("text=Quarterly_Financial_Report.pdf").first()).toBeVisible();
 
     // Navigate to central Attachment Library via sidebar
-    const attachmentsNavBtn = page.locator('aside button:has-text("Attachments")').first();
-    await attachmentsNavBtn.click();
+    await tapSidebarFolder(page, "Attachments");
     await expect(page.locator("text=Quarterly_Financial_Report.pdf").first()).toBeVisible({ timeout: 10_000 });
   });
 
@@ -462,16 +486,16 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Open calendar invite email
     const threadCard = page.locator('button[aria-label*="Meeting: Design System Architecture Review"]').first();
-    await threadCard.click();
+    await threadCard.tap();
 
     // CalendarInviteBanner is visible
-    await expect(page.locator("text=Design System Architecture Review").first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.locator("text=Conference Room B").first()).toBeVisible();
+    await expect(page.locator("text=Design System Architecture Review >> visible=true").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator("text=Conference Room B >> visible=true").first()).toBeVisible();
 
-    // Click Accept button
+    // Tap Accept button
     const acceptBtn = page.locator('button:has-text("Accept")').first();
     await expect(acceptBtn).toBeVisible();
-    await acceptBtn.click();
+    await acceptBtn.tap();
 
     // RSVP updates to 'Accepted'
     await expect(page.locator("text=Accepted").first()).toBeVisible();
@@ -487,12 +511,12 @@ test.describe("Top 20 Email Workflows", () => {
     const threadTitle = "Weekly Retail Promotions & Discounts";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
     await expect(threadCard).toBeVisible();
-    await threadCard.click();
+    await threadCard.tap();
 
     // Verify Unsubscribe action in ActionBar
     const unsubBtn = page.locator('button[title*="Unsubscribe"]').first();
     await expect(unsubBtn).toBeVisible();
-    await unsubBtn.click();
+    await unsubBtn.tap();
 
     // Unsubscribe HTTP request made to fake server
     await expect.poll(() => fakeServer.state.unsubscribes.length).toBeGreaterThanOrEqual(1);
@@ -509,22 +533,21 @@ test.describe("Top 20 Email Workflows", () => {
 
     const threadTitle = "URGENT: Verify Your Bank Account Immediately";
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
-    await threadCard.click();
+    await threadCard.tap();
 
     // AuthWarningBanner displayed due to SPF/DKIM/DMARC failure
     await expect(page.locator("text=Authentication failed").first()).toBeVisible();
 
-    // Click Report Spam button
+    // Tap Report Spam button
     const spamBtn = page.locator('button[title*="Report Spam (!)"]').first();
     await expect(spamBtn).toBeVisible();
-    await spamBtn.click();
+    await spamBtn.tap();
 
     // Thread removed from Inbox
     await expect(page.locator(`text=${threadTitle}`)).toHaveCount(0);
 
     // Verify listed under Spam folder via sidebar nav
-    const spamNavBtn = page.locator('aside button:has-text("Spam")').first();
-    await spamNavBtn.click();
+    await tapSidebarFolder(page, "Spam");
     await expect(page.locator(`text=${threadTitle}`).first()).toBeVisible({ timeout: 10_000 });
   });
 
@@ -543,18 +566,18 @@ test.describe("Top 20 Email Workflows", () => {
     await expect(cardA).toBeVisible();
     await expect(cardB).toBeVisible();
 
-    // Click with Ctrl/Meta key to toggle multi-select
-    await cardA.click({ modifiers: ["Control"] });
-    await cardB.click({ modifiers: ["Control"] });
+    // Tap the avatar checkbox handles on mobile touch interface to toggle multi-select
+    await cardA.locator('[role="checkbox"]').first().tap();
+    await cardB.locator('[role="checkbox"]').first().tap();
 
     // Multi-select bar appears showing '2 selected'
     const bulkBar = page.locator("text=2 selected").first();
     await expect(bulkBar).toBeVisible();
 
-    // Click Archive selected button in the floating multi-select bar
+    // Tap Archive selected button in the floating multi-select bar
     const bulkArchiveBtn = page.locator('button[title="Archive selected"]').first();
     await expect(bulkArchiveBtn).toBeVisible();
-    await bulkArchiveBtn.click();
+    await bulkArchiveBtn.tap();
 
     // Both threads removed from Inbox
     await expect(page.locator(`text=${threadA}`)).toHaveCount(0);

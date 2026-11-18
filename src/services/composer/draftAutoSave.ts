@@ -50,6 +50,8 @@ async function saveDraft(): Promise<void> {
     }
 
     state.setLastSavedAt(Date.now());
+    window.dispatchEvent(new CustomEvent("draft-count-changed"));
+    window.dispatchEvent(new CustomEvent("velo-sync-done"));
   } catch (err) {
     console.error("Failed to auto-save draft:", err);
   } finally {

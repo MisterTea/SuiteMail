@@ -46,13 +46,13 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    let x = position.x;
-    let y = position.y;
+    let x = Math.min(position.x, vw - 16);
+    let y = Math.min(position.y, vh - 16);
 
-    if (x + rect.width > vw) x = vw - rect.width - 4;
-    if (y + rect.height > vh) y = vh - rect.height - 4;
-    if (x < 4) x = 4;
-    if (y < 4) y = 4;
+    if (x + rect.width > vw - 16) x = vw - rect.width - 16;
+    if (y + rect.height > vh - 16) y = vh - rect.height - 16;
+    if (x < 8) x = 8;
+    if (y < 8) y = 8;
 
     setAdjustedPosition({ x, y });
   }, [position]);
@@ -219,7 +219,7 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
                 disabled={item.disabled}
                 onClick={() => handleItemClick(item)}
                 onMouseEnter={() => handleMouseEnter(index, item)}
-                className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left transition-colors ${
+                className={`flex items-center gap-2 w-full px-3 py-2.5 sm:py-1.5 text-sm sm:text-xs text-left transition-colors ${
                   item.disabled
                     ? "text-text-tertiary cursor-default"
                     : item.danger
@@ -293,17 +293,20 @@ function Submenu({
 
     // Prefer right side, fall back to left
     let left = anchorRect.right;
-    if (left + submenuRect.width > vw) {
+    if (left + submenuRect.width > vw - 16) {
       left = anchorRect.left - submenuRect.width;
     }
-    if (left < 4) left = 4;
+    if (left + submenuRect.width > vw - 16) {
+      left = vw - submenuRect.width - 16;
+    }
+    if (left < 8) left = 8;
 
     // Align top with anchor, clamp to viewport
     let top = anchorRect.top;
-    if (top + submenuRect.height > vh) {
-      top = vh - submenuRect.height - 4;
+    if (top + submenuRect.height > vh - 16) {
+      top = vh - submenuRect.height - 16;
     }
-    if (top < 4) top = 4;
+    if (top < 8) top = 8;
 
     setPosition({ left, top });
   }, [anchorRect]);
@@ -332,7 +335,7 @@ function Submenu({
                 onClose();
               }
             }}
-            className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left transition-colors ${
+            className={`flex items-center gap-2 w-full px-3 py-2.5 sm:py-1.5 text-sm sm:text-xs text-left transition-colors ${
               item.disabled
                 ? "text-text-tertiary cursor-default"
                 : "text-text-primary hover:bg-bg-hover"

@@ -20,6 +20,28 @@ const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama" | "pi" | "aicore">, 
 let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } | null = null;
 
 export async function getActiveProviderName(): Promise<AiProvider> {
+  // Mobile platform check: on Android, use aicore with max AI mode instead of running a local llama server.
+  // For desktop, continue to use llama (or the configured provider).
+  try {
+    const { platform } = await import("@tauri-apps/plugin-os");
+    if (platform() === "android") {
+      const setting = await getSetting("ai_provider");
+      // If user explicitly configured an external cloud provider, honor it
+      if (
+        setting === "openai" ||
+        setting === "gemini" ||
+        setting === "copilot" ||
+        setting === "claude"
+      ) {
+        return setting;
+      }
+      // For local AI ("pi", "ollama") or default on Android, use on-device aicore
+      return "aicore";
+    }
+  } catch {
+    // ignore
+  }
+
   const setting = await getSetting("ai_provider");
   if (
     setting === "openai" ||
@@ -30,16 +52,6 @@ export async function getActiveProviderName(): Promise<AiProvider> {
     setting === "aicore"
   ) {
     return setting;
-  }
-
-  // Auto-detect mobile platform: on Android, prefer aicore if no provider configured
-  try {
-    const { platform } = await import("@tauri-apps/plugin-os");
-    if (platform() === "android") {
-      return "aicore";
-    }
-  } catch {
-    // ignore
   }
 
   return "claude";

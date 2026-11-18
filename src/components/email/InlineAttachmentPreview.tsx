@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
-import { FileText } from "lucide-react";
-import { formatFileSize, isImage, isPdf } from "@/utils/fileTypeHelpers";
+import { Eye } from "lucide-react";
+import { formatFileSize, isImage, isPdf, getFileTypeMeta } from "@/utils/fileTypeHelpers";
+import { FileTypeIcon } from "@/components/attachments/FileTypeIcon";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -62,26 +63,36 @@ export function InlineAttachmentPreview({
 
       {/* PDF cards */}
       {pdfs.length > 0 && (
-        <div className="space-y-1">
-          {pdfs.map((att) => (
-            <button
-              key={att.id}
-              onClick={() => onAttachmentClick(att)}
-              className="flex items-center gap-2 px-3 py-2 rounded-md bg-bg-tertiary/50 hover:bg-bg-hover transition-colors w-full text-left"
-            >
-              <FileText size={16} className="text-danger shrink-0" />
-              <div className="min-w-0">
-                <div className="text-xs text-text-primary truncate">
-                  {att.filename ?? "Document.pdf"}
-                </div>
-                {att.size != null && (
-                  <div className="text-[0.625rem] text-text-tertiary">
-                    {formatFileSize(att.size)}
+        <div className="flex flex-wrap gap-2 mb-2">
+          {pdfs.map((att) => {
+            const meta = getFileTypeMeta(att.mime_type, att.filename);
+            return (
+              <button
+                key={att.id}
+                onClick={() => onAttachmentClick(att)}
+                className={`group flex items-center gap-2.5 px-3 py-2 rounded-lg border border-border-primary/80 bg-bg-secondary/40 hover:bg-bg-secondary hover:border-border-secondary hover:shadow-xs transition-all text-left max-w-sm ${meta.cardBorderHover}`}
+              >
+                <FileTypeIcon mimeType={att.mime_type} filename={att.filename} size={16} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-text-primary truncate">
+                    {att.filename ?? "Document.pdf"}
                   </div>
-                )}
-              </div>
-            </button>
-          ))}
+                  <div className="flex items-center gap-1.5 text-[10px] text-text-tertiary">
+                    {att.size != null && (
+                      <span className="font-mono">{formatFileSize(att.size)}</span>
+                    )}
+                    <span className="text-border-primary">•</span>
+                    <span className={`uppercase font-semibold tracking-wider text-[9px] ${meta.badgeText}`}>
+                      {meta.extension}
+                    </span>
+                  </div>
+                </div>
+                <span className="text-text-tertiary group-hover:text-text-primary p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Eye size={13} />
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

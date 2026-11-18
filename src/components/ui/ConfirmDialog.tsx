@@ -11,6 +11,7 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "primary" | "danger";
+  danger?: boolean;
   loading?: boolean;
 }
 
@@ -23,9 +24,11 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   variant = "primary",
+  danger,
   loading = false,
 }: ConfirmDialogProps) {
   const confirmRef = useRef<HTMLButtonElement>(null);
+  const resolvedVariant = danger ? "danger" : variant;
 
   useEffect(() => {
     if (isOpen) {
@@ -47,14 +50,20 @@ export function ConfirmDialog({
       <div className="p-4" onKeyDown={handleKeyDown}>
         <div className="text-sm text-text-secondary mb-4">{message}</div>
         <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={loading}>
+          <Button
+            variant="secondary"
+            onClick={onClose}
+            disabled={loading}
+            className="min-h-[42px] sm:min-h-0 flex-1 sm:flex-initial justify-center"
+          >
             {cancelLabel}
           </Button>
           <Button
             ref={confirmRef}
-            variant={variant === "danger" ? "danger" : "primary"}
+            variant={resolvedVariant === "danger" ? "danger" : "primary"}
             onClick={onConfirm}
             disabled={loading}
+            className="min-h-[42px] sm:min-h-0 flex-1 sm:flex-initial justify-center"
           >
             {loading ? "..." : confirmLabel}
           </Button>

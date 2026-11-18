@@ -42,7 +42,8 @@ export function SignatureSelector() {
     <select
       value={signatureId ?? ""}
       onChange={(e) => handleChange(e.target.value)}
-      className="text-[0.625rem] bg-bg-tertiary text-text-secondary border border-border-primary rounded px-1.5 py-0.5"
+      aria-label="Select signature"
+      className="text-xs bg-bg-tertiary/60 hover:bg-bg-tertiary text-text-secondary hover:text-text-primary border border-border-primary/60 rounded-md px-2 py-1.5 sm:py-1 min-h-[38px] sm:min-h-0 max-w-[96px] sm:max-w-[140px] truncate shrink-0 outline-none transition-colors cursor-pointer"
     >
       <option value="">No signature</option>
       {signatures.map((sig) => (

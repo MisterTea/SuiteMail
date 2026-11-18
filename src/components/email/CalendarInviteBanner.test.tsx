@@ -70,6 +70,12 @@ describe("CalendarInviteBanner", () => {
     expect(screen.getByText("Accept")).toBeInTheDocument();
     expect(screen.getByText("Tentative")).toBeInTheDocument();
     expect(screen.getByText("Decline")).toBeInTheDocument();
+    expect(screen.getByText("Yes")).toBeInTheDocument();
+    expect(screen.getByText("Maybe")).toBeInTheDocument();
+    expect(screen.getByText("No")).toBeInTheDocument();
+    // Verifies date tear-off badge
+    expect(screen.getByText("NOV")).toBeInTheDocument();
+    expect(screen.getByText("21")).toBeInTheDocument();
   });
 
   it("calls respondToInvite when Accept button is clicked", async () => {
@@ -82,6 +88,32 @@ describe("CalendarInviteBanner", () => {
 
     const acceptBtn = screen.getByText("Accept");
     fireEvent.click(acceptBtn);
+
+    await waitFor(() => {
+      expect(mockRespondToInvite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountId: "acc-1",
+          responseStatus: "accepted",
+          userEmail: "user@example.com",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/accepted this invitation/i)).toBeInTheDocument();
+    });
+  });
+
+  it("calls respondToInvite when Yes button is clicked", async () => {
+    render(
+      <CalendarInviteBanner
+        message={dummyMessage as DbMessage}
+        invite={dummyInvite}
+      />,
+    );
+
+    const yesBtn = screen.getByText("Yes");
+    fireEvent.click(yesBtn);
 
     await waitFor(() => {
       expect(mockRespondToInvite).toHaveBeenCalledWith(

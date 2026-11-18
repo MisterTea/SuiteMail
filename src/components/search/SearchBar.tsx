@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { searchMessages } from "@/services/db/search";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore } from "@/stores/threadStore";
@@ -11,6 +11,7 @@ export function SearchBar() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isFocused, setIsFocused] = useState(false);
 
   const [showSaveModal, setShowSaveModal] = useState(false);
 
@@ -18,6 +19,31 @@ export function SearchBar() {
     if (useThreadStore.getState().searchQuery.trim().length < 2) return;
     setShowSaveModal(true);
   }, []);
+
+  const executeSearch = useCallback(
+    async (value: string) => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        debounceRef.current = null;
+      }
+      const trimmed = value.trim();
+      const { setSearch } = useThreadStore.getState();
+
+      if (trimmed.length < 2) {
+        setSearch(value, null);
+        return;
+      }
+
+      try {
+        const hits = await searchMessages(trimmed, activeAccountId ?? undefined, 100);
+        const threadIds = new Set(hits.map((h) => h.thread_id));
+        useThreadStore.getState().setSearch(value, threadIds);
+      } catch {
+        useThreadStore.getState().setSearch(value, null);
+      }
+    },
+    [activeAccountId],
+  );
 
   const handleChange = useCallback(
     (value: string) => {
@@ -31,70 +57,104 @@ export function SearchBar() {
         return;
       }
 
-      debounceRef.current = setTimeout(async () => {
-        try {
-          const hits = await searchMessages(value, activeAccountId ?? undefined, 100);
-          const threadIds = new Set(hits.map((h) => h.thread_id));
-          useThreadStore.getState().setSearch(value, threadIds);
-        } catch {
-          useThreadStore.getState().setSearch(value, null);
-        }
+      debounceRef.current = setTimeout(() => {
+        executeSearch(value);
       }, 200);
     },
-    [activeAccountId],
+    [executeSearch],
   );
 
   const handleClear = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
     useThreadStore.getState().clearSearch();
     inputRef.current?.focus();
   }, []);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      executeSearch(inputRef.current?.value ?? searchQuery);
+    } else if (e.key === "Escape") {
       useThreadStore.getState().clearSearch();
       inputRef.current?.blur();
     }
   };
 
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   return (
-    <div className="relative">
-      <Search
-        size={14}
-        className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary pointer-events-none"
-      />
-      <input
-        ref={inputRef}
-        type="text"
-        value={searchQuery}
-        onChange={(e) => handleChange(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder="Search... (from: to: has:attachment)"
-        className="w-full bg-bg-tertiary text-text-primary text-sm pl-8 pr-14 py-1.5 rounded-md border border-border-primary focus:border-accent focus:outline-none placeholder:text-text-tertiary"
-      />
-      {searchQuery && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-          {searchQuery.trim().length >= 2 && (
+    <div className="relative group">
+      <div
+        className={`relative flex items-center w-full min-h-[48px] sm:min-h-[38px] rounded-xl sm:rounded-lg transition-all duration-200 border ${
+          isFocused
+            ? "border-accent ring-2 ring-accent/25 bg-bg-primary shadow-sm"
+            : "border-border-primary/80 hover:border-border-primary bg-bg-tertiary/70 hover:bg-bg-tertiary"
+        }`}
+      >
+        <Search
+          size={18}
+          className={`absolute left-3.5 sm:left-3 transition-all duration-200 pointer-events-none sm:w-4 sm:h-4 ${
+            isFocused ? "text-accent scale-105" : "text-text-tertiary group-hover:text-text-secondary"
+          }`}
+        />
+        <input
+          ref={inputRef}
+          type="text"
+          enterKeyHint="search"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          value={searchQuery}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search... (from: to: has:attachment)"
+          className="w-full bg-transparent text-text-primary text-base sm:text-sm pl-11 sm:pl-9 pr-24 sm:pr-16 py-3 sm:py-1.5 focus:outline-none placeholder:text-text-tertiary leading-normal"
+        />
+        {searchQuery && (
+          <div className="absolute right-1 sm:right-1.5 flex items-center gap-0.5 sm:gap-1">
+            {searchQuery.trim().length >= 2 && (
+              <button
+                type="button"
+                onClick={handleSaveAsSmartFolder}
+                className="min-w-[44px] min-h-[44px] sm:min-w-[28px] sm:min-h-[28px] flex items-center justify-center text-text-tertiary hover:text-accent hover:bg-accent/10 active:scale-90 active:bg-accent/20 rounded-full sm:rounded transition-all touch-manipulation cursor-pointer"
+                title="Save as Smart Folder"
+                aria-label="Save as Smart Folder"
+              >
+                <FolderPlus size={18} className="sm:w-3.5 sm:h-3.5" />
+              </button>
+            )}
             <button
-              onClick={handleSaveAsSmartFolder}
-              className="text-text-tertiary hover:text-accent transition-colors"
-              title="Save as Smart Folder"
+              type="button"
+              onClick={handleClear}
+              className="min-w-[44px] min-h-[44px] sm:min-w-[28px] sm:min-h-[28px] flex items-center justify-center text-text-tertiary hover:text-text-primary active:text-text-primary hover:bg-bg-hover active:bg-bg-hover/80 active:scale-90 rounded-full sm:rounded transition-all touch-manipulation cursor-pointer"
+              title="Clear search (Esc)"
+              aria-label="Clear search"
             >
-              <FolderPlus size={14} />
+              <X size={18} className="sm:w-3.5 sm:h-3.5" />
             </button>
-          )}
-          <button
-            onClick={handleClear}
-            className="text-text-tertiary hover:text-text-primary transition-colors"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      )}
+          </div>
+        )}
+      </div>
       <InputDialog
         isOpen={showSaveModal}
         onClose={() => setShowSaveModal(false)}
         onSubmit={(values) => {
-          useSmartFolderStore.getState().createFolder(values.name!.trim(), useThreadStore.getState().searchQuery.trim(), activeAccountId ?? undefined);
+          useSmartFolderStore
+            .getState()
+            .createFolder(
+              values.name!.trim(),
+              useThreadStore.getState().searchQuery.trim(),
+              activeAccountId ?? undefined,
+            );
         }}
         title="Save as Smart Folder"
         fields={[

@@ -16,6 +16,8 @@ import { getEnabledQuickStepsForAccount, type DbQuickStep } from "@/services/db/
 import { executeQuickStep } from "@/services/quickSteps/executor";
 import type { QuickStep, QuickStepAction } from "@/services/quickSteps/types";
 import { SnoozeDialog } from "../email/SnoozeDialog";
+import { useToastStore } from "@/stores/toastStore";
+import { buildForwardQuote } from "@/utils/forwardQuoteBuilder";
 import {
   Reply,
   ReplyAll,
@@ -51,11 +53,6 @@ function buildQuote(msg: { from_name: string | null; from_address: string | null
   return `<br><br><div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666">On ${date}, ${from} wrote:<br>${msg.body_html ?? msg.body_text ?? ""}</div>`;
 }
 
-function buildForwardQuote(msg: { from_name: string | null; from_address: string | null; date: string | number; subject: string | null; to_addresses: string | null; body_html: string | null; body_text: string | null }): string {
-  const date = new Date(msg.date).toLocaleString();
-  return `<br><br>---------- Forwarded message ---------<br>From: ${msg.from_name ?? ""} &lt;${msg.from_address ?? ""}&gt;<br>Date: ${date}<br>Subject: ${msg.subject ?? ""}<br>To: ${msg.to_addresses ?? ""}<br><br>${msg.body_html ?? msg.body_text ?? ""}`;
-}
-
 export function ContextMenuPortal() {
   const menuType = useContextMenuStore((s) => s.menuType);
   const position = useContextMenuStore((s) => s.position);
@@ -63,17 +60,51 @@ export function ContextMenuPortal() {
   const closeMenu = useContextMenuStore((s) => s.closeMenu);
   const [snoozeTarget, setSnoozeTarget] = useState<{ threadIds: string[]; accountId: string } | null>(null);
 
+  const handleSnoozeAction = async (until: number) => {
+    if (!snoozeTarget) return;
+    const target = snoozeTarget;
+    setSnoozeTarget(null);
+    for (const id of target.threadIds) {
+      await snoozeThread(target.accountId, id, until);
+      useThreadStore.getState().removeThread(id);
+    }
+    const targetDate = new Date(until * 1000);
+    const today = new Date();
+    const isTomorrow =
+      targetDate.getDate() === new Date(today.getTime() + 86400000).getDate() &&
+      targetDate.getMonth() === new Date(today.getTime() + 86400000).getMonth();
+    const timeStr = targetDate.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+    const dayStr = isTomorrow
+      ? "Tomorrow"
+      : targetDate.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    const targetLabel = `${dayStr}, ${timeStr}`;
+
+    useToastStore.getState().showToast({
+      message: `${target.threadIds.length > 1 ? `${target.threadIds.length} conversations` : "Conversation"} snoozed until ${targetLabel}`,
+      icon: <Clock size={15} className="text-accent shrink-0" />,
+      duration: 5000,
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          try {
+            useToastStore.getState().dismissToast();
+            const { unsnoozeThread } = await import("@/services/snooze/snoozeManager");
+            for (const id of target.threadIds) {
+              await unsnoozeThread(target.accountId, id);
+            }
+          } catch (err) {
+            console.error("Failed to undo snooze:", err);
+          }
+        },
+      },
+    });
+  };
+
   if (!menuType) {
     if (snoozeTarget) {
       return (
         <SnoozeDialog
-          onSnooze={async (until) => {
-            for (const id of snoozeTarget.threadIds) {
-              await snoozeThread(snoozeTarget.accountId, id, until);
-              useThreadStore.getState().removeThread(id);
-            }
-            setSnoozeTarget(null);
-          }}
+          onSnooze={handleSnoozeAction}
           onClose={() => setSnoozeTarget(null)}
         />
       );
@@ -81,34 +112,33 @@ export function ContextMenuPortal() {
     return null;
   }
 
+  const clampedPosition = {
+    x: typeof window !== "undefined" ? Math.max(8, Math.min(position.x, window.innerWidth - 16)) : position.x,
+    y: typeof window !== "undefined" ? Math.max(8, Math.min(position.y, window.innerHeight - 16)) : position.y,
+  };
+
   return (
     <>
       {menuType === "sidebarLabel" && (
-        <SidebarLabelMenu position={position} data={data} onClose={closeMenu} />
+        <SidebarLabelMenu position={clampedPosition} data={data} onClose={closeMenu} />
       )}
       {menuType === "sidebarNav" && (
-        <SidebarNavMenu position={position} data={data} onClose={closeMenu} />
+        <SidebarNavMenu position={clampedPosition} data={data} onClose={closeMenu} />
       )}
       {menuType === "thread" && (
         <ThreadMenu
-          position={position}
+          position={clampedPosition}
           data={data}
           onClose={closeMenu}
           onSnooze={setSnoozeTarget}
         />
       )}
       {menuType === "message" && (
-        <MessageMenu position={position} data={data} onClose={closeMenu} />
+        <MessageMenu position={clampedPosition} data={data} onClose={closeMenu} />
       )}
       {snoozeTarget && (
         <SnoozeDialog
-          onSnooze={async (until) => {
-            for (const id of snoozeTarget.threadIds) {
-              await snoozeThread(snoozeTarget.accountId, id, until);
-              useThreadStore.getState().removeThread(id);
-            }
-            setSnoozeTarget(null);
-          }}
+          onSnooze={handleSnoozeAction}
           onClose={() => setSnoozeTarget(null)}
         />
       )}
@@ -289,7 +319,7 @@ function ThreadMenu({
       mode: "forward",
       to: [],
       subject: `Fwd: ${lastMessage.subject ?? ""}`,
-      bodyHtml: buildForwardQuote(lastMessage),
+      quotedHtml: buildForwardQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
     });
@@ -324,7 +354,27 @@ function ThreadMenu({
     for (const id of targetIds) {
       const t = threads.find((th) => th.id === id);
       if (!t) continue;
-      await markThreadRead(activeAccountId, id, [], !t.isRead);
+      const nextReadState = !t.isRead;
+      await markThreadRead(activeAccountId, id, [], nextReadState);
+      useToastStore.getState().showToast({
+        message: nextReadState ? "Marked as read" : "Marked as unread",
+        icon: nextReadState ? (
+          <MailOpen size={15} className="text-accent shrink-0" />
+        ) : (
+          <Mail size={15} className="text-accent shrink-0" />
+        ),
+        duration: 4000,
+        action: {
+          label: nextReadState ? "Mark unread" : "Mark as read",
+          onClick: async () => {
+            try {
+              await markThreadRead(activeAccountId, id, [], !nextReadState);
+            } catch (err) {
+              console.error("Failed to toggle read state:", err);
+            }
+          },
+        },
+      });
     }
   };
 
@@ -661,7 +711,7 @@ function MessageMenu({
       mode: "forward",
       to: [],
       subject: `Fwd: ${subject ?? ""}`,
-      bodyHtml: buildForwardQuote(msg),
+      quotedHtml: buildForwardQuote(msg),
       threadId,
       inReplyToMessageId: messageId,
     });

@@ -36,9 +36,12 @@ interface UIState {
   isOnline: boolean;
   pendingOpsCount: number;
   isSyncingFolder: string | null;
+  mobileSidebarOpen: boolean;
   setTheme: (theme: Theme) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
+  setMobileSidebarOpen: (open: boolean) => void;
+  toggleMobileSidebar: () => void;
   toggleContactSidebar: () => void;
   setContactSidebarVisible: (visible: boolean) => void;
   setReadingPanePosition: (position: ReadingPanePosition) => void;
@@ -71,7 +74,7 @@ export const useUIStore = create<UIState>((set) => ({
   emailDensity: "default",
   defaultReplyMode: "reply",
   markAsReadBehavior: "instant",
-  fontScale: "default",
+  fontScale: typeof window !== "undefined" && window.innerWidth < 768 ? "large" : "default",
   colorTheme: "indigo",
   sendAndArchive: false,
   inboxViewMode: "unified",
@@ -81,6 +84,7 @@ export const useUIStore = create<UIState>((set) => ({
   isOnline: true,
   pendingOpsCount: 0,
   isSyncingFolder: null,
+  mobileSidebarOpen: false,
 
   setTheme: (theme) => set({ theme }),
   toggleSidebar: () =>
@@ -90,6 +94,8 @@ export const useUIStore = create<UIState>((set) => ({
       return { sidebarCollapsed: collapsed };
     }),
   setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+  setMobileSidebarOpen: (mobileSidebarOpen) => set({ mobileSidebarOpen }),
+  toggleMobileSidebar: () => set((state) => ({ mobileSidebarOpen: !state.mobileSidebarOpen })),
   toggleContactSidebar: () =>
     set((state) => {
       const visible = !state.contactSidebarVisible;

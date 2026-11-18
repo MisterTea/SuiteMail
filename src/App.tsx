@@ -4,6 +4,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
 import { Composer } from "./components/composer/Composer";
 import { UndoSendToast } from "./components/composer/UndoSendToast";
+import { ScheduledSendToast } from "./components/composer/ScheduledSendToast";
 import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { AskInbox } from "./components/search/AskInbox";
@@ -76,6 +77,7 @@ import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { AiFilterSuggestModal } from "./components/settings/AiFilterSuggestModal";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
+import { ActionFeedbackToast } from "./components/ui/ActionFeedbackToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
@@ -627,6 +629,8 @@ export default function App() {
         <Composer />
       </ErrorBoundary>
       <UndoSendToast />
+      <ScheduledSendToast />
+      <ActionFeedbackToast />
       <UpdateToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette

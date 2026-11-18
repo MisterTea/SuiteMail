@@ -18,7 +18,7 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   ollama: "llama3.2",
   copilot: "openai/gpt-4o-mini",
   pi: "gemma-4-e4b",
-  aicore: "gemma-4-e4b",
+  aicore: "gemma-4-26b",
 };
 
 export interface ModelOption {
@@ -56,6 +56,7 @@ export const PROVIDER_MODELS: Record<Exclude<AiProvider, "ollama">, ModelOption[
     { id: "gemma-4-26b", label: "Gemma 4 26B (Desktop Llama)" },
   ],
   aicore: [
+    { id: "gemma-4-26b", label: "Gemma 4 26B (Android AICore Max)" },
     { id: "gemma-4-e4b", label: "Gemma 4 E4B (Android AICore)" },
     { id: "gemini-nano", label: "Gemini Nano (Android AICore)" },
   ],

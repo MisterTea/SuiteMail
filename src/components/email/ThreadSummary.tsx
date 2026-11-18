@@ -65,7 +65,7 @@ export function ThreadSummary({ threadId, accountId, messages }: ThreadSummaryPr
   if (!available || messages.length < 2) return null;
 
   return (
-    <div className="mx-4 my-2 p-3 rounded-lg bg-accent/5 border border-accent/20">
+    <div className="mx-6 @md:mx-8 my-3 p-3.5 rounded-xl bg-accent/5 border border-accent/20 shadow-xs">
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="flex items-center gap-2 w-full text-left"

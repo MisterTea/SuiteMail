@@ -5,11 +5,29 @@ export type ComposerViewMode = "modal" | "fullpage";
 
 export interface ComposerAttachment {
   id: string;
-  file: File;
+  file?: File;
   filename: string;
   mimeType: string;
   size: number;
   content: string; // base64
+}
+
+export interface ScheduledToastInfo {
+  id: string;
+  timestamp: number;
+  formattedTime: string;
+  recipient: string;
+  subject: string;
+  recurrenceRule?: string | null;
+  savedDraft?: {
+    to: string[];
+    cc: string[];
+    bcc: string[];
+    subject: string;
+    bodyHtml: string;
+    threadId: string | null;
+    inReplyToMessageId: string | null;
+  };
 }
 
 export interface ComposerState {
@@ -26,6 +44,7 @@ export interface ComposerState {
   draftId: string | null;
   undoSendTimer: ReturnType<typeof setTimeout> | null;
   undoSendVisible: boolean;
+  scheduledToast: ScheduledToastInfo | null;
   attachments: ComposerAttachment[];
   lastSavedAt: number | null;
   isSaving: boolean;
@@ -33,6 +52,7 @@ export interface ComposerState {
   viewMode: ComposerViewMode;
   signatureHtml: string;
   signatureId: string | null;
+  quotedHtml: string | null;
 
   openComposer: (opts?: {
     mode?: ComposerMode;
@@ -44,6 +64,8 @@ export interface ComposerState {
     threadId?: string | null;
     inReplyToMessageId?: string | null;
     draftId?: string | null;
+    attachments?: ComposerAttachment[];
+    quotedHtml?: string | null;
   }) => void;
   closeComposer: () => void;
   setTo: (to: string[]) => void;
@@ -51,10 +73,12 @@ export interface ComposerState {
   setBcc: (bcc: string[]) => void;
   setSubject: (subject: string) => void;
   setBodyHtml: (bodyHtml: string) => void;
+  setQuotedHtml: (quotedHtml: string | null) => void;
   setShowCcBcc: (show: boolean) => void;
   setDraftId: (id: string | null) => void;
   setUndoSendTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
   setUndoSendVisible: (visible: boolean) => void;
+  setScheduledToast: (toast: ScheduledToastInfo | null) => void;
   addAttachment: (attachment: ComposerAttachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
@@ -80,6 +104,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   draftId: null,
   undoSendTimer: null,
   undoSendVisible: false,
+  scheduledToast: null,
   attachments: [],
   viewMode: "modal",
   fromEmail: null,
@@ -87,6 +112,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   isSaving: false,
   signatureHtml: "",
   signatureId: null,
+  quotedHtml: null,
 
   openComposer: (opts) =>
     set({
@@ -103,11 +129,12 @@ export const useComposerStore = create<ComposerState>((set) => ({
       draftId: opts?.draftId ?? null,
       viewMode: "modal",
       fromEmail: null,
-      attachments: [],
+      attachments: opts?.attachments ?? [],
       lastSavedAt: null,
       isSaving: false,
       signatureHtml: "",
       signatureId: null,
+      quotedHtml: opts?.quotedHtml ?? null,
     }),
   closeComposer: () =>
     set({
@@ -129,6 +156,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
       isSaving: false,
       signatureHtml: "",
       signatureId: null,
+      quotedHtml: null,
     }),
   setTo: (to) => set({ to }),
   setCc: (cc) => set({ cc }),
@@ -139,6 +167,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   setDraftId: (draftId) => set({ draftId }),
   setUndoSendTimer: (undoSendTimer) => set({ undoSendTimer }),
   setUndoSendVisible: (undoSendVisible) => set({ undoSendVisible }),
+  setScheduledToast: (scheduledToast) => set({ scheduledToast }),
   addAttachment: (attachment) =>
     set((state) => ({ attachments: [...state.attachments, attachment] })),
   removeAttachment: (id) =>
@@ -152,4 +181,5 @@ export const useComposerStore = create<ComposerState>((set) => ({
   setViewMode: (viewMode) => set({ viewMode }),
   setSignatureHtml: (signatureHtml) => set({ signatureHtml }),
   setSignatureId: (signatureId) => set({ signatureId }),
+  setQuotedHtml: (quotedHtml) => set({ quotedHtml }),
 }));

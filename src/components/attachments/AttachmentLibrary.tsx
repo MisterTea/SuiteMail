@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { platformSaveFile } from "@/platform";
-import { Paperclip, Search, LayoutGrid, List } from "lucide-react";
+import { Paperclip, Search, LayoutGrid, List, Menu } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
+import { useUIStore } from "@/stores/uiStore";
 import {
   getAttachmentsForAccount,
   getAttachmentSenders,
@@ -183,8 +184,17 @@ export function AttachmentLibrary() {
     <div className="flex-1 flex flex-col h-full overflow-hidden">
       {/* Header */}
       <div className="shrink-0 px-4 py-3 border-b border-border-primary">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="mobile-menu-button"
+              onClick={() => useUIStore.getState().toggleMobileSidebar()}
+              className="md:hidden w-11 h-11 min-w-[44px] min-h-[44px] -ml-2 rounded-xl text-text-secondary hover:text-text-primary hover:bg-bg-hover active:scale-95 flex items-center justify-center transition-all touch-manipulation"
+              aria-label="Open navigation menu"
+            >
+              <Menu size={20} />
+            </button>
             <Paperclip size={18} className="text-text-secondary" />
             <h1 className="text-base font-semibold text-text-primary">Attachments</h1>
             <span className="text-xs text-text-tertiary">({filtered.length})</span>
@@ -193,7 +203,7 @@ export function AttachmentLibrary() {
           <div className="flex-1" />
 
           {/* Search */}
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
             <input
               ref={searchRef}
@@ -201,7 +211,7 @@ export function AttachmentLibrary() {
               placeholder="Search attachments..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent w-48"
+              className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent w-full sm:w-48"
             />
           </div>
 
@@ -270,7 +280,7 @@ export function AttachmentLibrary() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4">
+      <div className="flex-1 overflow-y-auto p-4 pb-16 md:pb-6">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-sm text-text-tertiary">Loading attachments...</p>
@@ -282,7 +292,7 @@ export function AttachmentLibrary() {
             subtitle={attachments.length === 0 ? "Attachments from your emails will appear here" : "Try adjusting your filters or search query"}
           />
         ) : viewMode === "grid" ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-4">
             {filtered.map((att) => (
               <AttachmentGridItem
                 key={att.id}
@@ -294,7 +304,7 @@ export function AttachmentLibrary() {
             ))}
           </div>
         ) : (
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-1 max-w-5xl">
             {filtered.map((att) => (
               <AttachmentListItem
                 key={att.id}

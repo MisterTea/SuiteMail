@@ -5,7 +5,7 @@ import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
-import { MailMinus, Languages } from "lucide-react";
+import { MailMinus, Languages, CheckCircle2, ChevronDown } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { CalendarInviteBanner } from "./CalendarInviteBanner";
@@ -16,6 +16,7 @@ import { detectInviteFromMessage } from "@/services/calendar/inviteDetector";
 import { detectShipmentsAndFlights } from "@/utils/trackingDetector";
 import { detectDateTime } from "@/utils/dateTimeDetector";
 import type { DetectedTracker } from "@/utils/trackingPixels";
+import { spamThread } from "@/services/emailActions";
 
 interface MessageItemProps {
   message: DbMessage;
@@ -54,6 +55,14 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const [translatedText, setTranslatedText] = useState<string | null>(null);
   const [translating, setTranslating] = useState(false);
   const [showTranslation, setShowTranslation] = useState(false);
+
+  const handleReportSpam = async () => {
+    const accId = accountId ?? message.account_id;
+    const thrId = threadId ?? message.thread_id;
+    if (accId && thrId) {
+      await spamThread(accId, thrId, [], true);
+    }
+  };
 
   const handleTranslate = async () => {
     if (showTranslation) {
@@ -128,51 +137,84 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const fromDisplay = message.from_name ?? message.from_address ?? "Unknown";
 
   return (
-    <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
+    <div
+      ref={ref}
+      className={`rounded-xl border border-border-primary/60 bg-bg-primary/90 dark:bg-bg-secondary/40 shadow-xs overflow-hidden transition-all duration-150 ${
+        isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""
+      } ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`}
+      onContextMenu={onContextMenu}
+    >
       {/* Header — always visible, click to expand/collapse */}
       <button
         onClick={handleToggle}
-        className="w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors"
+        aria-expanded={expanded}
+        className="w-full text-left px-3.5 sm:px-5 py-3 sm:py-3.5 min-h-[52px] hover:bg-bg-hover/50 active:bg-bg-hover/70 transition-colors cursor-pointer touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-accent/20 text-accent flex items-center justify-center shrink-0 text-xs font-medium">
+        <div className="flex items-start sm:items-center justify-between gap-2.5 sm:gap-3">
+          <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-accent/20 to-accent/10 text-accent font-bold text-sm flex items-center justify-center shrink-0 ring-1 ring-accent/25 shadow-xs mt-0.5 sm:mt-0">
               {fromDisplay[0]?.toUpperCase()}
             </div>
-            <div className="min-w-0">
-              <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1.5 flex-wrap">
-                {fromDisplay}
-                <AuthBadge authResults={message.auth_results} />
-                <TrackingPixelBadge trackers={detectedTrackers} />
-              </span>
-              {!expanded && (
-                <span className="text-xs text-text-tertiary truncate block">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
+                  <span className="text-sm font-semibold text-text-primary tracking-tight truncate">
+                    {fromDisplay}
+                  </span>
+                  {expanded && message.from_address && message.from_name && (
+                    <span className="inline text-xs text-text-tertiary font-normal truncate max-w-[140px] sm:max-w-none">
+                      &lt;{message.from_address}&gt;
+                    </span>
+                  )}
+                  <AuthBadge authResults={message.auth_results} />
+                  <TrackingPixelBadge trackers={detectedTrackers} />
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <span className="text-[11px] sm:text-xs font-medium text-text-tertiary whitespace-nowrap px-2 sm:px-2.5 py-0.5 rounded-md bg-bg-tertiary/40 border border-border-secondary/40">
+                    {formatFullDate(message.date)}
+                  </span>
+                  <ChevronDown
+                    size={16}
+                    className={`text-text-tertiary transition-transform duration-200 shrink-0 ${expanded ? "rotate-180" : ""}`}
+                  />
+                </div>
+              </div>
+              {!expanded ? (
+                <span className="text-xs text-text-tertiary truncate block mt-0.5">
                   {message.snippet}
                 </span>
+              ) : (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-text-tertiary flex-wrap">
+                  {message.from_address && message.from_name && (
+                    <span className="sm:hidden text-xs text-text-tertiary font-normal truncate max-w-full block">
+                      &lt;{message.from_address}&gt;
+                    </span>
+                  )}
+                  {message.to_addresses && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-text-tertiary/75 font-medium shrink-0">to</span>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-bg-tertiary/60 border border-border-secondary text-text-secondary text-[11px] font-mono max-w-full truncate">
+                        {message.to_addresses}
+                      </span>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </div>
-          <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0 ml-2">
-            {formatFullDate(message.date)}
-          </span>
         </div>
-        {expanded && (
-          <div className="mt-1 text-xs text-text-tertiary">
-            {message.to_addresses && (
-              <span>To: {message.to_addresses}</span>
-            )}
-          </div>
-        )}
       </button>
 
       {/* Body — shown when expanded and image setting resolved */}
       {expanded && (
-        <div className="px-4 pb-4">
+        <div className="px-3.5 sm:px-5 pb-4 sm:pb-5 pt-2 border-t border-border-secondary/40">
           {!authBannerDismissed && (
             <AuthWarningBanner
               authResults={message.auth_results}
               senderAddress={message.from_address}
               onDismiss={() => setAuthBannerDismissed(true)}
+              onReportSpam={handleReportSpam}
+              onTrustSender={() => setAuthBannerDismissed(true)}
             />
           )}
 
@@ -206,9 +248,9 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             <button
               onClick={handleTranslate}
               disabled={translating}
-              className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+              className="inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary px-3 py-1.5 min-h-[40px] sm:min-h-0 sm:px-2.5 sm:py-1 rounded-md bg-bg-tertiary/40 hover:bg-bg-hover active:scale-95 border border-border-secondary/50 transition-all touch-manipulation"
             >
-              <Languages size={12} />
+              <Languages size={14} className="text-text-tertiary shrink-0" />
               <span>{translating ? "Translating..." : showTranslation ? "Show Original" : "Translate"}</span>
             </button>
           </div>
@@ -319,15 +361,16 @@ function UnsubscribeLink({
     <button
       onClick={handleClick}
       disabled={status === "loading" || status === "done"}
-      className={`flex items-center gap-1 text-xs mb-2 transition-colors ${
+      title={status === "done" ? "Unsubscribed" : "Unsubscribe (u)"}
+      className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium rounded-md border transition-all ${
         status === "done"
-          ? "text-success"
+          ? "border-success/30 bg-success/10 text-success"
           : status === "failed"
-            ? "text-danger"
-            : "text-text-tertiary hover:text-text-secondary"
+            ? "border-danger/30 bg-danger/10 text-danger hover:bg-danger/15"
+            : "border-border-secondary/60 hover:border-text-secondary/60 bg-transparent hover:bg-bg-tertiary/60 text-text-tertiary hover:text-text-secondary"
       }`}
     >
-      <MailMinus size={12} />
+      {status === "done" ? <CheckCircle2 size={12} className="text-success" /> : <MailMinus size={12} />}
       {status === "loading" && "Unsubscribing..."}
       {status === "done" && "Unsubscribed"}
       {status === "failed" && "Unsubscribe failed — click to retry"}

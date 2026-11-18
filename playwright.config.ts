@@ -11,6 +11,9 @@ export default defineConfig({
   reporter: "list",
   use: {
     baseURL: "http://localhost:1420",
+    viewport: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -23,7 +26,12 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      use: {
+        ...devices["Pixel 7"],
+        viewport: { width: 390, height: 844 },
+        isMobile: true,
+        hasTouch: true,
+      },
     },
   ],
 });

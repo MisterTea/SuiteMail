@@ -63,7 +63,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, unreadCounts }:
       )}
       <div
         ref={scrollRef}
-        className="flex px-2 overflow-x-auto hide-scrollbar relative"
+        className="flex px-2 overflow-x-auto scrollbar-none hide-scrollbar relative"
       >
         {ALL_CATEGORIES.map((cat) => {
           const Icon = CATEGORY_ICONS[cat];
@@ -76,7 +76,7 @@ export function CategoryTabs({ activeCategory, onCategoryChange, unreadCounts }:
                 onCategoryChange(cat);
                 e.currentTarget.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
               }}
-              className={`px-2.5 py-1.5 text-xs font-medium transition-colors relative whitespace-nowrap flex items-center gap-1.5 ${
+              className={`shrink-0 px-3.5 sm:px-3 py-2.5 sm:py-2 text-xs font-medium transition-colors relative whitespace-nowrap flex items-center gap-1.5 ${
                 activeCategory === cat
                   ? "text-accent"
                   : "text-text-tertiary hover:text-text-primary"

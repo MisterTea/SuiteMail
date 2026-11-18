@@ -1,22 +1,39 @@
-import { Mail, Star, Calendar, ListTodo, Plus, Settings } from "lucide-react";
+import { Mail, Star, Calendar, ListTodo, Plus, Settings, Menu } from "lucide-react";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { useComposerStore } from "@/stores/composerStore";
 import { useTaskStore } from "@/stores/taskStore";
+import { useUIStore } from "@/stores/uiStore";
 
 export function MobileNavBar() {
   const activeLabel = useActiveLabel();
   const openComposer = useComposerStore((s) => s.openComposer);
   const incompleteTaskCount = useTaskStore((s) => s.incompleteCount);
+  const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
+  const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
 
   return (
     <nav
       aria-label="Mobile navigation"
       className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around px-2 py-1.5 border-t border-border-primary bg-bg-primary/95 backdrop-blur-md glass-panel shadow-lg select-none"
     >
+      {/* Menu / Folders Drawer Trigger */}
+      <button
+        onClick={toggleMobileSidebar}
+        data-testid="mobile-nav-menu"
+        aria-label="Open folders menu"
+        className="flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium text-text-tertiary hover:text-text-secondary active:scale-95 transition-all"
+      >
+        <Menu size={18} />
+        <span className="mt-0.5">Folders</span>
+      </button>
+
       {/* Inbox */}
       <button
-        onClick={() => navigateToLabel("inbox")}
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          navigateToLabel("inbox");
+        }}
         className={`flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium transition-colors ${
           activeLabel === "inbox"
             ? "text-accent"
@@ -29,29 +46,47 @@ export function MobileNavBar() {
 
       {/* Starred */}
       <button
-        onClick={() => navigateToLabel("starred")}
-        className={`flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium transition-colors ${
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          navigateToLabel("starred");
+        }}
+        aria-label="Starred"
+        className={`relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] p-1.5 rounded-xl text-[10px] font-medium transition-all active:scale-90 ${
           activeLabel === "starred"
-            ? "text-accent"
+            ? "text-amber-500 dark:text-amber-400 font-semibold"
             : "text-text-tertiary hover:text-text-secondary"
         }`}
       >
-        <Star size={18} />
+        <Star
+          size={18}
+          className={`transition-all duration-200 ${
+            activeLabel === "starred"
+              ? "fill-amber-400 text-amber-500 dark:text-amber-400 star-animate drop-shadow-[0_0_6px_rgba(245,158,11,0.5)]"
+              : ""
+          }`}
+        />
         <span className="mt-0.5">Starred</span>
       </button>
 
-      {/* Compose Center FAB */}
+      {/* Compose Center Pill / FAB */}
       <button
-        onClick={() => openComposer({ mode: "new" })}
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          openComposer({ mode: "new" });
+        }}
         title="Compose Email"
-        className="flex items-center justify-center w-10 h-10 -mt-3 rounded-full bg-accent text-white shadow-md hover:bg-accent-hover transition-all active:scale-95"
+        className="flex flex-col items-center justify-center px-3 py-1 -mt-2.5 rounded-full bg-accent text-white shadow-md hover:bg-accent-hover transition-all active:scale-95"
       >
-        <Plus size={20} />
+        <Plus size={18} />
+        <span className="text-[10px] font-semibold leading-tight">Compose</span>
       </button>
 
       {/* Calendar */}
       <button
-        onClick={() => navigateToLabel("calendar")}
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          navigateToLabel("calendar");
+        }}
         className={`flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium transition-colors ${
           activeLabel === "calendar"
             ? "text-accent"
@@ -64,7 +99,10 @@ export function MobileNavBar() {
 
       {/* Tasks */}
       <button
-        onClick={() => navigateToLabel("tasks")}
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          navigateToLabel("tasks");
+        }}
         className={`relative flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium transition-colors ${
           activeLabel === "tasks"
             ? "text-accent"
@@ -80,7 +118,10 @@ export function MobileNavBar() {
 
       {/* Settings */}
       <button
-        onClick={() => navigateToSettings("general")}
+        onClick={() => {
+          setMobileSidebarOpen(false);
+          navigateToSettings("general");
+        }}
         className={`flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium transition-colors ${
           activeLabel === "settings"
             ? "text-accent"

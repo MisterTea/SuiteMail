@@ -373,7 +373,7 @@ export class FakeServer {
     this.seedInitialData();
   }
 
-  public async start(): Promise<string> {
+  public async start(retries = 30): Promise<string> {
     return new Promise((resolve, reject) => {
       this.server = http.createServer(async (req, res) => {
         // CORS Headers
@@ -644,8 +644,22 @@ export class FakeServer {
         resolve(`http://localhost:${this.port}`);
       });
 
-      this.server.on("error", (err) => {
-        reject(err);
+      this.server.on("error", (err: any) => {
+        if (err.code === "EADDRINUSE" && retries > 0) {
+          try {
+            this.server?.close();
+          } catch {}
+          setTimeout(async () => {
+            try {
+              const url = await this.start(retries - 1);
+              resolve(url);
+            } catch (e) {
+              reject(e);
+            }
+          }, 800);
+        } else {
+          reject(err);
+        }
       });
     });
   }
@@ -653,6 +667,9 @@ export class FakeServer {
   public async stop(): Promise<void> {
     return new Promise((resolve) => {
       if (this.server) {
+        if (typeof (this.server as any).closeAllConnections === "function") {
+          (this.server as any).closeAllConnections();
+        }
         this.server.close(() => resolve());
       } else {
         resolve();

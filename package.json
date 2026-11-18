@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "record:storyboards": "node scripts/record-storyboards.mjs",
     "tauri": "tauri",
     "dev:landing": "npm run dev --prefix landing",
     "build:bridge": "cd submodules/proton-bridge && go build -o ../../src-tauri/bin/proton-bridge ./cmd/Desktop-Bridge",

@@ -1,10 +1,11 @@
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
+import { useToastStore } from "@/stores/toastStore";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
 import { classifyError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
-import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
+import { navigateToThread, navigateBack, getSelectedThreadId } from "@/router/navigate";
 
 // ---------------------------------------------------------------------------
 // Action types
@@ -98,7 +99,9 @@ function applyOptimisticUpdate(action: EmailAction): void {
     case "moveToFolder": {
       const nextId = getNextThreadId(action.threadId);
       store.removeThread(action.threadId);
-      if (nextId) {
+      if (typeof window !== "undefined" && window.innerWidth < 768) {
+        navigateBack();
+      } else if (nextId) {
         navigateToThread(nextId);
       }
       break;
@@ -372,6 +375,49 @@ export function archiveThread(
   threadId: string,
   messageIds: string[],
 ): Promise<ActionResult> {
+  const store = useThreadStore.getState();
+  const thread = store?.threadMap?.get
+    ? store.threadMap.get(threadId)
+    : store?.threads?.find((t) => t.id === threadId);
+
+  try {
+    useToastStore.getState().showToast({
+      message: "Conversation archived",
+      action: thread
+        ? {
+            label: "Undo",
+            onClick: async () => {
+              useToastStore.getState().dismissToast();
+              const currentStore = useThreadStore.getState();
+              if (currentStore?.threads && !currentStore.threads.some((t) => t.id === threadId)) {
+                const newThreads = [thread, ...currentStore.threads];
+                const newMap = currentStore.threadMap ? new Map(currentStore.threadMap).set(threadId, thread) : undefined;
+                useThreadStore.setState({
+                  threads: newThreads,
+                  ...(newMap ? { threadMap: newMap } : {}),
+                });
+              }
+              try {
+                const db = await getDb();
+                await db.execute(
+                  "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'INBOX')",
+                  [accountId, threadId],
+                );
+                const provider = await getEmailProvider(accountId);
+                if (provider && "addLabel" in provider) {
+                  await provider.addLabel(threadId, "INBOX");
+                }
+              } catch (err) {
+                console.warn("Undo archive failed:", err);
+              }
+            },
+          }
+        : undefined,
+    });
+  } catch {
+    // ignore
+  }
+
   return executeEmailAction(accountId, {
     type: "archive",
     threadId,
@@ -384,6 +430,54 @@ export function trashThread(
   threadId: string,
   messageIds: string[],
 ): Promise<ActionResult> {
+  const store = useThreadStore.getState();
+  const thread = store?.threadMap?.get
+    ? store.threadMap.get(threadId)
+    : store?.threads?.find((t) => t.id === threadId);
+
+  try {
+    useToastStore.getState().showToast({
+      message: "Moved to Trash",
+      action: thread
+        ? {
+            label: "Undo",
+            onClick: async () => {
+              useToastStore.getState().dismissToast();
+              const currentStore = useThreadStore.getState();
+              if (currentStore?.threads && !currentStore.threads.some((t) => t.id === threadId)) {
+                const newThreads = [thread, ...currentStore.threads];
+                const newMap = currentStore.threadMap ? new Map(currentStore.threadMap).set(threadId, thread) : undefined;
+                useThreadStore.setState({
+                  threads: newThreads,
+                  ...(newMap ? { threadMap: newMap } : {}),
+                });
+              }
+              try {
+                const db = await getDb();
+                await db.execute(
+                  "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'TRASH'",
+                  [accountId, threadId],
+                );
+                await db.execute(
+                  "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'INBOX')",
+                  [accountId, threadId],
+                );
+                const provider = await getEmailProvider(accountId);
+                if (provider && "removeLabel" in provider && "addLabel" in provider) {
+                  await provider.removeLabel(threadId, "TRASH");
+                  await provider.addLabel(threadId, "INBOX");
+                }
+              } catch (err) {
+                console.warn("Undo trash failed:", err);
+              }
+            },
+          }
+        : undefined,
+    });
+  } catch {
+    // ignore
+  }
+
   return executeEmailAction(accountId, {
     type: "trash",
     threadId,
@@ -396,6 +490,13 @@ export function permanentDeleteThread(
   threadId: string,
   messageIds: string[],
 ): Promise<ActionResult> {
+  try {
+    useToastStore.getState().showToast({
+      message: "Permanently deleted",
+    });
+  } catch {
+    // ignore
+  }
   return executeEmailAction(accountId, {
     type: "permanentDelete",
     threadId,
