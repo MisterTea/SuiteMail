@@ -8,6 +8,8 @@ import { getGmailClient } from "@/services/gmail/tokenManager";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { navigateToLabel, navigateBack, getSelectedThreadId } from "@/router/navigate";
+import { reverseMetadataChangesPastHour } from "@/services/crdt/metadataReversion";
+import { useToastStore } from "@/stores/toastStore";
 
 interface Command {
   id: string;
@@ -51,6 +53,35 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
 
     // Actions
     { id: "compose", label: "Compose New Email", shortcut: "c", category: "Actions", action: () => { openComposer(); onClose(); } },
+    {
+      id: "reverse-metadata",
+      label: "Reverse Metadata Changes (Past Hour)",
+      category: "Actions",
+      action: async () => {
+        onClose();
+        const accountId = useAccountStore.getState().activeAccountId;
+        try {
+          const res = await reverseMetadataChangesPastHour(accountId || undefined);
+          if (res.reversedCount > 0) {
+            useToastStore.getState().showToast({
+              message: `Reversed ${res.reversedCount} metadata change${res.reversedCount === 1 ? "" : "s"} from the past hour`,
+              duration: 4500,
+            });
+          } else {
+            useToastStore.getState().showToast({
+              message: "No un-reverted metadata changes in the past hour",
+              duration: 3500,
+            });
+          }
+        } catch (err) {
+          console.error("Failed to reverse metadata changes:", err);
+          useToastStore.getState().showToast({
+            message: "Failed to reverse metadata changes",
+            duration: 4000,
+          });
+        }
+      },
+    },
     { id: "create-filter", label: "Create Filter Rule", category: "Actions", action: () => { onClose(); window.dispatchEvent(new CustomEvent("velo-create-filter", { detail: { mode: "manual" } })); } },
     { id: "deselect", label: "Close Thread", shortcut: "Esc", category: "Actions", action: () => { navigateBack(); onClose(); } },
     { id: "spam", label: activeLabel === "spam" ? "Not Spam" : "Report Spam", shortcut: "!", category: "Actions", action: async () => {

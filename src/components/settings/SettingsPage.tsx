@@ -46,6 +46,7 @@ import { SubscriptionManager } from "./SubscriptionManager";
 import { SmartFolderEditor } from "./SmartFolderEditor";
 import { QuickStepEditor } from "./QuickStepEditor";
 import { SmartLabelEditor } from "./SmartLabelEditor";
+import { MetadataHistorySettings } from "./MetadataHistorySettings";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
@@ -709,6 +710,10 @@ export function SettingsPage() {
                         <option value="2000">2 GB</option>
                       </select>
                     </SettingRow>
+                  </Section>
+
+                  <Section title="Metadata & Audit History">
+                    <MetadataHistorySettings />
                   </Section>
                 </>
               )}

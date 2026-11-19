@@ -5,6 +5,7 @@ import { setThreadCategory } from "../db/threadCategories";
 import { insertFollowUpReminder, cancelFollowUpForThread } from "../db/followUpReminders";
 import { setThreadLabels } from "../db/threads";
 import { getDb } from "../db/connection";
+import { recordMetadataChange } from "../db/metadataHistory";
 
 /**
  * Personal metadata: private to this user/account.
@@ -479,11 +480,13 @@ export async function markEmailFiltered(
   accountId: string,
   threadId: string,
   isFiltered = true,
+  options?: { skipAudit?: boolean; timestamp?: number },
 ): Promise<void> {
   const doc = await getOrInitPersonalMetadataDoc(accountId, threadId, {
     conversationId: threadId,
     isFiltered,
   });
+  const previous = doc.isFiltered ?? false;
   const updated = updatePersonalMetadataDoc(doc, { isFiltered });
   await savePersonalMetadataDoc(accountId, threadId, updated);
   try {
@@ -494,6 +497,19 @@ export async function markEmailFiltered(
     );
   } catch {
     // Ignored in environments without active DB
+  }
+
+  if (!options?.skipAudit && previous !== isFiltered) {
+    await recordMetadataChange({
+      accountId,
+      conversationId: threadId,
+      action: "set_filtered",
+      field: "isFiltered",
+      oldValue: previous,
+      newValue: isFiltered,
+      changeSummary: `Marked filtered: ${isFiltered}`,
+      timestamp: options?.timestamp,
+    }).catch((e) => console.warn("[metadataCrdt] Failed to record metadata history:", e));
   }
 }
 
@@ -531,24 +547,114 @@ export async function getConversationMetadata(
 
 /**
  * Put conversation labels into conversation metadata (Automerge CRDT doc)
- * and reconcile them to the database.
+ * and reconcile them to the database. Logs the change to metadata history and ledger.
  */
 export async function setConversationMetadataLabels(
   accountId: string,
   conversationId: string,
   labels: string[],
+  options?: { skipAudit?: boolean; timestamp?: number },
 ): Promise<void> {
   const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
     conversationId,
     personalLabels: labels,
     labels,
   });
+  const previousLabels = doc.personalLabels ? [...doc.personalLabels] : (doc.labels ? [...doc.labels] : []);
   const updated = updatePersonalMetadataDoc(doc, {
     personalLabels: labels,
     labels,
   });
   await savePersonalMetadataDoc(accountId, conversationId, updated);
   await reconcilePersonalMetadataToDb(accountId, conversationId, updated);
+
+  if (!options?.skipAudit) {
+    const isDifferent =
+      previousLabels.length !== labels.length ||
+      previousLabels.some((l, idx) => l !== labels[idx]);
+    if (isDifferent) {
+      await recordMetadataChange({
+        accountId,
+        conversationId,
+        action: "set_labels",
+        field: "labels",
+        oldValue: previousLabels,
+        newValue: labels,
+        changeSummary: `Set conversation labels: [${labels.join(", ")}]`,
+        timestamp: options?.timestamp,
+      }).catch((e) => console.warn("[metadataCrdt] Failed to record metadata history:", e));
+    }
+  }
+}
+
+/**
+ * Set conversation category in personal metadata, reconciles to DB,
+ * and logs to auditable history and ledger.
+ */
+export async function setConversationMetadataCategory(
+  accountId: string,
+  conversationId: string,
+  category: string | null,
+  options?: { skipAudit?: boolean; timestamp?: number },
+): Promise<void> {
+  const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
+    conversationId,
+    category,
+  });
+  const previous = doc.category ?? null;
+  const updated = updatePersonalMetadataDoc(doc, { category });
+  await savePersonalMetadataDoc(accountId, conversationId, updated);
+  if (category) {
+    await setThreadCategory(accountId, conversationId, category, true).catch(() => {});
+  }
+  if (!options?.skipAudit && previous !== category) {
+    await recordMetadataChange({
+      accountId,
+      conversationId,
+      action: "set_category",
+      field: "category",
+      oldValue: previous,
+      newValue: category,
+      changeSummary: category ? `Set category to ${category}` : "Cleared category",
+      timestamp: options?.timestamp,
+    }).catch((e) => console.warn("[metadataCrdt] Failed to record metadata history:", e));
+  }
+}
+
+/**
+ * Set follow-up reminder in personal metadata, reconciles to DB,
+ * and logs to auditable history and ledger.
+ */
+export async function setConversationMetadataFollowUp(
+  accountId: string,
+  conversationId: string,
+  followUpAt: number | null,
+  options?: { skipAudit?: boolean; timestamp?: number },
+): Promise<void> {
+  const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
+    conversationId,
+    followUpAt,
+  });
+  const previous = doc.followUpAt ?? null;
+  const updated = updatePersonalMetadataDoc(doc, { followUpAt });
+  await savePersonalMetadataDoc(accountId, conversationId, updated);
+  if (followUpAt) {
+    await insertFollowUpReminder(accountId, conversationId, conversationId, followUpAt).catch(() => {});
+  } else {
+    await cancelFollowUpForThread(accountId, conversationId).catch(() => {});
+  }
+  if (!options?.skipAudit && previous !== followUpAt) {
+    await recordMetadataChange({
+      accountId,
+      conversationId,
+      action: "set_followup",
+      field: "followUpAt",
+      oldValue: previous,
+      newValue: followUpAt,
+      changeSummary: followUpAt ? `Set follow up reminder for ${new Date(followUpAt).toISOString()}` : "Cleared follow up reminder",
+      timestamp: options?.timestamp,
+    }).catch((e) => console.warn("[metadataCrdt] Failed to record metadata history:", e));
+  }
 }
 
 /**

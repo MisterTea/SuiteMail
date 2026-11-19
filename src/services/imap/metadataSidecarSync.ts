@@ -23,8 +23,15 @@ import {
   updatePersonalMetadataDoc,
   savePersonalMetadataDoc,
   setConversationMetadataLabels,
+  setConversationMetadataCategory,
+  setConversationMetadataFollowUp,
+  markEmailFiltered,
   type PersonalMetadataState,
 } from "../crdt/metadataCrdt";
+import {
+  recordMetadataLedgerEntry,
+  markMetadataChangeReverted,
+} from "../db/metadataHistory";
 import { getAccount } from "../db/accounts";
 import { buildImapConfig } from "./imapConfigBuilder";
 import {
@@ -32,6 +39,37 @@ import {
   buildOutgoingSyncRequest,
 } from "../sync/outgoingSyncGuard";
 import type { OutgoingDiffItem } from "@/stores/outgoingSyncStore";
+
+export {
+  reverseMetadataChangesPastHour,
+  reverseMetadataChange,
+  type ReversalResult,
+  type ReversalDetail,
+} from "../crdt/metadataReversion";
+
+/**
+ * An individual entry in the append-only IMAP metadata ledger.
+ * Stored as a line in JSONL format, allowing changes to be recorded
+ * without mutating previous data in-place or re-uploading entire snapshots.
+ */
+export interface MetadataLedgerEntry {
+  id: string;
+  conversationId: string;
+  timestamp: number;
+  action: string;
+  field?: string;
+  oldValue?: any;
+  newValue?: any;
+  summary?: string;
+  isReversion?: boolean;
+  revertedEntryId?: string;
+  crdtDocBase64?: string;
+  personalLabels?: string[];
+  categories?: string[];
+  category?: string | null;
+  followUpAt?: number | null;
+  isFiltered?: boolean;
+}
 
 /**
  * Payload stored in the .metadata shadow folder on IMAP.
@@ -146,7 +184,79 @@ export async function pushSidecarMetadata(
 }
 
 /**
+ * Format an append-only sequence of metadata ledger change entries as an RFC 2822 email message.
+ * Each entry is represented as a single line in JSONL format in the message body.
+ */
+export function buildLedgerEmail(
+  fromEmail: string,
+  conversationId: string,
+  entries: MetadataLedgerEntry[],
+): string {
+  const jsonlBody = entries.map((e) => JSON.stringify(e)).join("\n");
+  const lines = [
+    `From: <${fromEmail}>`,
+    `To: <${fromEmail}>`,
+    `Subject: SuperMail-Metadata-Ledger: ${conversationId}`,
+    `Date: ${new Date().toUTCString()}`,
+    `Message-ID: <metadata-ledger-${conversationId}-${Date.now()}@supermail.local>`,
+    `X-SuperMail-Sidecar: true`,
+    `X-SuperMail-Metadata-Scope: personal`,
+    `X-SuperMail-Metadata-Format: jsonl`,
+    `X-SuperMail-Conversation-Id: ${conversationId}`,
+    `MIME-Version: 1.0`,
+    `Content-Type: application/x-ndjson; charset=utf-8`,
+    `Content-Transfer-Encoding: 8bit`,
+    ``,
+    jsonlBody,
+  ];
+  return lines.join("\r\n");
+}
+
+/**
+ * Append metadata changes as discrete JSONL ledger entries to the IMAP server.
+ * Does not mutate or overwrite previous data in-place.
+ */
+export async function appendLedgerEntriesToRemote(
+  config: ImapConfig,
+  fromEmail: string,
+  conversationId: string,
+  entries: MetadataLedgerEntry[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const folder = await ensureSidecarFolder(config);
+  const rawRfc = buildLedgerEmail(fromEmail, conversationId, entries);
+  const base64Url = base64UrlEncode(rawRfc);
+  await imapAppendMessage(config, folder, base64Url, "(\\Seen)");
+}
+
+/**
+ * Parse raw email body which can either be a JSONL stream (one JSON object per line)
+ * or a single pretty-printed JSON payload.
+ */
+export function parseMetadataLines(rawText: string): any[] {
+  const trimmed = rawText.trim();
+  if (!trimmed) return [];
+
+  try {
+    const single = JSON.parse(trimmed);
+    return [single];
+  } catch {
+    const lines = trimmed.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0);
+    const results: any[] = [];
+    for (const line of lines) {
+      try {
+        results.push(JSON.parse(line));
+      } catch (err) {
+        console.warn("[metadataSidecarSync] Skipping invalid JSON line in metadata body:", line, err);
+      }
+    }
+    return results;
+  }
+}
+
+/**
  * Pull and apply remote metadata changes from the IMAP sidecar folder.
+ * Supports both JSONL ledger format and backwards-compatible snapshot format.
  */
 export async function syncSidecarMetadata(
   accountId: string,
@@ -182,55 +292,130 @@ export async function syncSidecarMetadata(
       if (!rawText.trim()) continue;
 
       try {
-        const payload: SidecarPayload = JSON.parse(rawText.trim());
-        const conversationId = payload.conversationId || payload.targetId;
-        if (!conversationId) continue;
+        const items = parseMetadataLines(rawText);
 
-        // Apply categories
-        if (payload.categories && payload.categories.length > 0) {
-          const category = payload.categories[0];
-          if (category) {
-            await setThreadCategory(accountId, conversationId, category, true);
-          }
-        }
+        for (const payload of items) {
+          const conversationId = payload.conversationId || payload.targetId;
+          if (!conversationId) continue;
 
-        // Apply follow-up reminders
-        if (payload.followUpAt) {
-          await insertFollowUpReminder(accountId, conversationId, conversationId, payload.followUpAt);
-        }
+          // If this is an append-only ledger entry with an action
+          if (payload.action) {
+            const entryId = payload.id || `imap-${msg.uid}-${Date.now()}`;
+            await recordMetadataLedgerEntry({
+              id: entryId,
+              accountId,
+              conversationId,
+              timestamp: payload.timestamp ?? Date.now(),
+              entryJsonl: JSON.stringify(payload),
+              imapUid: msg.uid,
+              syncedToImap: true,
+            }).catch(() => {});
 
-        // Apply CRDT document if present (personal scope)
-        if (payload.crdtDocBase64) {
-          const remoteDoc = deserializeMetadataDoc<PersonalMetadataState>(payload.crdtDocBase64);
-          const existing = await getThreadCrdtDoc(accountId, conversationId, "personal");
-          let merged: automerge.Doc<PersonalMetadataState>;
-          if (existing && existing.doc_base64) {
-            const localDoc = deserializeMetadataDoc<PersonalMetadataState>(existing.doc_base64);
-            merged = mergeMetadataDocs(localDoc, remoteDoc);
+            if (payload.action === "revert" || payload.isReversion) {
+              if (payload.revertedEntryId) {
+                await markMetadataChangeReverted(payload.revertedEntryId, entryId, payload.timestamp).catch(() => {});
+              }
+              if (payload.field === "labels") {
+                const labels = Array.isArray(payload.newValue) ? payload.newValue : [];
+                await setConversationMetadataLabels(accountId, conversationId, labels, { skipAudit: true });
+              } else if (payload.field === "category") {
+                await setConversationMetadataCategory(accountId, conversationId, payload.newValue, { skipAudit: true });
+              } else if (payload.field === "followUpAt") {
+                await setConversationMetadataFollowUp(accountId, conversationId, payload.newValue, { skipAudit: true });
+              } else if (payload.field === "isFiltered") {
+                await markEmailFiltered(accountId, conversationId, Boolean(payload.newValue), { skipAudit: true });
+              }
+            } else {
+              if (payload.action === "set_labels" || payload.field === "labels") {
+                const labels = payload.newValue ?? payload.personalLabels ?? payload.labels;
+                if (labels && Array.isArray(labels)) {
+                  await setConversationMetadataLabels(accountId, conversationId, labels, { skipAudit: true });
+                }
+              }
+              if (payload.action === "set_category" || payload.field === "category") {
+                const category = payload.newValue ?? (payload.categories ? payload.categories[0] : null);
+                await setConversationMetadataCategory(accountId, conversationId, category, { skipAudit: true });
+              }
+              if (payload.action === "set_followup" || payload.field === "followUpAt") {
+                const followUpAt = payload.newValue ?? payload.followUpAt;
+                await setConversationMetadataFollowUp(accountId, conversationId, followUpAt, { skipAudit: true });
+              }
+              if (payload.action === "set_filtered" || payload.field === "isFiltered") {
+                const isFiltered = payload.newValue ?? payload.isFiltered;
+                if (isFiltered !== undefined) {
+                  await markEmailFiltered(accountId, conversationId, Boolean(isFiltered), { skipAudit: true });
+                }
+              }
+            }
+
+            if (payload.crdtDocBase64) {
+              const remoteDoc = deserializeMetadataDoc<PersonalMetadataState>(payload.crdtDocBase64);
+              const existing = await getThreadCrdtDoc(accountId, conversationId, "personal");
+              let merged: automerge.Doc<PersonalMetadataState>;
+              if (existing && existing.doc_base64) {
+                const localDoc = deserializeMetadataDoc<PersonalMetadataState>(existing.doc_base64);
+                merged = mergeMetadataDocs(localDoc, remoteDoc);
+              } else {
+                merged = remoteDoc;
+              }
+              await upsertThreadCrdtDoc({
+                account_id: accountId,
+                thread_id: conversationId,
+                scope: "personal",
+                doc_base64: serializeMetadataDoc(merged),
+              });
+              await reconcilePersonalMetadataToDb(accountId, conversationId, merged);
+            }
           } else {
-            merged = remoteDoc;
-          }
-          if (payload.isFiltered !== undefined && merged.isFiltered !== payload.isFiltered) {
-            merged = updatePersonalMetadataDoc(merged, { isFiltered: payload.isFiltered });
-          }
-          await upsertThreadCrdtDoc({
-            account_id: accountId,
-            thread_id: conversationId,
-            scope: "personal",
-            doc_base64: serializeMetadataDoc(merged),
-          });
-          await reconcilePersonalMetadataToDb(accountId, conversationId, merged);
-        } else if (payload.isFiltered !== undefined) {
-          const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
-            conversationId,
-            isFiltered: payload.isFiltered,
-          });
-          const updated = updatePersonalMetadataDoc(doc, { isFiltered: payload.isFiltered });
-          await savePersonalMetadataDoc(accountId, conversationId, updated);
-          await reconcilePersonalMetadataToDb(accountId, conversationId, updated);
-        }
+            // Backwards-compatible legacy snapshot payload
+            if (payload.categories && payload.categories.length > 0) {
+              const category = payload.categories[0];
+              if (category) {
+                await setThreadCategory(accountId, conversationId, category, true);
+              }
+            }
 
-        appliedCount++;
+            if (payload.followUpAt) {
+              await insertFollowUpReminder(accountId, conversationId, conversationId, payload.followUpAt);
+            }
+
+            if (payload.personalLabels && payload.personalLabels.length > 0) {
+              await setConversationMetadataLabels(accountId, conversationId, payload.personalLabels, { skipAudit: true });
+            }
+
+            if (payload.crdtDocBase64) {
+              const remoteDoc = deserializeMetadataDoc<PersonalMetadataState>(payload.crdtDocBase64);
+              const existing = await getThreadCrdtDoc(accountId, conversationId, "personal");
+              let merged: automerge.Doc<PersonalMetadataState>;
+              if (existing && existing.doc_base64) {
+                const localDoc = deserializeMetadataDoc<PersonalMetadataState>(existing.doc_base64);
+                merged = mergeMetadataDocs(localDoc, remoteDoc);
+              } else {
+                merged = remoteDoc;
+              }
+              if (payload.isFiltered !== undefined && merged.isFiltered !== payload.isFiltered) {
+                merged = updatePersonalMetadataDoc(merged, { isFiltered: payload.isFiltered });
+              }
+              await upsertThreadCrdtDoc({
+                account_id: accountId,
+                thread_id: conversationId,
+                scope: "personal",
+                doc_base64: serializeMetadataDoc(merged),
+              });
+              await reconcilePersonalMetadataToDb(accountId, conversationId, merged);
+            } else if (payload.isFiltered !== undefined) {
+              const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
+                conversationId,
+                isFiltered: payload.isFiltered,
+              });
+              const updated = updatePersonalMetadataDoc(doc, { isFiltered: payload.isFiltered });
+              await savePersonalMetadataDoc(accountId, conversationId, updated);
+              await reconcilePersonalMetadataToDb(accountId, conversationId, updated);
+            }
+          }
+
+          appliedCount++;
+        }
       } catch (e) {
         console.warn(`[metadataSidecarSync] Failed to parse sidecar message UID ${msg.uid}:`, e);
       }

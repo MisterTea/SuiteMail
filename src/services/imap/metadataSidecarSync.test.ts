@@ -8,7 +8,11 @@ import {
   hasPendingMetadata,
   ensureMetadataDownloadedForEmail,
   syncBatchConversationLabelsToRemote,
+  buildLedgerEmail,
+  appendLedgerEntriesToRemote,
+  parseMetadataLines,
   type SidecarPayload,
+  type MetadataLedgerEntry,
 } from "./metadataSidecarSync";
 import type { ImapConfig, ImapFolder, ImapFetchResult } from "./tauriCommands";
 
@@ -63,6 +67,12 @@ vi.mock("../db/threadCrdtDocs", () => ({
     const scope = doc.scope || "personal";
     mockCrdtDocs[`${doc.account_id}:${doc.thread_id}:${scope}`] = doc;
   }),
+}));
+
+vi.mock("../db/metadataHistory", () => ({
+  recordMetadataChange: vi.fn(async () => ({})),
+  recordMetadataLedgerEntry: vi.fn(async () => {}),
+  markMetadataChangeReverted: vi.fn(async () => {}),
 }));
 
 vi.mock("../crdt/metadataCrdt", async (importOriginal) => {
@@ -415,6 +425,149 @@ describe("metadataSidecarSync", () => {
       expect(result.confirmed).toBe(false);
       expect(result.synced).toBe(0);
       expect(mockTauri.imapAppendMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("JSONL Ledger on IMAP", () => {
+    it("builds an RFC 822 email containing JSONL ledger lines", () => {
+      const entries: MetadataLedgerEntry[] = [
+        {
+          id: "entry-1",
+          conversationId: "thread-ledger-1",
+          timestamp: 1710000000,
+          action: "set_labels",
+          field: "labels",
+          oldValue: ["INBOX"],
+          newValue: ["INBOX", "Work"],
+        },
+        {
+          id: "entry-2",
+          conversationId: "thread-ledger-1",
+          timestamp: 1710000500,
+          action: "set_category",
+          field: "category",
+          oldValue: null,
+          newValue: "Work",
+        },
+      ];
+
+      const email = buildLedgerEmail("user@example.com", "thread-ledger-1", entries);
+
+      expect(email).toContain("Subject: SuperMail-Metadata-Ledger: thread-ledger-1");
+      expect(email).toContain("X-SuperMail-Metadata-Format: jsonl");
+      expect(email).toContain("Content-Type: application/x-ndjson; charset=utf-8");
+
+      // Verify JSONL lines in the body
+      const parsedLines = parseMetadataLines(email.split("\r\n\r\n")[1]!);
+      expect(parsedLines).toHaveLength(2);
+      expect(parsedLines[0].id).toBe("entry-1");
+      expect(parsedLines[0].action).toBe("set_labels");
+      expect(parsedLines[1].id).toBe("entry-2");
+      expect(parsedLines[1].action).toBe("set_category");
+    });
+
+    it("appends discrete JSONL ledger entries to IMAP without mutating in-place", async () => {
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockTauri.imapAppendMessage.mockResolvedValueOnce(undefined);
+
+      const entries: MetadataLedgerEntry[] = [
+        {
+          id: "e-append-1",
+          conversationId: "thread-append",
+          timestamp: 1710001000,
+          action: "set_labels",
+          field: "labels",
+          newValue: ["INBOX"],
+        },
+      ];
+
+      await appendLedgerEntriesToRemote(testConfig, "user@example.com", "thread-append", entries);
+
+      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(1);
+      const [configArg, folderArg, rawB64Arg] = mockTauri.imapAppendMessage.mock.calls[0];
+      expect(configArg).toEqual(testConfig);
+      expect(folderArg).toBe(".metadata");
+      expect(typeof rawB64Arg).toBe("string");
+    });
+
+    it("parses single JSON objects as well as multi-line JSONL streams", () => {
+      // Single object
+      const singleJson = '{"conversationId":"c1","type":"personal"}';
+      expect(parseMetadataLines(singleJson)).toHaveLength(1);
+      expect(parseMetadataLines(singleJson)[0].conversationId).toBe("c1");
+
+      // Multi-line JSONL
+      const jsonl = '{"id":"1","action":"a"}\n{"id":"2","action":"b"}\r\n{"id":"3","action":"c"}';
+      const parsed = parseMetadataLines(jsonl);
+      expect(parsed).toHaveLength(3);
+      expect(parsed.map((p: any) => p.id)).toEqual(["1", "2", "3"]);
+    });
+
+    it("syncs JSONL ledger messages from server and applies changes into local database", async () => {
+      mockTauri.imapListFolders.mockResolvedValueOnce([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+        uidvalidity: 1,
+        uidnext: 20,
+        exists: 1,
+        unseen: 0,
+        highest_modseq: null,
+      });
+      mockTauri.imapSearchAllUids.mockResolvedValueOnce([50]);
+
+      const jsonlEntries: MetadataLedgerEntry[] = [
+        {
+          id: "entry-sync-1",
+          conversationId: "thread-ledger-sync",
+          timestamp: 1720000000,
+          action: "set_category",
+          field: "category",
+          oldValue: null,
+          newValue: "Finance",
+        },
+        {
+          id: "entry-sync-2",
+          conversationId: "thread-ledger-sync",
+          timestamp: 1720000100,
+          action: "set_followup",
+          field: "followUpAt",
+          oldValue: null,
+          newValue: 1730000000,
+        },
+      ];
+      const jsonlBody = jsonlEntries.map((e) => JSON.stringify(e)).join("\n");
+
+      mockTauri.imapFetchMessages.mockResolvedValueOnce({
+        messages: [
+          {
+            uid: 50,
+            folder: ".metadata",
+            body_text: jsonlBody,
+            body_html: null,
+            date: 1720000100,
+            is_read: true,
+            is_starred: false,
+            is_draft: false,
+            attachments: [],
+          },
+        ],
+        folder_status: {
+          uidvalidity: 1,
+          uidnext: 20,
+          exists: 1,
+          unseen: 0,
+          highest_modseq: null,
+        },
+      });
+
+      const applied = await syncSidecarMetadata("acc-1", testConfig);
+      expect(applied).toBe(2);
+      expect(mockCategories["thread-ledger-sync"]?.category).toBe("Finance");
+      expect(mockReminders["thread-ledger-sync"]?.remindAt).toBe(1730000000);
+      expect(mockFolderSyncState["acc-1:.metadata"]?.last_uid).toBe(50);
     });
   });
 });

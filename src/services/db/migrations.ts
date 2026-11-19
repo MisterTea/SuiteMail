@@ -854,6 +854,43 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_contract_key_sightings_email ON contract_key_sightings(email);
     `,
   },
+  {
+    version: 29,
+    description: "Add metadata_history and metadata_ledger tables for reversible and auditable metadata",
+    sql: `
+      CREATE TABLE IF NOT EXISTS metadata_history (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        field TEXT,
+        old_value TEXT,
+        new_value TEXT,
+        change_summary TEXT,
+        reverted INTEGER DEFAULT 0,
+        reverted_at INTEGER,
+        reverted_by_id TEXT,
+        created_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_metadata_history_acct_conv ON metadata_history(account_id, conversation_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_metadata_history_acct_time ON metadata_history(account_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_metadata_history_reverted ON metadata_history(reverted, timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS metadata_ledger (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        conversation_id TEXT NOT NULL,
+        timestamp INTEGER NOT NULL,
+        entry_jsonl TEXT NOT NULL,
+        imap_uid INTEGER,
+        synced_to_imap INTEGER DEFAULT 0,
+        created_at INTEGER DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_metadata_ledger_conv ON metadata_ledger(account_id, conversation_id, timestamp ASC);
+      CREATE INDEX IF NOT EXISTS idx_metadata_ledger_synced ON metadata_ledger(account_id, synced_to_imap);
+    `,
+  },
 ];
 
 /**
