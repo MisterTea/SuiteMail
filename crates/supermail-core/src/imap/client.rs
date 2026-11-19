@@ -69,7 +69,7 @@ impl Authenticator for XOAuth2 {
 // ---------- Stream wrapper ----------
 
 /// Wrapper to unify TLS / plain streams so Session can be generic.
-pub(crate) enum ImapStream {
+pub enum ImapStream {
     Tls(TlsStream<TcpStream>),
     Plain(TcpStream),
 }
