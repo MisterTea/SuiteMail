@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockInvoke = vi.fn();
+const mockOn = vi.fn();
 (globalThis as unknown as { window?: { supermail?: unknown } }).window = {
   supermail: {
     invoke: mockInvoke,
+    on: mockOn,
   },
 };
 
@@ -12,6 +14,7 @@ import {
   installUpdate,
   getAvailableUpdate,
   setUpdateCallback,
+  startUpdateChecker,
   _resetForTesting,
 } from "./updateManager";
 
@@ -58,5 +61,27 @@ describe("updateManager", () => {
     await installUpdate();
 
     expect(mockInvoke).toHaveBeenCalledWith("install_update");
+  });
+
+  it("handles push update events from electron-updater", () => {
+    let eventHandler: ((data: unknown) => void) | undefined;
+    mockOn.mockImplementation((channel: string, handler: (data: unknown) => void) => {
+      if (channel === "supermail:update-available") {
+        eventHandler = handler;
+      }
+      return () => {};
+    });
+
+    const cb = vi.fn();
+    setUpdateCallback(cb);
+    startUpdateChecker();
+
+    expect(mockOn).toHaveBeenCalledWith("supermail:update-available", expect.any(Function));
+    expect(eventHandler).toBeDefined();
+
+    eventHandler!({ version: "0.6.0", body: "New features" });
+
+    expect(getAvailableUpdate()).toEqual({ version: "0.6.0", body: "New features" });
+    expect(cb).toHaveBeenCalledWith({ version: "0.6.0", body: "New features" });
   });
 });

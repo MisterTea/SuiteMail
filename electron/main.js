@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadSupermailCore } from './loadAddon.js';
+import { setupUpdater, checkForUpdates, installUpdate } from './updater.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -199,6 +200,9 @@ app.whenReady().then(() => {
   createSplashWindow();
   createMainWindow();
 
+  // 4. Setup electron-updater
+  setupUpdater(mainWindow);
+
   // Handle autostart hidden flag
   if (process.argv.includes('--hidden')) {
     mainWindow?.hide();
@@ -257,10 +261,11 @@ ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   }
 
   if (cmd === 'check_for_updates') {
-    return null;
+    return await checkForUpdates();
   }
 
   if (cmd === 'install_update') {
+    await installUpdate();
     return undefined;
   }
 

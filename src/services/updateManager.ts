@@ -11,6 +11,7 @@ type UpdateCallback = (update: UpdateInfo) => void;
 let checker: BackgroundChecker | null = null;
 let availableUpdate: { info: UpdateInfo; raw: unknown } | null = null;
 let callback: UpdateCallback | null = null;
+let unsubscribeAvailable: (() => void) | null = null;
 
 async function performCheck(): Promise<void> {
   if (typeof window !== "undefined" && window.supermail?.invoke) {
@@ -33,11 +34,29 @@ export function startUpdateChecker(): void {
   if (checker) return;
   checker = createBackgroundChecker("update-checker", performCheck, FOUR_HOURS);
   checker.start();
+
+  if (typeof window !== "undefined" && window.supermail?.on) {
+    unsubscribeAvailable = window.supermail.on(
+      "supermail:update-available",
+      (...args: unknown[]) => {
+        const update = args[0] as UpdateInfo | undefined;
+        if (update?.version) {
+          availableUpdate = {
+            info: { version: update.version, body: update.body ?? null },
+            raw: update,
+          };
+          callback?.(availableUpdate.info);
+        }
+      },
+    );
+  }
 }
 
 export function stopUpdateChecker(): void {
   checker?.stop();
   checker = null;
+  unsubscribeAvailable?.();
+  unsubscribeAvailable = null;
 }
 
 export async function checkForUpdateNow(): Promise<UpdateInfo | null> {
@@ -64,6 +83,8 @@ export function setUpdateCallback(cb: UpdateCallback | null): void {
 export function _resetForTesting(): void {
   checker?.stop();
   checker = null;
+  unsubscribeAvailable?.();
+  unsubscribeAvailable = null;
   availableUpdate = null;
   callback = null;
 }

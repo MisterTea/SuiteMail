@@ -1,6 +1,13 @@
 {
   "appId": "com.suitemail.app",
   "productName": "SuperMail",
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "MisterTea",
+      "repo": "SuiteMail"
+    }
+  ],
   "directories": {
     "output": "dist-electron"
   },
