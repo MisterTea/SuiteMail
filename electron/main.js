@@ -138,11 +138,19 @@ async function createMainWindow() {
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
   if (isDev) {
     const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:1420';
-    try {
-      await mainWindow.loadURL(devUrl);
-    } catch {
-      // If dev server takes a second to start, retry once
-      setTimeout(() => mainWindow?.loadURL(devUrl), 1000);
+    let loaded = false;
+    for (let attempt = 1; attempt <= 30; attempt++) {
+      try {
+        await mainWindow.loadURL(devUrl);
+        loaded = true;
+        break;
+      } catch (err) {
+        if (attempt === 30) {
+          console.error(`[Main] Failed to load ${devUrl} after ${attempt} attempts:`, err);
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      }
     }
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));

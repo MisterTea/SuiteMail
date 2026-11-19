@@ -7,7 +7,7 @@
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
-    "dev:desktop": "concurrently -k \"vite\" \"electron .\"",
+    "dev:desktop": "npm run build:rust && concurrently -k \"vite\" \"electron .\"",
     "build:rust": "napi build --platform --manifest-path crates/supermail-core/Cargo.toml",
     "build:rust:release": "napi build --platform --release --manifest-path crates/supermail-core/Cargo.toml",
     "build": "tsc && vite build",

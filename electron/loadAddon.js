@@ -34,5 +34,5 @@ export function loadSupermailCore() {
     }
   }
 
-  throw new Error(`Could not locate supermail_core native addon in any of: ${possiblePaths.join(', ')}`);
+  throw new Error(`Could not locate supermail_core native addon in any of: ${possiblePaths.join(', ')}. Run "npm run build:rust" to build it.`);
 }

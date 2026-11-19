@@ -279,7 +279,7 @@ async function exchangeCode(
     scope: sendsScopeOnTokenRequest(provider.id) && !provider.resource
       ? provider.scopes.join(" ")
       : null,
-    resource: provider.resource ?? null,
+    ...(provider.resource ? { resource: provider.resource } : {}),
   });
 }
 
@@ -301,7 +301,7 @@ export async function refreshProviderToken(
     scope: sendsScopeOnTokenRequest(provider.id) && !provider.resource
       ? provider.scopes.join(" ")
       : null,
-    resource: provider.resource ?? null,
+    ...(provider.resource ? { resource: provider.resource } : {}),
   });
 }
 
