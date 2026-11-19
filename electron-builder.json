@@ -1,6 +1,6 @@
 {
   "appId": "com.suitemail.app",
-  "productName": "SuperMail",
+  "productName": "SuiteMail",
   "publish": [
     {
       "provider": "github",
@@ -14,6 +14,7 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "assets/**/*",
     "crates/supermail-core/index.*.node",
     "package.json"
   ],

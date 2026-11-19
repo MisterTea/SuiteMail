@@ -8,6 +8,16 @@ import { setupUpdater, checkForUpdates, installUpdate } from './updater.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Configure application name
+app.name = 'SuiteMail';
+if (typeof app.setName === 'function') {
+  app.setName('SuiteMail');
+}
+
+const appIconPath = fs.existsSync(path.join(__dirname, '..', 'assets', 'icon.png'))
+  ? path.join(__dirname, '..', 'assets', 'icon.png')
+  : path.join(__dirname, 'icons', 'icon.png');
+
 let rustCore = null;
 let mainWindow = null;
 let splashWindow = null;
@@ -92,6 +102,8 @@ function createTray() {
 
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
+    title: 'SuiteMail',
+    icon: appIconPath,
     width: 400,
     height: 300,
     frame: false,
@@ -114,6 +126,8 @@ function createSplashWindow() {
 
 async function createMainWindow() {
   mainWindow = new BrowserWindow({
+    title: 'SuiteMail',
+    icon: appIconPath,
     width: 1280,
     height: 800,
     minWidth: 800,
@@ -161,6 +175,8 @@ async function createMainWindow() {
 function openThreadWindow(threadId, accountId) {
   const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
   const threadWin = new BrowserWindow({
+    title: 'SuiteMail',
+    icon: appIconPath,
     width: 800,
     height: 700,
     frame: false,
@@ -183,6 +199,14 @@ function openThreadWindow(threadId, accountId) {
 }
 
 app.whenReady().then(() => {
+  // 0. Set macOS dock icon
+  if (process.platform === 'darwin' && app.dock) {
+    const dockIcon = nativeImage.createFromPath(appIconPath);
+    if (!dockIcon.isEmpty()) {
+      app.dock.setIcon(dockIcon);
+    }
+  }
+
   // 1. Load Rust addon and initialize SQLite database in Rust
   try {
     rustCore = loadSupermailCore();

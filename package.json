@@ -1,13 +1,15 @@
 {
   "name": "suitemail",
+  "productName": "SuiteMail",
   "version": "0.4.21",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
+    "postinstall": "node scripts/brand-electron.mjs",
     "dev": "vite",
-    "dev:desktop": "npm run build:rust && concurrently -k \"vite\" \"electron .\"",
+    "dev:desktop": "npm run build:rust && node scripts/brand-electron.mjs && concurrently -k \"vite\" \"electron .\"",
     "build:rust": "napi build --platform --manifest-path crates/supermail-core/Cargo.toml",
     "build:rust:release": "napi build --platform --release --manifest-path crates/supermail-core/Cargo.toml",
     "build": "tsc && vite build",
