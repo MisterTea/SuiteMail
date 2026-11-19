@@ -27,6 +27,9 @@ import {
   isEmailFiltered,
   markEmailFiltered,
   getPersonalMetadata,
+  setConversationMetadataLabels,
+  getConversationMetadataLabels,
+  getConversationMetadata,
 } from "./metadataCrdt";
 
 const mockCrdtDocs: Record<string, any> = {};
@@ -290,6 +293,30 @@ describe("metadataCrdt", () => {
 
       await markEmailFiltered("acc-1", "thread-101", false);
       expect(await isEmailFiltered("acc-1", "thread-101")).toBe(false);
+    });
+  });
+
+  describe("conversation labels in metadata", () => {
+    it("stores conversation labels in personal metadata doc and reconciles to thread_labels", async () => {
+      await setConversationMetadataLabels("acc-1", "thread-200", ["INBOX", "UNREAD"]);
+
+      const labels = await getConversationMetadataLabels("acc-1", "thread-200");
+      expect(labels).toEqual(["INBOX", "UNREAD"]);
+
+      const meta = await getPersonalMetadata("acc-1", "thread-200");
+      expect(meta?.personalLabels).toEqual(["INBOX", "UNREAD"]);
+      expect(meta?.labels).toEqual(["INBOX", "UNREAD"]);
+
+      const convMeta = await getConversationMetadata("acc-1", "thread-200");
+      expect(convMeta?.personalLabels).toEqual(["INBOX", "UNREAD"]);
+    });
+
+    it("updates existing conversation labels in metadata", async () => {
+      await setConversationMetadataLabels("acc-1", "thread-201", ["INBOX"]);
+      expect(await getConversationMetadataLabels("acc-1", "thread-201")).toEqual(["INBOX"]);
+
+      await setConversationMetadataLabels("acc-1", "thread-201", ["archive"]);
+      expect(await getConversationMetadataLabels("acc-1", "thread-201")).toEqual(["archive"]);
     });
   });
 });

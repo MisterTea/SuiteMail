@@ -227,6 +227,18 @@ async function applyLocalDbUpdate(
         [accountId, action.threadId, action.labelId],
       );
       break;
+    case "moveToFolder": {
+      const labelId = action.folderPath.split("/").pop() ?? action.folderPath;
+      await db.execute(
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'INBOX'",
+        [accountId, action.threadId],
+      );
+      await db.execute(
+        "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
+        [accountId, action.threadId, labelId],
+      );
+      break;
+    }
     default:
       break;
   }

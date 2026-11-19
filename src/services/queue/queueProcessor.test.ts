@@ -34,6 +34,18 @@ vi.mock("../backgroundCheckers", () => ({
   })),
 }));
 
+vi.mock("../sync/outgoingSyncGuard", () => ({
+  checkOutgoingSyncAllowed: vi.fn().mockResolvedValue(true),
+  buildOutgoingSyncRequest: vi.fn((params) => ({
+    accountId: params.accountId,
+    items: params.items,
+    title: params.title,
+    description: params.description,
+    summary: { total: params.items.length },
+  })),
+  LARGE_DIFF_THRESHOLD: 5,
+}));
+
 import { useUIStore } from "@/stores/uiStore";
 import {
   getPendingOperations,
@@ -44,6 +56,7 @@ import {
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
+import { checkOutgoingSyncAllowed } from "../sync/outgoingSyncGuard";
 import { startQueueProcessor, stopQueueProcessor, triggerQueueFlush } from "./queueProcessor";
 import { createMockUIStoreState } from "@/test/mocks";
 
@@ -160,6 +173,62 @@ describe("queueProcessor", () => {
   it("updates pending count after processing", async () => {
     await triggerQueueFlush();
     expect(mockSetPendingOpsCount).toHaveBeenCalledWith(0);
+  });
+
+  it("prompts for confirmation and pauses queue execution if user cancels when ops >= LARGE_DIFF_THRESHOLD", async () => {
+    const ops = Array.from({ length: 5 }, (_, i) => ({
+      id: `op-${i}`,
+      account_id: "acct-1",
+      operation_type: "archive" as const,
+      resource_id: `t-${i}`,
+      params: `{"threadId":"t-${i}","messageIds":[]}`,
+      status: "pending" as const,
+      retry_count: 0,
+      max_retries: 10,
+      next_retry_at: null,
+      created_at: 1000,
+      error_message: null,
+    }));
+    vi.mocked(getPendingOperations).mockResolvedValueOnce(ops);
+    vi.mocked(checkOutgoingSyncAllowed).mockResolvedValueOnce(false);
+
+    await triggerQueueFlush();
+
+    expect(checkOutgoingSyncAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acct-1",
+        items: expect.arrayContaining([
+          expect.objectContaining({ id: "op-0" }),
+        ]),
+      }),
+    );
+    // Should NOT execute queued actions because user cancelled
+    expect(executeQueuedAction).not.toHaveBeenCalled();
+    expect(deleteOperation).not.toHaveBeenCalled();
+  });
+
+  it("proceeds with queue execution when user confirms large outgoing diff", async () => {
+    const ops = Array.from({ length: 5 }, (_, i) => ({
+      id: `op-${i}`,
+      account_id: "acct-1",
+      operation_type: "archive" as const,
+      resource_id: `t-${i}`,
+      params: `{"threadId":"t-${i}","messageIds":[]}`,
+      status: "pending" as const,
+      retry_count: 0,
+      max_retries: 10,
+      next_retry_at: null,
+      created_at: 1000,
+      error_message: null,
+    }));
+    vi.mocked(getPendingOperations).mockResolvedValueOnce(ops);
+    vi.mocked(checkOutgoingSyncAllowed).mockResolvedValueOnce(true);
+
+    await triggerQueueFlush();
+
+    expect(checkOutgoingSyncAllowed).toHaveBeenCalled();
+    expect(executeQueuedAction).toHaveBeenCalledTimes(5);
+    expect(deleteOperation).toHaveBeenCalledTimes(5);
   });
 
   it("start and stop work without errors", () => {

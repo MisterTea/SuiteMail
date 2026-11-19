@@ -9,6 +9,7 @@ import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { AskInbox } from "./components/search/AskInbox";
 import { AgentConsentPopover } from "./components/ai/AgentConsentPopover";
+import { OutgoingSyncPopover } from "./components/sync/OutgoingSyncPopover";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -657,6 +658,9 @@ export default function App() {
       </ErrorBoundary>
       <ErrorBoundary name="AgentConsentPopover">
         <AgentConsentPopover />
+      </ErrorBoundary>
+      <ErrorBoundary name="OutgoingSyncPopover">
+        <OutgoingSyncPopover />
       </ErrorBoundary>
       <ContextMenuPortal />
       <MoveToFolderDialog

@@ -10,6 +10,12 @@ import {
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
+import {
+  checkOutgoingSyncAllowed,
+  buildOutgoingSyncRequest,
+  LARGE_DIFF_THRESHOLD,
+} from "../sync/outgoingSyncGuard";
+import type { OutgoingDiffItem } from "@/stores/outgoingSyncStore";
 
 const BATCH_SIZE = 50;
 
@@ -27,6 +33,56 @@ async function processQueue(): Promise<void> {
   if (ops.length === 0) {
     await updatePendingCount();
     return;
+  }
+
+  // If there is a large outgoing diff, warn the user before syncing from app to server
+  if (ops.length >= LARGE_DIFF_THRESHOLD) {
+    const diffItems: OutgoingDiffItem[] = ops.map((op) => {
+      let details = "";
+      let labels: string[] | undefined;
+      try {
+        const p = JSON.parse(op.params) as Record<string, unknown>;
+        if (p.folderPath) details = `Folder: ${p.folderPath}`;
+        if (p.labelId) {
+          details = `Label: ${p.labelId}`;
+          labels = [String(p.labelId)];
+        }
+        if (p.isSpam !== undefined) details = p.isSpam ? "Mark Spam" : "Unmark Spam";
+      } catch {}
+
+      const opType = op.operation_type;
+      const type: OutgoingDiffItem["type"] =
+        opType === "archive" ? "archive"
+        : opType === "trash" || opType === "permanentDelete" ? "trash"
+        : opType === "spam" ? "spam"
+        : opType === "addLabel" || opType === "removeLabel" ? "label"
+        : opType === "moveToFolder" ? "move"
+        : opType === "sendMessage" ? "send"
+        : "metadata";
+
+      return {
+        id: op.id,
+        type,
+        summary: `${op.operation_type} on ${op.resource_id}`,
+        threadId: op.resource_id,
+        details,
+        labels,
+      };
+    });
+
+    const request = buildOutgoingSyncRequest({
+      accountId: ops[0]?.account_id ?? "",
+      items: diffItems,
+      title: `Confirm Queued Outgoing Sync (${ops.length} Operations)`,
+      description: `There is a large outgoing diff of ${ops.length} queued operations waiting to sync from app to server. Confirm to sync them now, or cancel to keep them in the queue. (Syncing from server to app is unaffected).`,
+    });
+
+    const allowed = await checkOutgoingSyncAllowed(request);
+    if (!allowed) {
+      console.log("[QueueProcessor] Outgoing sync cancelled by user confirmation");
+      await updatePendingCount();
+      return;
+    }
   }
 
   for (const op of ops) {

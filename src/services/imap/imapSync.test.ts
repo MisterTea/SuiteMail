@@ -63,12 +63,22 @@ vi.mock("../db/accounts", () => ({
 vi.mock("../db/connection", () => ({
   withTransaction: vi.fn(async (fn: () => Promise<void>) => fn()),
   selectFirstBy: vi.fn().mockResolvedValue(null),
+  getDb: vi.fn(async () => ({
+    execute: vi.fn(async () => {}),
+    select: vi.fn(async () => []),
+  })),
 }));
 vi.mock("../filters/filterEngine", () => ({
   addEmail: vi.fn().mockResolvedValue({ filtered: true }),
 }));
 vi.mock("./metadataSidecarSync", () => ({
   syncSidecarMetadata: vi.fn().mockResolvedValue(0),
+  syncBatchConversationLabelsToRemote: vi.fn().mockResolvedValue({ synced: 0, confirmed: true }),
+}));
+vi.mock("../crdt/metadataCrdt", () => ({
+  setConversationMetadataLabels: vi.fn(),
+  getConversationMetadataLabels: vi.fn().mockResolvedValue([]),
+  getPersonalMetadata: vi.fn().mockResolvedValue(null),
 }));
 vi.mock("../db/folderSyncState", () => ({
   upsertFolderSyncState: vi.fn(),
@@ -78,7 +88,7 @@ vi.mock("../db/pendingOperations", () => ({
   getPendingOpsForResource: vi.fn(() => []),
 }));
 
-import { imapMessageToParsedMessage, imapInitialSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
+import { imapMessageToParsedMessage, imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
 import {
   createMockImapMessage,
   createMockImapAccount,
@@ -86,13 +96,17 @@ import {
   createMockImapFolderStatus,
   createMockImapFetchResult,
 } from "@/test/mocks";
-import { imapListFolders, imapSearchFolder, imapFetchMessages } from "./tauriCommands";
+import { imapListFolders, imapSearchFolder, imapFetchMessages, imapDeltaCheck } from "./tauriCommands";
 import { getAccount } from "../db/accounts";
 import { withTransaction } from "../db/connection";
-import { upsertMessage, updateMessageThreadIds } from "../db/messages";
-import { upsertThread, deleteThread } from "../db/threads";
+import { upsertMessage, updateMessageThreadIds, getMessagesForThread } from "../db/messages";
+import { upsertThread, deleteThread, setThreadLabels } from "../db/threads";
+import { setConversationMetadataLabels } from "../crdt/metadataCrdt";
 import { upsertAttachment } from "../db/attachments";
+import { getAllFolderSyncStates } from "../db/folderSyncState";
 import { getPendingOpsForResource } from "../db/pendingOperations";
+import { addEmail } from "../filters/filterEngine";
+import { syncBatchConversationLabelsToRemote } from "./metadataSidecarSync";
 
 describe("imapMessageToParsedMessage", () => {
   it("converts basic IMAP message to ParsedMessage format", () => {
@@ -758,5 +772,203 @@ describe("imapInitialSync — placeholder cleanup", () => {
     // Threading should merge the two messages into one thread,
     // so at least one placeholder thread (the one not chosen as thread ID) should be deleted
     expect(mockDeleteThread).toHaveBeenCalled();
+  });
+});
+
+describe("conversation labels and metadata during import", () => {
+  const mockGetAccount = vi.mocked(getAccount);
+  const mockImapListFolders = vi.mocked(imapListFolders);
+  const mockImapSearchFolder = vi.mocked(imapSearchFolder);
+  const mockImapFetchMessages = vi.mocked(imapFetchMessages);
+  const mockSetThreadLabels = vi.mocked(setThreadLabels);
+  const mockSetConversationMetadataLabels = vi.mocked(setConversationMetadataLabels);
+  const mockAddEmail = vi.mocked(addEmail);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    mockGetAccount.mockResolvedValue(createMockImapAccount({ id: "acc-1" }));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("uses the first email in the thread to represent whole conversation labels when emails have different labels", async () => {
+    const baseTime = Math.floor(Date.now() / 1000);
+    // Email 1 in INBOX (first in thread, date: baseTime)
+    const msg1 = createMockImapMessage({
+      uid: 1,
+      folder: "INBOX",
+      message_id: "<first@test>",
+      subject: "Project Update",
+      date: baseTime,
+      is_read: true,
+      is_starred: false,
+    });
+    // Email 2 in Sent (reply in thread, date: baseTime + 60)
+    const msg2 = createMockImapMessage({
+      uid: 2,
+      folder: "Sent",
+      message_id: "<reply@test>",
+      in_reply_to: "<first@test>",
+      references: "<first@test>",
+      subject: "Re: Project Update",
+      date: baseTime + 60,
+      is_read: true,
+      is_starred: false,
+    });
+
+    const folderInbox = createMockImapFolder({ path: "INBOX", raw_path: "INBOX", exists: 1 });
+    const folderSent = createMockImapFolder({ path: "Sent", raw_path: "Sent", exists: 1 });
+
+    mockImapListFolders.mockResolvedValue([folderInbox, folderSent]);
+    mockImapSearchFolder.mockImplementation(async (_config, folderPath) => {
+      if (folderPath === "INBOX") {
+        return { uids: [1], folder_status: createMockImapFolderStatus({ exists: 1 }) };
+      }
+      return { uids: [2], folder_status: createMockImapFolderStatus({ exists: 1 }) };
+    });
+    mockImapFetchMessages.mockImplementation(async (_config, folderPath, _uids) => {
+      if (folderPath === "INBOX") {
+        return createMockImapFetchResult([msg1]);
+      }
+      return createMockImapFetchResult([msg2]);
+    });
+
+    const syncPromise = imapInitialSync("acc-1");
+    await vi.runAllTimersAsync();
+    await syncPromise;
+
+    // setThreadLabels and setConversationMetadataLabels should be called with INBOX, NOT Sent
+    expect(mockSetThreadLabels).toHaveBeenCalled();
+    const finalLabelsCall = mockSetThreadLabels.mock.calls[mockSetThreadLabels.mock.calls.length - 1];
+    expect(finalLabelsCall?.[2]).toContain("INBOX");
+    expect(finalLabelsCall?.[2]).not.toContain("Sent");
+
+    expect(mockSetConversationMetadataLabels).toHaveBeenCalled();
+    const metadataLabelsCall = mockSetConversationMetadataLabels.mock.calls[mockSetConversationMetadataLabels.mock.calls.length - 1];
+    expect(metadataLabelsCall?.[2]).toContain("INBOX");
+    expect(metadataLabelsCall?.[2]).not.toContain("Sent");
+  });
+
+  it("does not label individual emails internally", async () => {
+    const baseTime = Math.floor(Date.now() / 1000);
+    const msg1 = createMockImapMessage({
+      uid: 1,
+      folder: "INBOX",
+      message_id: "<m1@test>",
+      date: baseTime,
+    });
+
+    const folderInbox = createMockImapFolder({ path: "INBOX", raw_path: "INBOX", exists: 1 });
+    mockImapListFolders.mockResolvedValue([folderInbox]);
+    mockImapSearchFolder.mockResolvedValue({ uids: [1], folder_status: createMockImapFolderStatus({ exists: 1 }) });
+    mockImapFetchMessages.mockResolvedValue(createMockImapFetchResult([msg1]));
+
+    await imapInitialSync("acc-1");
+
+    // Parsed messages passed to filterEngine should have empty labelIds
+    expect(mockAddEmail).toHaveBeenCalled();
+    const addedMessages = mockAddEmail.mock.calls[0]?.[2];
+    expect(Array.isArray(addedMessages)).toBe(true);
+    for (const msg of addedMessages as any[]) {
+      expect(msg.labelIds).toEqual([]);
+    }
+  });
+
+  it("checks outgoing diff and invokes syncBatchConversationLabelsToRemote with isFirstSync: true on initial sync", async () => {
+    const baseTime = Math.floor(Date.now() / 1000);
+    const msg1 = createMockImapMessage({
+      uid: 1,
+      folder: "INBOX",
+      message_id: "<m1@test>",
+      date: baseTime,
+      subject: "First Sync Subject",
+    });
+
+    const folderInbox = createMockImapFolder({ path: "INBOX", raw_path: "INBOX", exists: 1 });
+    mockImapListFolders.mockResolvedValue([folderInbox]);
+    mockImapSearchFolder.mockResolvedValue({ uids: [1], folder_status: createMockImapFolderStatus({ exists: 1 }) });
+    mockImapFetchMessages.mockResolvedValue(createMockImapFetchResult([msg1]));
+
+    await imapInitialSync("acc-1");
+
+    expect(syncBatchConversationLabelsToRemote).toHaveBeenCalledWith(
+      "acc-1",
+      expect.arrayContaining([
+        expect.objectContaining({
+          labels: expect.arrayContaining(["INBOX"]),
+          subject: "First Sync Subject",
+        }),
+      ]),
+      expect.objectContaining({
+        isFirstSync: true,
+      }),
+    );
+  });
+
+  it("delta sync uses the first email in the thread to represent whole conversation labels and does not label individual emails", async () => {
+    const baseTime = Math.floor(Date.now() / 1000);
+    // Email 1 in INBOX (first in thread, date: baseTime)
+    const msg1 = createMockImapMessage({
+      uid: 10,
+      folder: "INBOX",
+      message_id: "<first-delta@test>",
+      subject: "Delta Thread",
+      date: baseTime,
+      is_read: true,
+      is_starred: false,
+    });
+    // Email 2 in Sent (reply in thread, date: baseTime + 100)
+    const msg2 = createMockImapMessage({
+      uid: 20,
+      folder: "Sent",
+      message_id: "<reply-delta@test>",
+      in_reply_to: "<first-delta@test>",
+      references: "<first-delta@test>",
+      subject: "Re: Delta Thread",
+      date: baseTime + 100,
+      is_read: true,
+      is_starred: false,
+    });
+
+    const folderInbox = createMockImapFolder({ path: "INBOX", raw_path: "INBOX", exists: 1 });
+    const folderSent = createMockImapFolder({ path: "Sent", raw_path: "Sent", exists: 1 });
+
+    mockImapListFolders.mockResolvedValue([folderInbox, folderSent]);
+    vi.mocked(getAllFolderSyncStates).mockResolvedValue([
+      { account_id: "acc-1", folder_path: "INBOX", uidvalidity: 1, last_uid: 0, modseq: null, last_sync_at: 0 },
+      { account_id: "acc-1", folder_path: "Sent", uidvalidity: 1, last_uid: 0, modseq: null, last_sync_at: 0 },
+    ]);
+    vi.mocked(imapDeltaCheck).mockResolvedValue([
+      { folder: "INBOX", new_uids: [10], highest_modseq: null, vanished: [] },
+      { folder: "Sent", new_uids: [20], highest_modseq: null, vanished: [] },
+    ]);
+    mockImapFetchMessages.mockImplementation(async (_config, folderPath, _uids) => {
+      if (folderPath === "INBOX") {
+        return createMockImapFetchResult([msg1]);
+      }
+      return createMockImapFetchResult([msg2]);
+    });
+
+    const result = await imapDeltaSync("acc-1");
+
+    // setThreadLabels and setConversationMetadataLabels should be called with INBOX, NOT Sent
+    expect(mockSetThreadLabels).toHaveBeenCalled();
+    const finalLabelsCall = mockSetThreadLabels.mock.calls[mockSetThreadLabels.mock.calls.length - 1];
+    expect(finalLabelsCall?.[2]).toContain("INBOX");
+    expect(finalLabelsCall?.[2]).not.toContain("Sent");
+
+    expect(mockSetConversationMetadataLabels).toHaveBeenCalled();
+    const metadataLabelsCall = mockSetConversationMetadataLabels.mock.calls[mockSetConversationMetadataLabels.mock.calls.length - 1];
+    expect(metadataLabelsCall?.[2]).toContain("INBOX");
+    expect(metadataLabelsCall?.[2]).not.toContain("Sent");
+
+    // Stored/returned messages must have labelIds: [] internally
+    expect(result.messages.length).toBe(2);
+    for (const msg of result.messages) {
+      expect(msg.labelIds).toEqual([]);
+    }
   });
 });

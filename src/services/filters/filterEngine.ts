@@ -184,6 +184,7 @@ export async function addEmail(
   threadId: string,
   messageOrMessages: ParsedMessage | ParsedMessage[],
   config?: ImapConfig,
+  options?: { skipSidecarPush?: boolean },
 ): Promise<{ filtered: boolean }> {
   const messages = Array.isArray(messageOrMessages)
     ? messageOrMessages
@@ -203,25 +204,27 @@ export async function addEmail(
   // Then set the metadata to mark the email as filtered
   await markEmailFiltered(accountId, effectiveThreadId, true);
 
-  // If this is an IMAP account and sidecar is available, push updated metadata
-  try {
-    const account = await getAccount(accountId);
-    if (account && account.provider === "imap") {
-      const imapConfig = config ?? buildImapConfig(account);
-      const doc = await getThreadCrdtDoc(accountId, effectiveThreadId, "personal");
-      await pushSidecarMetadata(imapConfig, account.email, {
-        conversationId: effectiveThreadId,
-        type: "personal",
-        updatedAt: Date.now(),
-        isFiltered: true,
-        crdtDocBase64: doc?.doc_base64,
-      });
+  // If this is an IMAP account and sidecar is available, push updated metadata (unless skipped)
+  if (!options?.skipSidecarPush) {
+    try {
+      const account = await getAccount(accountId);
+      if (account && account.provider === "imap") {
+        const imapConfig = config ?? buildImapConfig(account);
+        const doc = await getThreadCrdtDoc(accountId, effectiveThreadId, "personal");
+        await pushSidecarMetadata(imapConfig, account.email, {
+          conversationId: effectiveThreadId,
+          type: "personal",
+          updatedAt: Date.now(),
+          isFiltered: true,
+          crdtDocBase64: doc?.doc_base64,
+        });
+      }
+    } catch (err) {
+      console.warn(
+        `[filterEngine] Note on pushing sidecar metadata for ${effectiveThreadId}:`,
+        err,
+      );
     }
-  } catch (err) {
-    console.warn(
-      `[filterEngine] Note on pushing sidecar metadata for ${effectiveThreadId}:`,
-      err,
-    );
   }
 
   return { filtered: true };

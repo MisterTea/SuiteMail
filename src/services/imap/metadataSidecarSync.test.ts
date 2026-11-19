@@ -7,6 +7,7 @@ import {
   syncSidecarMetadata,
   hasPendingMetadata,
   ensureMetadataDownloadedForEmail,
+  syncBatchConversationLabelsToRemote,
   type SidecarPayload,
 } from "./metadataSidecarSync";
 import type { ImapConfig, ImapFolder, ImapFetchResult } from "./tauriCommands";
@@ -63,6 +64,33 @@ vi.mock("../db/threadCrdtDocs", () => ({
     mockCrdtDocs[`${doc.account_id}:${doc.thread_id}:${scope}`] = doc;
   }),
 }));
+
+vi.mock("../crdt/metadataCrdt", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../crdt/metadataCrdt")>();
+  return {
+    ...actual,
+    setConversationMetadataLabels: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock("../db/accounts", () => ({
+  getAccount: vi.fn(async () => ({
+    id: "acc-1",
+    email: "user@example.com",
+    provider: "imap",
+  })),
+}));
+
+vi.mock("../sync/outgoingSyncGuard", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../sync/outgoingSyncGuard")>();
+  return {
+    ...actual,
+    checkOutgoingSyncAllowed: vi.fn().mockResolvedValue(true),
+  };
+});
+
+import { checkOutgoingSyncAllowed } from "../sync/outgoingSyncGuard";
+import { setConversationMetadataLabels } from "../crdt/metadataCrdt";
 
 const testConfig: ImapConfig = {
   host: "imap.example.com",
@@ -330,6 +358,63 @@ describe("metadataSidecarSync", () => {
 
       const count = await ensureMetadataDownloadedForEmail("acc-1", testConfig, "thread-dl-check");
       expect(count).toBe(0);
+    });
+  });
+
+  describe("syncBatchConversationLabelsToRemote", () => {
+    it("updates local metadata and checks outgoing confirmation before pushing to remote", async () => {
+      mockTauri.imapListFolders.mockResolvedValue([
+        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
+      ]);
+      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
+      vi.mocked(checkOutgoingSyncAllowed).mockResolvedValueOnce(true);
+
+      const updates = [
+        { threadId: "t1", labels: ["INBOX", "Work"], subject: "Subject 1" },
+        { threadId: "t2", labels: ["archive"], subject: "Subject 2" },
+      ];
+
+      const result = await syncBatchConversationLabelsToRemote("acc-1", updates, {
+        isFirstSync: true,
+        config: testConfig,
+      });
+
+      expect(setConversationMetadataLabels).toHaveBeenCalledWith("acc-1", "t1", ["INBOX", "Work"]);
+      expect(setConversationMetadataLabels).toHaveBeenCalledWith("acc-1", "t2", ["archive"]);
+      expect(checkOutgoingSyncAllowed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountId: "acc-1",
+          isFirstSync: true,
+          items: expect.arrayContaining([
+            expect.objectContaining({ id: "t1" }),
+            expect.objectContaining({ id: "t2" }),
+          ]),
+        }),
+      );
+      expect(result.confirmed).toBe(true);
+      expect(result.synced).toBe(2);
+      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(2);
+    });
+
+    it("cancels remote push when user declines confirmation popover", async () => {
+      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
+      vi.mocked(checkOutgoingSyncAllowed).mockResolvedValueOnce(false);
+
+      const updates = [
+        { threadId: "t1", labels: ["INBOX"], subject: "Subject 1" },
+      ];
+
+      const result = await syncBatchConversationLabelsToRemote("acc-1", updates, {
+        isFirstSync: true,
+        config: testConfig,
+      });
+
+      // Local metadata was updated
+      expect(setConversationMetadataLabels).toHaveBeenCalledWith("acc-1", "t1", ["INBOX"]);
+      // But remote push was NOT performed
+      expect(result.confirmed).toBe(false);
+      expect(result.synced).toBe(0);
+      expect(mockTauri.imapAppendMessage).not.toHaveBeenCalled();
     });
   });
 });

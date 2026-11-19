@@ -50,6 +50,10 @@ vi.mock("../db/threads", () => ({
   getThreadLabelIds: vi.fn().mockResolvedValue([]),
 }));
 
+vi.mock("../imap/metadataSidecarSync", () => ({
+  syncConversationLabelsToRemote: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { getAccount } from "../db/accounts";
 import { buildImapConfig, buildSmtpConfig } from "../imap/imapConfigBuilder";
 import { mapFolderToLabel, getSyncableFolders } from "../imap/folderMapper";
@@ -66,6 +70,7 @@ import {
 import { findSpecialFolder } from "../imap/messageHelper";
 import { upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
+import { syncConversationLabelsToRemote } from "../imap/metadataSidecarSync";
 
 const mockImapConfig = {
   host: "imap.example.com",
@@ -214,62 +219,47 @@ describe("ImapSmtpProvider", () => {
   // ---------- Actions ----------
 
   describe("archive", () => {
-    it("moves messages to Archive folder", async () => {
-      vi.mocked(findSpecialFolder).mockResolvedValue("Archive");
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("updates conversation labels to archive without moving IMAP messages", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
 
       await provider.archive("thread-1", [
         "imap-acc-1-INBOX-100",
         "imap-acc-1-INBOX-200",
       ]);
 
-      expect(findSpecialFolder).toHaveBeenCalledWith("acc-1", "\\Archive");
-      expect(imapMoveMessages).toHaveBeenCalledWith(
-        mockImapConfig,
-        "INBOX",
-        [100, 200],
-        "Archive",
-      );
-    });
-
-    it("skips messages already in Archive", async () => {
-      vi.mocked(findSpecialFolder).mockResolvedValue("Archive");
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
-
-      await provider.archive("thread-1", ["imap-acc-1-Archive-100"]);
-
       expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["archive"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["archive"]);
     });
 
-    it("falls back to 'Archive' when special folder not found", async () => {
-      vi.mocked(findSpecialFolder).mockResolvedValue(null);
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("preserves other labels when archiving", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX", "custom-label"]);
 
       await provider.archive("thread-1", ["imap-acc-1-INBOX-100"]);
 
-      expect(imapMoveMessages).toHaveBeenCalledWith(
-        mockImapConfig,
-        "INBOX",
-        [100],
-        "Archive",
-      );
+      expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["custom-label", "archive"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["custom-label", "archive"]);
+    });
+
+    it("does nothing if threadId and messageIds are empty", async () => {
+      await provider.archive("", []);
+
+      expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).not.toHaveBeenCalled();
+      expect(syncConversationLabelsToRemote).not.toHaveBeenCalled();
     });
   });
 
   describe("trash", () => {
-    it("moves messages to Trash folder", async () => {
-      vi.mocked(findSpecialFolder).mockResolvedValue("Deleted Items");
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("updates conversation labels to TRASH without moving IMAP messages", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
 
       await provider.trash("thread-1", ["imap-acc-1-INBOX-100"]);
 
-      expect(findSpecialFolder).toHaveBeenCalledWith("acc-1", "\\Trash");
-      expect(imapMoveMessages).toHaveBeenCalledWith(
-        mockImapConfig,
-        "INBOX",
-        [100],
-        "Deleted Items",
-      );
+      expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["TRASH"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["TRASH"]);
     });
   });
 
@@ -343,51 +333,50 @@ describe("ImapSmtpProvider", () => {
   });
 
   describe("spam", () => {
-    it("moves to Junk when isSpam=true", async () => {
-      vi.mocked(findSpecialFolder).mockResolvedValue("Junk E-Mail");
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("updates conversation labels to SPAM when isSpam=true without moving IMAP messages", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
 
       await provider.spam("thread-1", ["imap-acc-1-INBOX-100"], true);
 
-      expect(imapMoveMessages).toHaveBeenCalledWith(
-        mockImapConfig,
-        "INBOX",
-        [100],
-        "Junk E-Mail",
-      );
+      expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["SPAM"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["SPAM"]);
     });
 
-    it("moves to INBOX when isSpam=false", async () => {
-      vi.mocked(findSpecialFolder).mockResolvedValue("Junk");
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("restores INBOX label when isSpam=false without moving IMAP messages", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["SPAM"]);
 
       await provider.spam("thread-1", ["imap-acc-1-Junk-100"], false);
 
-      expect(imapMoveMessages).toHaveBeenCalledWith(
-        mockImapConfig,
-        "Junk",
-        [100],
-        "INBOX",
-      );
+      expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["INBOX"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["INBOX"]);
     });
   });
 
   describe("moveToFolder", () => {
-    it("moves messages to specified folder", async () => {
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("updates conversation labels according to folder mapping without moving IMAP messages", async () => {
+      vi.mocked(mapFolderToLabel).mockReturnValue({
+        labelId: "Work",
+        labelName: "Work",
+        type: "user",
+      });
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
 
       await provider.moveToFolder("thread-1", ["imap-acc-1-INBOX-100"], "Work");
 
-      expect(imapMoveMessages).toHaveBeenCalledWith(
-        mockImapConfig,
-        "INBOX",
-        [100],
-        "Work",
-      );
+      expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["Work"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["Work"]);
     });
 
-    it("skips messages already in target folder", async () => {
-      vi.mocked(imapMoveMessages).mockResolvedValue(undefined);
+    it("retains existing non-INBOX labels when moving to folder", async () => {
+      vi.mocked(mapFolderToLabel).mockReturnValue({
+        labelId: "Work",
+        labelName: "Work",
+        type: "user",
+      });
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX", "Important"]);
 
       await provider.moveToFolder(
         "thread-1",
@@ -396,22 +385,30 @@ describe("ImapSmtpProvider", () => {
       );
 
       expect(imapMoveMessages).not.toHaveBeenCalled();
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["Important", "Work"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["Important", "Work"]);
     });
   });
 
   describe("addLabel / removeLabel", () => {
-    it("addLabel does not throw (warns instead)", async () => {
-      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("addLabel updates conversation labels and syncs to remote", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
+
       await provider.addLabel("thread-1", "Label_1");
-      expect(spy).toHaveBeenCalled();
-      spy.mockRestore();
+
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["INBOX", "Label_1"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["INBOX", "Label_1"]);
+      expect(imapMoveMessages).not.toHaveBeenCalled();
     });
 
-    it("removeLabel does not throw (warns instead)", async () => {
-      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    it("removeLabel updates conversation labels and syncs to remote", async () => {
+      vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX", "Label_1"]);
+
       await provider.removeLabel("thread-1", "Label_1");
-      expect(spy).toHaveBeenCalled();
-      spy.mockRestore();
+
+      expect(setThreadLabels).toHaveBeenCalledWith("acc-1", "thread-1", ["INBOX"]);
+      expect(syncConversationLabelsToRemote).toHaveBeenCalledWith("acc-1", "thread-1", ["INBOX"]);
+      expect(imapMoveMessages).not.toHaveBeenCalled();
     });
   });
 

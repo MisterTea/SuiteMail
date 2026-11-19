@@ -17,7 +17,8 @@ import {
 import type { ParsedMessage, ParsedAttachment } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
 import { upsertMessage, updateMessageThreadIds, getMessagesForThread } from "../db/messages";
-import { upsertThread, setThreadLabels, deleteThread } from "../db/threads";
+import { upsertThread, setThreadLabels, deleteThread, getThreadLabelIds } from "../db/threads";
+import { setConversationMetadataLabels } from "../crdt/metadataCrdt";
 import { upsertAttachment } from "../db/attachments";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
 import { withTransaction } from "../db/connection";
@@ -31,7 +32,7 @@ import {
   type ThreadGroup,
 } from "../threading/threadBuilder";
 import { getPendingOpsForResource } from "../db/pendingOperations";
-import { syncSidecarMetadata } from "./metadataSidecarSync";
+import { syncSidecarMetadata, syncBatchConversationLabelsToRemote } from "./metadataSidecarSync";
 import { syncSettingsForAccount } from "./settingsSidecarSync";
 import { addEmail } from "../filters/filterEngine";
 
@@ -252,25 +253,30 @@ async function storeThreadsAndMessages(
         const firstMessage = messages[0]!;
         const lastMessage = messages[messages.length - 1]!;
 
-        // Collect all label IDs across messages in this thread.
-        // Also include labels from duplicate folder copies (same RFC Message-ID
-        // in multiple folders) that the threading algorithm may have deduplicated.
-        const allLabelIds = new Set<string>();
-        for (const msg of messages) {
-          for (const lid of msg.labelIds) {
-            allLabelIds.add(lid);
-          }
-          // Merge labels from all folder copies of this message
-          const imapMsg = imapMsgByLocalId.get(msg.id);
-          const rfcId = imapMsg?.message_id;
-          if (rfcId && labelsByRfcId) {
-            const extraLabels = labelsByRfcId.get(rfcId);
+        // Check if earlier messages for this thread already exist in the DB
+        const existingDbMsgs = await getMessagesForThread(accountId, group.threadId);
+
+        let labelArray: string[];
+        if (existingDbMsgs.length > 0 && existingDbMsgs[0]!.date < firstMessage.date) {
+          // If two emails in the same conversation have different labels,
+          // the first email in the thread represents the whole conversation labels.
+          // An earlier email in this conversation is already stored in the DB.
+          labelArray = await getThreadLabelIds(accountId, group.threadId);
+        } else {
+          // If two emails in the same conversation have different labels,
+          // use the first email in the thread to represent the whole conversation labels.
+          const conversationLabelIds = new Set<string>(firstMessage.labelIds);
+          const firstImapMsg = imapMsgByLocalId.get(firstMessage.id);
+          const firstRfcId = firstImapMsg?.message_id;
+          if (firstRfcId && labelsByRfcId) {
+            const extraLabels = labelsByRfcId.get(firstRfcId);
             if (extraLabels) {
               for (const lid of extraLabels) {
-                allLabelIds.add(lid);
+                conversationLabelIds.add(lid);
               }
             }
           }
+          labelArray = [...conversationLabelIds];
         }
 
         const isRead = messages.every((m) => m.isRead);
@@ -290,11 +296,18 @@ async function storeThreadsAndMessages(
           hasAttachments,
         });
 
-        const labelArray = [...allLabelIds];
+        // Put labels in conversation metadata
         await setThreadLabels(accountId, group.threadId, labelArray);
+        try {
+          await setConversationMetadataLabels(accountId, group.threadId, labelArray);
+        } catch (metaErr) {
+          console.warn(`[imapSync] Could not update conversation metadata for ${group.threadId}:`, metaErr);
+        }
 
         // Store messages sequentially to avoid concurrent DB writes
         for (const parsed of messages) {
+          // Do not label individual emails internally
+          parsed.labelIds = [];
           const imapMsg = imapMsgByLocalId.get(parsed.id);
 
           await upsertMessage({
@@ -756,19 +769,16 @@ export async function imapInitialSync(
         const firstMessage = messages[0]!;
         const lastMessage = messages[messages.length - 1]!;
 
-        // Collect all label IDs including cross-folder copies
-        const allLabelIds = new Set<string>();
-        for (const msg of messages) {
-          for (const lid of msg.labelIds) {
-            allLabelIds.add(lid);
-          }
-          const extraLabels = labelsByRfcId.get(msg.rfcMessageId);
-          if (extraLabels) {
-            for (const lid of extraLabels) {
-              allLabelIds.add(lid);
-            }
+        // If two emails in the same conversation have different labels,
+        // use the first email in the thread to represent the whole conversation labels.
+        const conversationLabelIds = new Set<string>(firstMessage.labelIds);
+        const extraLabels = labelsByRfcId.get(firstMessage.rfcMessageId);
+        if (extraLabels) {
+          for (const lid of extraLabels) {
+            conversationLabelIds.add(lid);
           }
         }
+        const labelArray = [...conversationLabelIds];
 
         const isRead = messages.every((m) => m.isRead);
         const isStarred = messages.some((m) => m.isStarred);
@@ -787,7 +797,13 @@ export async function imapInitialSync(
           hasAttachments,
         });
 
-        await setThreadLabels(accountId, group.threadId, [...allLabelIds]);
+        // Put labels in conversation metadata
+        await setThreadLabels(accountId, group.threadId, labelArray);
+        try {
+          await setConversationMetadataLabels(accountId, group.threadId, labelArray);
+        } catch (metaErr) {
+          console.warn(`[imapSync] Could not update conversation metadata for ${group.threadId}:`, metaErr);
+        }
 
         // Batch-update thread IDs for all messages in this thread
         const messageIds = messages.map((m) => m.id);
@@ -817,14 +833,14 @@ export async function imapInitialSync(
               attachments: [],
               rawSize: dbMsg.raw_size ?? 0,
               internalDate: dbMsg.internal_date ?? dbMsg.date,
-              labelIds: [...allLabelIds],
+              labelIds: [], // Do not label individual emails internally
               hasAttachments: meta?.hasAttachments ?? false,
               listUnsubscribe: dbMsg.list_unsubscribe,
               listUnsubscribePost: dbMsg.list_unsubscribe_post,
               authResults: dbMsg.auth_results,
             };
           });
-          await addEmail(accountId, group.threadId, parsedMsgs, config);
+          await addEmail(accountId, group.threadId, parsedMsgs, config, { skipSidecarPush: true });
         } catch (filterErr) {
           console.error(
             `[imapSync] Failed to apply filters to thread ${group.threadId}:`,
@@ -873,6 +889,45 @@ export async function imapInitialSync(
     import("@/services/ai/embeddingIndexer")
       .then(({ indexBatchForAccount }) => indexBatchForAccount(accountId, 100))
       .catch((err) => console.error("Embedding indexing error:", err));
+
+    // ---------------------------------------------------------------------------
+    // Outgoing sync confirmation:
+    // If there is an outgoing diff to sync to the server (e.g. during first sync),
+    // warn the user before syncing from app to server, show a popover with a summary,
+    // and get confirmation first. Syncing from server to app is always ok.
+    // ---------------------------------------------------------------------------
+    if (storedCount > 0 && threadGroups.length > 0) {
+      try {
+        const outgoingUpdates = threadGroups.map((group) => {
+          const messages = group.messageIds
+            .map((id) => allMeta.get(id))
+            .filter((m): m is MessageMeta => m !== undefined);
+          messages.sort((a, b) => a.date - b.date);
+          const firstMessage = messages[0];
+          const conversationLabelIds = new Set<string>(firstMessage?.labelIds ?? ["INBOX"]);
+          if (firstMessage?.rfcMessageId) {
+            const extraLabels = labelsByRfcId.get(firstMessage.rfcMessageId);
+            if (extraLabels) {
+              for (const lid of extraLabels) {
+                conversationLabelIds.add(lid);
+              }
+            }
+          }
+          return {
+            threadId: group.threadId,
+            labels: Array.from(conversationLabelIds),
+            subject: firstMessage?.subject ?? undefined,
+          };
+        });
+
+        await syncBatchConversationLabelsToRemote(accountId, outgoingUpdates, {
+          isFirstSync: true,
+          config,
+        });
+      } catch (err) {
+        console.warn("[imapSync] Note on outgoing conversation labels sync:", err);
+      }
+    }
   } else {
     console.warn(
       `[imapSync] Found ${totalMessagesFound} messages on server but stored 0 — NOT marking sync as complete so it will be retried`,

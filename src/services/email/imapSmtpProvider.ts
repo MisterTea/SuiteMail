@@ -6,7 +6,6 @@ import { mapFolderToLabel, getSyncableFolders } from "../imap/folderMapper";
 import {
   imapListFolders,
   imapSetFlags,
-  imapMoveMessages,
   imapDeleteMessages,
   imapFetchMessageBody,
   imapFetchAttachment,
@@ -24,6 +23,8 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
 import { markEmailFiltered } from "../filters/filterEngine";
+import { syncConversationLabelsToRemote } from "../imap/metadataSidecarSync";
+import { getDb } from "../db/connection";
 
 /**
  * Decode base64url (Gmail/RFC 4648 URL-safe, no padding) to a UTF-8 string.
@@ -266,34 +267,53 @@ export class ImapSmtpProvider implements EmailProvider {
 
   // ---- Actions ----
 
-  async archive(
-    _threadId: string,
-    _messageIds: string[],
-  ): Promise<void> {
-    const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
-    const archiveFolder =
-      (await findSpecialFolder(this.accountId, "\\Archive")) ?? "Archive";
-
-    for (const [folder, uids] of grouped) {
-      if (folder === archiveFolder) continue;
-      await imapMoveMessages(config, folder, uids, archiveFolder);
+  private async resolveThreadId(threadId: string, messageIds?: string[]): Promise<string> {
+    if (threadId) return threadId;
+    if (!messageIds || messageIds.length === 0) return "";
+    try {
+      const db = await getDb();
+      const rows = await db.select<{ thread_id: string }[]>(
+        "SELECT thread_id FROM messages WHERE account_id = $1 AND id = $2 LIMIT 1",
+        [this.accountId, messageIds[0]],
+      );
+      return rows[0]?.thread_id ?? "";
+    } catch {
+      return "";
     }
   }
 
-  async trash(
-    _threadId: string,
-    _messageIds: string[],
+  async archive(
+    threadId: string,
+    messageIds: string[],
   ): Promise<void> {
-    const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
-    const trashFolder =
-      (await findSpecialFolder(this.accountId, "\\Trash")) ?? "Trash";
-
-    for (const [folder, uids] of grouped) {
-      if (folder === trashFolder) continue;
-      await imapMoveMessages(config, folder, uids, trashFolder);
+    // When syncing mail in the other direction, update the labels based on conversation labels.
+    // Do not change the IMAP folder.
+    const effectiveThreadId = await this.resolveThreadId(threadId, messageIds);
+    if (!effectiveThreadId) return;
+    const existingLabels = await getThreadLabelIds(this.accountId, effectiveThreadId);
+    const updatedLabels = existingLabels.filter((l) => l !== "INBOX");
+    if (!updatedLabels.includes("archive")) {
+      updatedLabels.push("archive");
     }
+    await setThreadLabels(this.accountId, effectiveThreadId, updatedLabels);
+    await syncConversationLabelsToRemote(this.accountId, effectiveThreadId, updatedLabels);
+  }
+
+  async trash(
+    threadId: string,
+    messageIds: string[],
+  ): Promise<void> {
+    // When syncing mail in the other direction, update the labels based on conversation labels.
+    // Do not change the IMAP folder.
+    const effectiveThreadId = await this.resolveThreadId(threadId, messageIds);
+    if (!effectiveThreadId) return;
+    const existingLabels = await getThreadLabelIds(this.accountId, effectiveThreadId);
+    const updatedLabels = existingLabels.filter((l) => l !== "INBOX");
+    if (!updatedLabels.includes("TRASH")) {
+      updatedLabels.push("TRASH");
+    }
+    await setThreadLabels(this.accountId, effectiveThreadId, updatedLabels);
+    await syncConversationLabelsToRemote(this.accountId, effectiveThreadId, updatedLabels);
   }
 
   async permanentDelete(
@@ -335,58 +355,86 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   async spam(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
     isSpam: boolean,
   ): Promise<void> {
-    const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
-    const junkFolder =
-      (await findSpecialFolder(this.accountId, "\\Junk")) ?? "Junk";
-    const destination = isSpam ? junkFolder : "INBOX";
-
-    for (const [folder, uids] of grouped) {
-      if (folder === destination) continue;
-      await imapMoveMessages(config, folder, uids, destination);
+    // When syncing mail in the other direction, update the labels based on conversation labels.
+    // Do not change the IMAP folder.
+    const effectiveThreadId = await this.resolveThreadId(threadId, messageIds);
+    if (!effectiveThreadId) return;
+    const existingLabels = await getThreadLabelIds(this.accountId, effectiveThreadId);
+    let updatedLabels: string[];
+    if (isSpam) {
+      updatedLabels = existingLabels.filter((l) => l !== "INBOX");
+      if (!updatedLabels.includes("SPAM")) {
+        updatedLabels.push("SPAM");
+      }
+    } else {
+      updatedLabels = existingLabels.filter((l) => l !== "SPAM");
+      if (!updatedLabels.includes("INBOX")) {
+        updatedLabels.push("INBOX");
+      }
     }
+    await setThreadLabels(this.accountId, effectiveThreadId, updatedLabels);
+    await syncConversationLabelsToRemote(this.accountId, effectiveThreadId, updatedLabels);
   }
 
   async moveToFolder(
-    _threadId: string,
-    _messageIds: string[],
+    threadId: string,
+    messageIds: string[],
     folderPath: string,
   ): Promise<void> {
-    const config = await this.getImapConfig();
-    const grouped = this.groupByFolder(_messageIds);
-
-    for (const [folder, uids] of grouped) {
-      if (folder === folderPath) continue;
-      await imapMoveMessages(config, folder, uids, folderPath);
+    // When syncing mail in the other direction, update the labels based on conversation labels.
+    // Do not change the IMAP folder.
+    const effectiveThreadId = await this.resolveThreadId(threadId, messageIds);
+    if (!effectiveThreadId) return;
+    const mapping = mapFolderToLabel({
+      path: folderPath,
+      name: folderPath.split("/").pop() ?? folderPath,
+      delimiter: "/",
+      special_use: null,
+      raw_path: folderPath,
+      exists: 0,
+      unseen: 0,
+    });
+    const targetLabel = mapping.labelId;
+    const existingLabels = await getThreadLabelIds(this.accountId, effectiveThreadId);
+    let updatedLabels = existingLabels;
+    if (targetLabel !== "INBOX") {
+      updatedLabels = updatedLabels.filter((l) => l !== "INBOX");
     }
+    if (!updatedLabels.includes(targetLabel)) {
+      updatedLabels = [...updatedLabels, targetLabel];
+    }
+    await setThreadLabels(this.accountId, effectiveThreadId, updatedLabels);
+    await syncConversationLabelsToRemote(this.accountId, effectiveThreadId, updatedLabels);
   }
 
   async addLabel(
-    _threadId: string,
-    _labelId: string,
+    threadId: string,
+    labelId: string,
   ): Promise<void> {
-    // IMAP doesn't have native labels — this would require COPY to another folder
-    // or using IMAP keywords (if server supports them).
-    // For now, this is a no-op with a warning.
-    console.warn(
-      "IMAP does not natively support labels. " +
-        "Use moveToFolder() to move messages between folders instead.",
-    );
+    // When syncing mail in the other direction, update the labels based on conversation labels.
+    // Do not change the IMAP folder.
+    const existingLabels = await getThreadLabelIds(this.accountId, threadId);
+    const updatedLabels = existingLabels.includes(labelId)
+      ? existingLabels
+      : [...existingLabels, labelId];
+    await setThreadLabels(this.accountId, threadId, updatedLabels);
+    await syncConversationLabelsToRemote(this.accountId, threadId, updatedLabels);
   }
 
   async removeLabel(
-    _threadId: string,
-    _labelId: string,
+    threadId: string,
+    labelId: string,
   ): Promise<void> {
-    // IMAP doesn't have native labels.
-    console.warn(
-      "IMAP does not natively support labels. " +
-        "Use moveToFolder() to move messages between folders instead.",
-    );
+    // When syncing mail in the other direction, update the labels based on conversation labels.
+    // Do not change the IMAP folder.
+    const existingLabels = await getThreadLabelIds(this.accountId, threadId);
+    const updatedLabels = existingLabels.filter((l) => l !== labelId);
+    await setThreadLabels(this.accountId, threadId, updatedLabels);
+    await syncConversationLabelsToRemote(this.accountId, threadId, updatedLabels);
   }
 
   // ---- Send/Draft operations ----
@@ -458,7 +506,9 @@ export class ImapSmtpProvider implements EmailProvider {
       // Reply: add SENT label to existing thread
       const existingLabels = await getThreadLabelIds(this.accountId, threadId);
       if (!existingLabels.includes("SENT")) {
-        await setThreadLabels(this.accountId, threadId, [...existingLabels, "SENT"]);
+        const updated = [...existingLabels, "SENT"];
+        await setThreadLabels(this.accountId, threadId, updated);
+        await syncConversationLabelsToRemote(this.accountId, threadId, updated).catch(() => {});
       }
     } else {
       // New thread: create thread record
@@ -476,6 +526,7 @@ export class ImapSmtpProvider implements EmailProvider {
         isFiltered: true,
       });
       await setThreadLabels(this.accountId, effectiveThreadId, ["SENT"]);
+      await syncConversationLabelsToRemote(this.accountId, effectiveThreadId, ["SENT"]).catch(() => {});
       await markEmailFiltered(this.accountId, effectiveThreadId, true).catch(() => {});
     }
 

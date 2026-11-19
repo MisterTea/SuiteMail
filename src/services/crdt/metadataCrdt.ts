@@ -14,6 +14,7 @@ import { getDb } from "../db/connection";
 export interface PersonalMetadataState {
   conversationId?: string;
   personalLabels: string[];
+  labels?: string[];
   followUpAt?: number | null;
   privateNotes?: string;
   isStarred?: boolean;
@@ -46,6 +47,7 @@ export interface ConversationMetadataState extends Partial<LocalMetadataState>, 
   conversationId?: string;
   categories: string[];
   labels: string[];
+  personalLabels?: string[];
   isStarred?: boolean;
   isRead?: boolean;
   followUpAt?: number | null;
@@ -67,7 +69,9 @@ export function createPersonalMetadataDoc(
   let doc = automerge.init<PersonalMetadataState>();
   doc = automerge.change(doc, "Initialize personal metadata document", (d) => {
     d.conversationId = initial?.conversationId ?? "";
-    d.personalLabels = initial?.personalLabels ? [...initial.personalLabels] : [];
+    const labels = initial?.personalLabels ? [...initial.personalLabels] : (initial?.labels ? [...initial.labels] : []);
+    d.personalLabels = [...labels];
+    d.labels = [...labels];
     d.followUpAt = initial?.followUpAt ?? null;
     d.privateNotes = initial?.privateNotes ?? "";
     d.isStarred = initial?.isStarred ?? false;
@@ -88,7 +92,11 @@ export function updatePersonalMetadataDoc(
 ): automerge.Doc<PersonalMetadataState> {
   return automerge.change(doc, message, (d) => {
     if (changes.conversationId !== undefined) d.conversationId = changes.conversationId;
-    if (changes.personalLabels !== undefined) d.personalLabels = [...changes.personalLabels];
+    if (changes.personalLabels !== undefined || changes.labels !== undefined) {
+      const labels = changes.personalLabels ? [...changes.personalLabels] : (changes.labels ? [...changes.labels] : []);
+      d.personalLabels = [...labels];
+      d.labels = [...labels];
+    }
     if (changes.followUpAt !== undefined) d.followUpAt = changes.followUpAt;
     if (changes.privateNotes !== undefined) d.privateNotes = changes.privateNotes;
     if (changes.isStarred !== undefined) d.isStarred = changes.isStarred;
@@ -267,9 +275,15 @@ export async function reconcilePersonalMetadataToDb(
       // Ignored if cancelFollowUp is not available or DB is unavailable
     }
   }
-  if (doc.personalLabels && doc.personalLabels.length > 0) {
+  const labelsToReconcile =
+    doc.personalLabels && doc.personalLabels.length > 0
+      ? doc.personalLabels
+      : doc.labels && doc.labels.length > 0
+      ? doc.labels
+      : undefined;
+  if (labelsToReconcile !== undefined) {
     try {
-      await setThreadLabels(accountId, threadId, doc.personalLabels);
+      await setThreadLabels(accountId, threadId, labelsToReconcile);
     } catch (e) {
       console.warn(`[metadataCrdt] Could not update thread labels for ${threadId}:`, e);
     }
@@ -320,7 +334,9 @@ export function createMetadataDoc(
   doc = automerge.change(doc, "Initialize conversation metadata document", (d) => {
     d.conversationId = initial?.conversationId ?? "";
     d.categories = initial?.categories ? [...initial.categories] : [];
-    d.labels = initial?.labels ? [...initial.labels] : [];
+    const labels = initial?.labels ? [...initial.labels] : (initial?.personalLabels ? [...initial.personalLabels] : []);
+    d.labels = [...labels];
+    d.personalLabels = [...labels];
     d.isStarred = initial?.isStarred ?? false;
     d.isRead = initial?.isRead ?? false;
     d.followUpAt = initial?.followUpAt ?? null;
@@ -341,7 +357,11 @@ export function updateMetadataDoc(
   return automerge.change(doc, message, (d) => {
     if (changes.conversationId !== undefined) d.conversationId = changes.conversationId;
     if (changes.categories !== undefined) d.categories = [...changes.categories];
-    if (changes.labels !== undefined) d.labels = [...changes.labels];
+    if (changes.labels !== undefined || changes.personalLabels !== undefined) {
+      const labels = changes.labels ? [...changes.labels] : (changes.personalLabels ? [...changes.personalLabels] : []);
+      d.labels = [...labels];
+      d.personalLabels = [...labels];
+    }
     if (changes.isStarred !== undefined) d.isStarred = changes.isStarred;
     if (changes.isRead !== undefined) d.isRead = changes.isRead;
     if (changes.followUpAt !== undefined) d.followUpAt = changes.followUpAt;
@@ -492,3 +512,53 @@ export async function getPersonalMetadata(
     return null;
   }
 }
+
+/**
+ * Retrieve composite conversation metadata state if available.
+ */
+export async function getConversationMetadata(
+  accountId: string,
+  threadId: string,
+): Promise<ConversationMetadataState | null> {
+  const record = await getThreadCrdtDoc(accountId, threadId, "personal");
+  if (!record || !record.doc_base64) return null;
+  try {
+    return deserializeMetadataDoc<ConversationMetadataState>(record.doc_base64);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Put conversation labels into conversation metadata (Automerge CRDT doc)
+ * and reconcile them to the database.
+ */
+export async function setConversationMetadataLabels(
+  accountId: string,
+  conversationId: string,
+  labels: string[],
+): Promise<void> {
+  const doc = await getOrInitPersonalMetadataDoc(accountId, conversationId, {
+    conversationId,
+    personalLabels: labels,
+    labels,
+  });
+  const updated = updatePersonalMetadataDoc(doc, {
+    personalLabels: labels,
+    labels,
+  });
+  await savePersonalMetadataDoc(accountId, conversationId, updated);
+  await reconcilePersonalMetadataToDb(accountId, conversationId, updated);
+}
+
+/**
+ * Retrieve conversation labels from conversation metadata.
+ */
+export async function getConversationMetadataLabels(
+  accountId: string,
+  conversationId: string,
+): Promise<string[]> {
+  const meta = await getPersonalMetadata(accountId, conversationId);
+  return meta?.personalLabels ?? meta?.labels ?? [];
+}
+

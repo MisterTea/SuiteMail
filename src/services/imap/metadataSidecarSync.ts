@@ -13,6 +13,7 @@ import { getFolderSyncState, upsertFolderSyncState } from "../db/folderSyncState
 import { setThreadCategory } from "../db/threadCategories";
 import { insertFollowUpReminder } from "../db/followUpReminders";
 import { getThreadCrdtDoc, upsertThreadCrdtDoc } from "../db/threadCrdtDocs";
+import { getThreadLabelIds } from "../db/threads";
 import {
   deserializeMetadataDoc,
   mergeMetadataDocs,
@@ -21,10 +22,16 @@ import {
   getOrInitPersonalMetadataDoc,
   updatePersonalMetadataDoc,
   savePersonalMetadataDoc,
+  setConversationMetadataLabels,
   type PersonalMetadataState,
 } from "../crdt/metadataCrdt";
 import { getAccount } from "../db/accounts";
 import { buildImapConfig } from "./imapConfigBuilder";
+import {
+  checkOutgoingSyncAllowed,
+  buildOutgoingSyncRequest,
+} from "../sync/outgoingSyncGuard";
+import type { OutgoingDiffItem } from "@/stores/outgoingSyncStore";
 
 /**
  * Payload stored in the .metadata shadow folder on IMAP.
@@ -311,4 +318,119 @@ export async function ensureMetadataDownloadedForAccount(
   if (imapConfig) {
     await ensureMetadataDownloadedForEmail(accountId, imapConfig, conversationId);
   }
+}
+
+/**
+ * Sync conversation labels to the remote IMAP metadata sidecar.
+ * Updates labels based on conversation labels without changing IMAP folders.
+ */
+export async function syncConversationLabelsToRemote(
+  accountId: string,
+  threadId: string,
+  labels?: string[],
+  config?: ImapConfig,
+): Promise<void> {
+  const currentLabels = labels ?? (await getThreadLabelIds(accountId, threadId));
+  await setConversationMetadataLabels(accountId, threadId, currentLabels);
+
+  try {
+    let imapConfig = config;
+    let email = "";
+    const account = await getAccount(accountId);
+    if (account && account.provider === "imap") {
+      imapConfig = imapConfig ?? buildImapConfig(account);
+      email = account.email;
+    }
+    if (imapConfig && email) {
+      const crdtRecord = await getThreadCrdtDoc(accountId, threadId, "personal");
+      await pushSidecarMetadata(imapConfig, email, {
+        conversationId: threadId,
+        type: "personal",
+        updatedAt: Date.now(),
+        personalLabels: currentLabels,
+        crdtDocBase64: crdtRecord?.doc_base64,
+      });
+    }
+  } catch (err) {
+    console.warn(`[metadataSidecarSync] Failed to push conversation labels for ${threadId}:`, err);
+  }
+}
+
+/**
+ * Sync conversation labels for multiple threads to the remote IMAP metadata sidecar.
+ * If there is a large outgoing diff (e.g. during a first sync or bulk change),
+ * prompts the user with a popover summary before syncing to the server.
+ * Syncing from server to app is always ok and unaffected.
+ */
+export async function syncBatchConversationLabelsToRemote(
+  accountId: string,
+  updates: { threadId: string; labels: string[]; subject?: string }[],
+  options?: { isFirstSync?: boolean; config?: ImapConfig },
+): Promise<{ synced: number; confirmed: boolean }> {
+  if (updates.length === 0) {
+    return { synced: 0, confirmed: true };
+  }
+
+  // Update local metadata for all threads (local DB / CRDT doc)
+  for (const update of updates) {
+    await setConversationMetadataLabels(accountId, update.threadId, update.labels);
+  }
+
+  const diffItems: OutgoingDiffItem[] = updates.map((u) => ({
+    id: u.threadId,
+    type: "label",
+    summary: `Set conversation labels: [${u.labels.join(", ")}]`,
+    threadId: u.threadId,
+    subject: u.subject,
+    labels: u.labels,
+  }));
+
+  const request = buildOutgoingSyncRequest({
+    accountId,
+    isFirstSync: options?.isFirstSync,
+    items: diffItems,
+    title: options?.isFirstSync
+      ? `Confirm First Sync to Server (${updates.length} Conversations)`
+      : `Confirm Outgoing Label Sync (${updates.length} Conversations)`,
+    description: options?.isFirstSync
+      ? `Initial sync has imported ${updates.length} conversations. Please confirm before syncing conversation labels and metadata from the app to the mail server. Syncing from server to app is unaffected.`
+      : `SuperMail is ready to upload conversation labels for ${updates.length} conversations to the mail server. Syncing from server to app is unaffected.`,
+  });
+
+  const allowed = await checkOutgoingSyncAllowed(request);
+  if (!allowed) {
+    console.log(`[metadataSidecarSync] Outgoing sync for ${updates.length} conversations cancelled by user`);
+    return { synced: 0, confirmed: false };
+  }
+
+  let imapConfig = options?.config;
+  let email = "";
+  const account = await getAccount(accountId);
+  if (account && account.provider === "imap") {
+    imapConfig = imapConfig ?? buildImapConfig(account);
+    email = account.email;
+  }
+
+  if (!imapConfig || !email) {
+    return { synced: 0, confirmed: true };
+  }
+
+  let count = 0;
+  for (const update of updates) {
+    try {
+      const crdtRecord = await getThreadCrdtDoc(accountId, update.threadId, "personal");
+      await pushSidecarMetadata(imapConfig, email, {
+        conversationId: update.threadId,
+        type: "personal",
+        updatedAt: Date.now(),
+        personalLabels: update.labels,
+        crdtDocBase64: crdtRecord?.doc_base64,
+      });
+      count++;
+    } catch (err) {
+      console.warn(`[metadataSidecarSync] Failed to push labels for ${update.threadId}:`, err);
+    }
+  }
+
+  return { synced: count, confirmed: true };
 }
