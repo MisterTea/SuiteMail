@@ -8,6 +8,8 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { appendSealedContract } from "@/services/contracts/contractCrypto";
+import { contractReplyFields } from "@/services/contracts/contractReply";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
@@ -37,6 +39,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
   const [autoDraftLoading, setAutoDraftLoading] = useState(false);
   const [hasAutoDraft, setHasAutoDraft] = useState(false);
   const [showRecipientsList, setShowRecipientsList] = useState(false);
+  const [contractText, setContractText] = useState<string | null>(null);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.id === accountId);
   const openComposer = useComposerStore((s) => s.openComposer);
@@ -45,6 +48,19 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
   const autoDraftAbortRef = useRef(false);
 
   const lastMessage = messages[messages.length - 1];
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!lastMessage) return;
+      const fields = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
+      if (cancelled) return;
+      setContractText(fields.contractActive ? fields.contractText : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [lastMessage?.id, lastMessage?.body_html, lastMessage?.body_text]);
 
   const editor = useEditor({
     extensions: [
@@ -168,6 +184,14 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     setSending(true);
     try {
       let html = editor.getHTML();
+      let textToSeal = contractText;
+      if (mode !== "forward" && textToSeal == null && lastMessage) {
+        const fields = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
+        textToSeal = fields.contractActive ? fields.contractText : null;
+      }
+      if (mode !== "forward" && textToSeal != null && textToSeal.trim()) {
+        html = await appendSealedContract(html, textToSeal, activeAccount.email);
+      }
       if (signatureHtml) {
         html += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${signatureHtml}</div>`;
       }
@@ -220,7 +244,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     } finally {
       setSending(false);
     }
-  }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent]);
+  }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent, contractText]);
 
   const handleExpandToComposer = useCallback(() => {
     if (!editor || !lastMessage) return;
@@ -235,12 +259,14 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       bodyHtml,
       threadId: thread.id,
       inReplyToMessageId: lastMessage.id,
+      contractActive: mode !== "forward" && contractText != null,
+      contractText: mode !== "forward" && contractText != null ? contractText : "",
     });
 
     // Reset inline state
     editor.commands.setContent("");
     setMode(null);
-  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer]);
+  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer, contractText]);
 
   const handleRegenerateDraft = useCallback(async () => {
     if (!editor || !mode || mode === "forward") return;
@@ -488,6 +514,23 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
           </div>
         )}
       </div>
+
+      {mode !== "forward" && contractText != null && (
+        <div className="border-t border-border-secondary px-3 py-2">
+          <hr data-testid="inline-contract-separator" className="mb-2 border-border-primary" />
+          <label htmlFor="inline-suitemail-contract" className="mb-1 block text-xs font-semibold text-text-secondary">
+            Contract
+          </label>
+          <textarea
+            id="inline-suitemail-contract"
+            aria-label="Contract"
+            value={contractText}
+            onChange={(e) => setContractText(e.target.value)}
+            rows={4}
+            className="w-full resize-y rounded-lg border border-border-primary bg-bg-primary px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-accent/40"
+          />
+        </div>
+      )}
 
       {/* Footer */}
       <div className="flex items-center justify-between px-3 py-2 border-t border-border-secondary bg-bg-secondary">

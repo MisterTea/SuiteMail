@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AddImapAccount } from "./AddImapAccount";
 
@@ -29,8 +29,26 @@ vi.mock("@/services/db/accounts", () => ({
 }));
 
 describe("AddImapAccount with Gmail support", () => {
+  const originalEnv = process.env.GMAIL_OAUTH_CLIENT_ID;
+  const originalSecret = process.env.GMAIL_OAUTH_CLIENT_SECRET;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.GMAIL_OAUTH_CLIENT_ID;
+    delete process.env.GMAIL_OAUTH_CLIENT_SECRET;
+  });
+
+  afterEach(() => {
+    if (originalEnv !== undefined) {
+      process.env.GMAIL_OAUTH_CLIENT_ID = originalEnv;
+    } else {
+      delete process.env.GMAIL_OAUTH_CLIENT_ID;
+    }
+    if (originalSecret !== undefined) {
+      process.env.GMAIL_OAUTH_CLIENT_SECRET = originalSecret;
+    } else {
+      delete process.env.GMAIL_OAUTH_CLIENT_SECRET;
+    }
   });
 
   it("auto-discovers Gmail settings with OAuth2 when typing a gmail.com address", async () => {
@@ -59,6 +77,26 @@ describe("AddImapAccount with Gmail support", () => {
     // Switching to password shows App Password guidance
     fireEvent.click(screen.getByRole("button", { name: /password/i }));
     expect(screen.getByText(/App Password generated at myaccount\.google\.com\/apppasswords/i)).toBeInTheDocument();
+  });
+
+  it("uses the .env client id and secret instead of saved settings", async () => {
+    process.env.GMAIL_OAUTH_CLIENT_ID = "env-client-id-12345.apps.googleusercontent.com";
+    process.env.GMAIL_OAUTH_CLIENT_SECRET = "env-client-secret";
+
+    render(<AddImapAccount onClose={() => {}} onSuccess={() => {}} onBack={() => {}} />);
+
+    const emailInput = screen.getByLabelText("Email Address");
+    fireEvent.change(emailInput, { target: { value: "user@gmail.com" } });
+    fireEvent.blur(emailInput);
+
+    await waitFor(() => {
+      expect((screen.getByLabelText("Client ID") as HTMLInputElement).value).toBe(
+        "env-client-id-12345.apps.googleusercontent.com",
+      );
+    });
+    expect((screen.getByLabelText("Client Secret (optional)") as HTMLInputElement).value).toBe(
+      "env-client-secret",
+    );
   });
 
   it("handles googlemail.com alias", async () => {

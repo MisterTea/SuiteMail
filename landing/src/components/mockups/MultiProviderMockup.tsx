@@ -2,7 +2,7 @@
 import { Check, ChevronDown, Plus, Mail, Globe } from 'lucide-react'
 
 const ACCOUNTS = [
-  { name: 'Alex Chen', email: 'alex@company.com', provider: 'Gmail', avatar: 'A', color: 'bg-indigo-500/20 text-indigo-400', active: true },
+  { name: 'Alex Chen', email: 'alex@company.com', provider: 'Gmail', avatar: 'A', color: 'bg-green-700/20 text-green-300', active: true },
   { name: 'Alex Chen', email: 'alex.chen@outlook.com', provider: 'Outlook', avatar: 'A', color: 'bg-sky-500/20 text-sky-400' },
   { name: 'Alex Personal', email: 'alex@icloud.com', provider: 'iCloud', avatar: 'A', color: 'bg-zinc-500/20 text-zinc-400' },
 ]
@@ -24,7 +24,7 @@ export function MultiProviderMockup() {
         <div className="flex-1">
           {/* Current account */}
           <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/[0.06]">
-            <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center text-[12px] text-indigo-400 font-medium">A</div>
+            <div className="w-8 h-8 rounded-full bg-green-700/20 flex items-center justify-center text-[12px] text-green-300 font-medium">A</div>
             <div className="min-w-0 flex-1">
               <div className="text-[12px] text-zinc-200 font-medium">Alex Chen</div>
               <div className="text-[10px] text-zinc-600">alex@company.com</div>
@@ -39,7 +39,7 @@ export function MultiProviderMockup() {
               <div
                 key={account.email}
                 className={`flex items-center gap-2.5 px-2.5 py-2 rounded-lg ${
-                  account.active ? 'bg-indigo-500/8' : 'hover:bg-white/[0.03]'
+                  account.active ? 'bg-green-700/8' : 'hover:bg-white/[0.03]'
                 }`}
               >
                 <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-medium ${account.color}`}>
@@ -56,7 +56,7 @@ export function MultiProviderMockup() {
                   </div>
                   <div className="text-[10px] text-zinc-600 truncate">{account.email}</div>
                 </div>
-                {account.active && <Check size={12} className="text-indigo-400 flex-shrink-0" />}
+                {account.active && <Check size={12} className="text-green-300 flex-shrink-0" />}
               </div>
             ))}
 

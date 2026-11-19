@@ -16,7 +16,7 @@ const SIDEBAR_ITEMS = [
 ]
 
 const LABELS = [
-  { name: 'Work', color: '#6366F1' },
+  { name: 'Work', color: '#188038' },
   { name: 'Personal', color: '#34D399' },
   { name: 'Finance', color: '#FBBF24' },
 ]
@@ -62,7 +62,7 @@ export function AppMockup() {
         <div className="hidden sm:flex w-48 flex-col border-r border-white/[0.06] bg-[#0c0c0f] py-2">
           {/* Account */}
           <div className="flex items-center gap-2 px-3 py-2 mx-2 rounded-lg hover:bg-white/[0.03]">
-            <div className="w-7 h-7 rounded-full bg-indigo-500/20 flex items-center justify-center text-[11px] text-indigo-400 font-medium">A</div>
+            <div className="w-7 h-7 rounded-full bg-green-700/20 flex items-center justify-center text-[11px] text-green-300 font-medium">A</div>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] text-zinc-300 font-medium truncate">Alex Chen</div>
               <div className="text-[9px] text-zinc-600 truncate">alex@company.com</div>
@@ -71,7 +71,7 @@ export function AppMockup() {
           </div>
 
           {/* Compose */}
-          <button className="mx-3 mt-2 mb-1 py-1.5 rounded-lg bg-indigo-500 text-white text-[11px] font-medium flex items-center justify-center gap-1.5">
+          <button className="mx-3 mt-2 mb-1 py-1.5 rounded-lg bg-green-700 text-white text-[11px] font-medium flex items-center justify-center gap-1.5">
             <Plus size={12} /> Compose
           </button>
 
@@ -82,7 +82,7 @@ export function AppMockup() {
                 key={item.label}
                 className={`flex items-center gap-2 px-2 py-1.5 rounded-md text-[11px] ${
                   item.active
-                    ? 'bg-indigo-500/10 text-indigo-400 font-medium'
+                    ? 'bg-green-700/10 text-green-300 font-medium'
                     : 'text-zinc-500 hover:bg-white/[0.03]'
                 }`}
               >
@@ -90,7 +90,7 @@ export function AppMockup() {
                 <span className="flex-1">{item.label}</span>
                 {item.count && (
                   <span className={`text-[9px] px-1.5 rounded-full ${
-                    item.active ? 'bg-indigo-500/15 text-indigo-400' : 'bg-zinc-800 text-zinc-500'
+                    item.active ? 'bg-green-700/15 text-green-300' : 'bg-zinc-800 text-zinc-500'
                   }`}>{item.count}</span>
                 )}
               </div>
@@ -139,7 +139,7 @@ export function AppMockup() {
               >
                 <div className="flex items-center gap-2">
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-medium flex-shrink-0 ${
-                    thread.unread ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-500'
+                    thread.unread ? 'bg-green-700 text-white' : 'bg-zinc-800 text-zinc-500'
                   }`}>{thread.avatar}</div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between">
@@ -181,7 +181,7 @@ export function AppMockup() {
           <div className="px-4 py-3 border-b border-white/[0.06]">
             <h3 className="text-[13px] text-zinc-200 font-medium">Q1 product roadmap review</h3>
             <div className="flex items-center gap-2 mt-1">
-              <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center text-[8px] text-indigo-400 font-medium">A</div>
+              <div className="w-5 h-5 rounded-full bg-green-700/20 flex items-center justify-center text-[8px] text-green-300 font-medium">A</div>
               <span className="text-[11px] text-zinc-400">Alex Chen</span>
               <span className="text-[9px] text-zinc-600">to me</span>
               <span className="text-[9px] text-zinc-700 ml-auto">10:32 AM</span>
@@ -189,10 +189,10 @@ export function AppMockup() {
           </div>
 
           {/* AI Summary */}
-          <div className="mx-3 mt-2 p-2.5 rounded-lg bg-indigo-500/5 border border-indigo-500/15">
+          <div className="mx-3 mt-2 p-2.5 rounded-lg bg-green-700/5 border border-green-700/15">
             <div className="flex items-center gap-1.5 mb-1.5">
-              <Sparkles size={11} className="text-indigo-400" />
-              <span className="text-[10px] text-indigo-400 font-medium">AI Summary</span>
+              <Sparkles size={11} className="text-green-300" />
+              <span className="text-[10px] text-green-300 font-medium">AI Summary</span>
             </div>
             <p className="text-[10px] text-zinc-400 leading-relaxed">
               Alex shares the Q1 roadmap with 3 milestones: component library v2 (Feb 15), API redesign (Mar 1), and mobile beta (Mar 20). Suggests prioritizing API work.
@@ -207,12 +207,12 @@ export function AppMockup() {
           {/* Smart replies */}
           <div className="px-3 pb-2.5">
             <div className="flex items-center gap-1.5 mb-1.5">
-              <Sparkles size={10} className="text-indigo-400" />
-              <span className="text-[9px] text-indigo-400 font-medium">Quick Replies</span>
+              <Sparkles size={10} className="text-green-300" />
+              <span className="text-[9px] text-green-300 font-medium">Quick Replies</span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {['Looks good, let\'s proceed!', 'Can we discuss the timeline?', 'I have a few concerns'].map((reply) => (
-                <button key={reply} className="px-2.5 py-1 rounded-full border border-white/[0.08] bg-white/[0.02] text-[9px] text-zinc-400 hover:border-indigo-500/30">
+                <button key={reply} className="px-2.5 py-1 rounded-full border border-white/[0.08] bg-white/[0.02] text-[9px] text-zinc-400 hover:border-green-700/30">
                   {reply}
                 </button>
               ))}

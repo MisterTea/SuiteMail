@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Mail, Calendar, Shield } from "lucide-react";
 import { startOAuthFlow } from "@/services/gmail/auth";
-import { insertAccount } from "@/services/db/accounts";
+import { saveGmailAccount } from "@/services/db/accounts";
 import { getClientId, getClientSecret } from "@/services/gmail/tokenManager";
 import { useAccountStore } from "@/stores/accountStore";
 import { Modal } from "@/components/ui/Modal";
@@ -41,7 +41,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
       const accountId = crypto.randomUUID();
       const expiresAt = getCurrentUnixTimestamp() + tokens.expires_in;
 
-      await insertAccount({
+      const savedId = await saveGmailAccount({
         id: accountId,
         email: userInfo.email,
         displayName: userInfo.name,
@@ -52,11 +52,12 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
       });
 
       addAccount({
-        id: accountId,
+        id: savedId,
         email: userInfo.email,
         displayName: userInfo.name,
         avatarUrl: userInfo.picture,
         isActive: true,
+        provider: "gmail_api",
       });
 
       onSuccess();

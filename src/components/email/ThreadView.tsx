@@ -12,6 +12,8 @@ import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { VolumeX } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
+import { stripContractMarkup } from "@/services/contracts/contractMessage";
+import { contractReplyFields } from "@/services/contracts/contractReply";
 import { isNoReplyAddress } from "@/utils/noReply";
 import { buildForwardQuote } from "@/utils/forwardQuoteBuilder";
 import { getAttachmentsForMessage } from "@/services/db/attachments";
@@ -153,9 +155,10 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const defaultReplyMode = useUIStore((s) => s.defaultReplyMode);
   const lastMessage = messages[messages.length - 1];
 
-  const handleReply = useCallback(() => {
+  const handleReply = useCallback(async () => {
     if (!lastMessage) return;
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
+    const contract = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
     openComposer({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
@@ -164,10 +167,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
       quotedHtml: buildQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
+      contractActive: contract.contractActive,
+      contractText: contract.contractText,
     });
   }, [lastMessage, openComposer]);
 
-  const handleReplyAll = useCallback(() => {
+  const handleReplyAll = useCallback(async () => {
     if (!lastMessage) return;
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
     const allRecipients = new Set<string>();
@@ -179,6 +184,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
     if (lastMessage.cc_addresses) {
       lastMessage.cc_addresses.split(",").forEach((a) => ccList.push(a.trim()));
     }
+    const contract = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
     openComposer({
       mode: "replyAll",
       to: Array.from(allRecipients),
@@ -188,6 +194,8 @@ export function ThreadView({ thread }: ThreadViewProps) {
       quotedHtml: buildQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
+      contractActive: contract.contractActive,
+      contractText: contract.contractText,
     });
   }, [lastMessage, openComposer]);
 
@@ -248,7 +256,9 @@ export function ThreadView({ thread }: ThreadViewProps) {
         ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
         : escapeHtml(msg.from_address ?? "Unknown");
       const to = escapeHtml(msg.to_addresses ?? "");
-      const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
+      const body = msg.body_html
+        ? sanitizeHtml(stripContractMarkup(msg.body_html))
+        : escapeHtml(stripContractMarkup(msg.body_text ?? ""));
       return `
         <div style="margin-bottom:24px;padding-bottom:16px;border-bottom:1px solid #e5e5e5">
           <div style="margin-bottom:8px;color:#666;font-size:12px">
@@ -544,6 +554,8 @@ function buildQuote(msg: DbMessage): string {
   const from = msg.from_name
     ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
     : escapeHtml(msg.from_address ?? "Unknown");
-  const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
+  const body = msg.body_html
+    ? sanitizeHtml(stripContractMarkup(msg.body_html))
+    : escapeHtml(stripContractMarkup(msg.body_text ?? ""));
   return `<div class="quoted-message" style="border-left:3px solid rgba(99, 102, 241, 0.45);padding-left:12px;margin-left:0;margin-top:14px;margin-bottom:8px;color:#6b7280;font-size:13px;line-height:1.5;"><div style="font-weight:500;margin-bottom:4px;color:#4b5563;">On ${date}, ${from} wrote:</div><div>${body}</div></div>`;
 }

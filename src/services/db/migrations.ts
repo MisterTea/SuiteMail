@@ -840,6 +840,20 @@ export const MIGRATIONS = [
       ALTER TABLE scheduled_emails ADD COLUMN recurrence_rule TEXT;
     `,
   },
+  {
+    version: 28,
+    description: "Remember email and public key pairs seen on signed contracts",
+    sql: `
+      CREATE TABLE IF NOT EXISTS contract_key_sightings (
+        email TEXT NOT NULL,
+        fingerprint TEXT NOT NULL,
+        armored_public_key TEXT NOT NULL,
+        first_seen_at INTEGER DEFAULT (unixepoch()),
+        PRIMARY KEY (email, fingerprint)
+      );
+      CREATE INDEX IF NOT EXISTS idx_contract_key_sightings_email ON contract_key_sightings(email);
+    `,
+  },
 ];
 
 /**

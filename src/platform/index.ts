@@ -77,17 +77,69 @@ export async function platformInvoke<T>(
   throw new Error(`Command "${cmd}" is not supported in this runtime environment.`);
 }
 
+// The webview's Request constructor rejects these as unsafe. The OpenAI client
+// sets User-Agent, and Tauri's HTTP plugin builds a Request from the init.
+const FORBIDDEN_REQUEST_HEADERS = new Set([
+  "accept-charset",
+  "accept-encoding",
+  "access-control-request-headers",
+  "access-control-request-method",
+  "connection",
+  "content-length",
+  "cookie",
+  "cookie2",
+  "date",
+  "dnt",
+  "expect",
+  "host",
+  "keep-alive",
+  "origin",
+  "referer",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "user-agent",
+  "via",
+]);
+
+export function stripForbiddenRequestHeaders(init?: RequestInit): RequestInit | undefined {
+  if (!init?.headers) return init;
+  const entries: [string, string][] = [];
+  const add = (name: string, value: string) => {
+    if (!FORBIDDEN_REQUEST_HEADERS.has(name.toLowerCase())) entries.push([name, value]);
+  };
+  const raw = init.headers;
+  if (typeof Headers !== "undefined" && raw instanceof Headers) {
+    raw.forEach((value, name) => add(name, value));
+  } else if (Array.isArray(raw)) {
+    for (const [name, value] of raw) add(String(name), String(value));
+  } else {
+    for (const [name, value] of Object.entries(raw)) {
+      if (value != null) add(name, String(value));
+    }
+  }
+  return { ...init, headers: entries };
+}
+
 export async function platformFetch(
   input: RequestInfo | URL,
   init?: RequestInit,
 ): Promise<Response> {
+  const safeInit = stripForbiddenRequestHeaders(init);
   if (isTauri()) {
     try {
       const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
-      return tauriFetch(input, init);
-    } catch {}
+      return await tauriFetch(input, safeInit);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      // Missing plugin or a header the webview refused. Loopback fetch can still proceed.
+      if (!/invoke|plugin:http|unsafe header|forbidden header|invalid header|undefined/i.test(message)) {
+        throw err;
+      }
+    }
   }
-  return fetch(input, init);
+  return fetch(input, safeInit);
 }
 
 export async function platformOpenUrl(url: string): Promise<void> {

@@ -19,6 +19,7 @@ import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getMessagesForThread } from "@/services/db/messages";
+import { peelDraftContract } from "@/services/contracts/contractMessage";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
 import { markThreadRead, starThread } from "@/services/emailActions";
@@ -137,15 +138,18 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
         : [];
 
+      const peeled = peelDraftContract(draftMsg.body_html ?? draftMsg.body_text ?? "");
       openComposer({
         mode: "new",
         to,
         cc,
         bcc,
         subject: draftMsg.subject ?? "",
-        bodyHtml: draftMsg.body_html ?? draftMsg.body_text ?? "",
+        bodyHtml: peeled.html,
         threadId: thread.id,
         draftId,
+        contractActive: peeled.contractText != null,
+        contractText: peeled.contractText ?? "",
       });
       // Set initial saved timestamp so resumed draft immediately shows "Saved" status
       useComposerStore.getState().setLastSavedAt(draftMsg.date ? draftMsg.date * 1000 : Date.now());

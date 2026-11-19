@@ -15,10 +15,10 @@ export function AiMockup() {
       </div>
 
       {/* AI Summary */}
-      <div className="mx-3 mt-3 p-3 rounded-lg bg-indigo-500/5 border border-indigo-500/15">
+      <div className="mx-3 mt-3 p-3 rounded-lg bg-green-700/5 border border-green-700/15">
         <div className="flex items-center gap-1.5 mb-2">
-          <Sparkles size={12} className="text-indigo-400" />
-          <span className="text-[11px] text-indigo-400 font-medium">AI Summary</span>
+          <Sparkles size={12} className="text-green-300" />
+          <span className="text-[11px] text-green-300 font-medium">AI Summary</span>
           <button className="ml-auto p-0.5 rounded text-zinc-600 hover:text-zinc-400">
             <RefreshCw size={10} />
           </button>
@@ -41,8 +41,8 @@ export function AiMockup() {
       {/* Smart replies */}
       <div className="px-3 pb-3 border-t border-white/[0.06] pt-2.5">
         <div className="flex items-center gap-1.5 mb-2">
-          <Sparkles size={10} className="text-indigo-400" />
-          <span className="text-[10px] text-indigo-400 font-medium">Quick Replies</span>
+          <Sparkles size={10} className="text-green-300" />
+          <span className="text-[10px] text-green-300 font-medium">Quick Replies</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {[
@@ -50,7 +50,7 @@ export function AiMockup() {
             'I\'ll review the agreement and get back to you.',
             'Can we also invite the legal team?',
           ].map((reply) => (
-            <button key={reply} className="px-2.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.02] text-[10px] text-zinc-400 hover:border-indigo-500/30 transition-colors">
+            <button key={reply} className="px-2.5 py-1.5 rounded-full border border-white/[0.08] bg-white/[0.02] text-[10px] text-zinc-400 hover:border-green-700/30 transition-colors">
               {reply}
             </button>
           ))}
@@ -67,12 +67,12 @@ export function AiMockup() {
           </p>
         </div>
         <div className="flex items-center gap-2 px-3 py-2 border-t border-white/[0.04]">
-          <button className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-400 font-medium">
+          <button className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-green-700/10 border border-green-700/20 text-[10px] text-green-300 font-medium">
             <Wand2 size={10} />
             AI Assist
           </button>
           <div className="flex-1" />
-          <button className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-indigo-500 text-white text-[10px] font-medium">
+          <button className="flex items-center gap-1.5 px-3 py-1 rounded-md bg-green-700 text-white text-[10px] font-medium">
             <Send size={9} />
             Send
           </button>

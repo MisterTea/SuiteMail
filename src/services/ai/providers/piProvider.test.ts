@@ -27,7 +27,7 @@ describe("piProvider", () => {
       createPiProvider("http://localhost:3000", "gemma-4-e4b");
 
       expect(OpenAI).toHaveBeenCalledWith({
-        baseURL: "http://localhost:3000/v1",
+        baseURL: "http://127.0.0.1:3000/v1",
         apiKey: "pi-harness",
         dangerouslyAllowBrowser: true,
         fetch: expect.any(Function),
@@ -38,7 +38,7 @@ describe("piProvider", () => {
       createPiProvider("http://localhost:3000///", "gemma-4-e4b");
 
       expect(OpenAI).toHaveBeenCalledWith({
-        baseURL: "http://localhost:3000/v1",
+        baseURL: "http://127.0.0.1:3000/v1",
         apiKey: "pi-harness",
         dangerouslyAllowBrowser: true,
         fetch: expect.any(Function),

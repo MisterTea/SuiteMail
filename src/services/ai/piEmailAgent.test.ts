@@ -21,6 +21,11 @@ vi.mock("@/services/db/settings", () => ({
   }),
 }));
 
+vi.mock("./llamaServer", () => ({
+  DEFAULT_PI_SERVER_URL: "http://127.0.0.1:18420",
+  ensureLlamaServer: vi.fn(async (url?: string) => url ?? "http://127.0.0.1:3000"),
+}));
+
 // Mock OpenAI
 const mockCreateChatCompletion = vi.fn();
 vi.mock("openai", () => {
@@ -325,6 +330,17 @@ describe("piEmailAgent", () => {
       expect(res.filter.name).toBe("Substack Newsletters");
       expect(res.filter.criteria.from).toBe("substack.com");
       expect(res.filter.actions.archive).toBe(true);
+    });
+
+    it("replaces the SDK connection error with the server address", async () => {
+      mockCreateChatCompletion.mockRejectedValueOnce(new Error("Connection error."));
+
+      await expect(
+        suggestFilterWithPiAgent({
+          prompt: "Archive newsletters",
+          accountId: "acc-1",
+        }),
+      ).rejects.toThrow(/127\.0\.0\.1:3000/);
     });
   });
 });

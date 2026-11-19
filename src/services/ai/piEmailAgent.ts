@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { platformFetch as tauriFetch } from "@/platform";
 import { getSetting } from "@/services/db/settings";
+import { DEFAULT_PI_SERVER_URL, ensureLlamaServer } from "./llamaServer";
 import { PI_EMAIL_TOOLS, executePiEmailTool } from "./piEmailTools";
 import type { SearchResult } from "@/services/db/search";
 import type { FilterCriteria, FilterActions } from "@/services/db/filters";
@@ -19,6 +20,44 @@ const safeFetch: typeof fetch = async (input, init) => {
     throw err;
   }
 };
+
+function explainPiConnectionError(err: unknown, serverUrl: string): Error {
+  if (!(err instanceof Error)) return new Error(String(err));
+  const cause = (err as { cause?: unknown }).cause;
+  const causeMsg = cause instanceof Error ? cause.message : "";
+  if (!/connection error/i.test(err.message)) return err;
+  const extra = causeMsg && causeMsg !== err.message ? ` ${causeMsg}` : "";
+  return new Error(
+    `Can't reach the local model server at ${serverUrl}.${extra} Start the Llama server from Settings → AI and try again.`,
+  );
+}
+
+async function openPiClient(options: {
+  serverUrl?: string;
+  model?: string;
+}): Promise<{ client: OpenAI; model: string; serverUrl: string }> {
+  const serverUrl = await ensureLlamaServer(options.serverUrl);
+  const model = options.model ?? (await getSetting("pi_model")) ?? "gemma-4-e4b";
+  const client = new OpenAI({
+    baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
+    apiKey: "pi-harness",
+    dangerouslyAllowBrowser: true,
+    fetch: safeFetch,
+  });
+  return { client, model, serverUrl };
+}
+
+async function piCompletion(
+  client: OpenAI,
+  serverUrl: string,
+  body: OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+): Promise<OpenAI.Chat.Completions.ChatCompletion> {
+  try {
+    return await client.chat.completions.create(body);
+  } catch (err) {
+    throw explainPiConnectionError(err, serverUrl);
+  }
+}
 
 export interface PiAgentOptions {
   question: string;
@@ -133,22 +172,14 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
     };
   }
 
-  const serverUrl =
-    options.serverUrl ??
-    (await getSetting("pi_server_url")) ??
-    "http://localhost:3000";
-
-  const model =
-    options.model ??
-    (await getSetting("pi_model")) ??
-    "gemma-4-e4b";
-
-  const client = new OpenAI({
-    baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
-    apiKey: "pi-harness",
-    dangerouslyAllowBrowser: true,
-    fetch: safeFetch,
-  });
+  let serverUrl = options.serverUrl ?? DEFAULT_PI_SERVER_URL;
+  let client: OpenAI;
+  let model: string;
+  try {
+    ({ client, model, serverUrl } = await openPiClient(options));
+  } catch (err) {
+    throw explainPiConnectionError(err, serverUrl);
+  }
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: PI_AGENT_SYSTEM_PROMPT },
@@ -159,7 +190,7 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
   const toolCallsExecuted: PiAgentToolExecutionRecord[] = [];
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await client.chat.completions.create({
+    const response = await piCompletion(client, serverUrl, {
       model,
       messages,
       tools: PI_EMAIL_TOOLS,
@@ -285,7 +316,7 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
     content: "Based on the tool results retrieved so far, please provide your final answer to the original question.",
   });
 
-  const finalResponse = await client.chat.completions.create({
+  const finalResponse = await piCompletion(client, serverUrl, {
     model,
     messages,
   });
@@ -491,22 +522,14 @@ export async function suggestFilterWithPiAgent(
     }
   }
 
-  const serverUrl =
-    options.serverUrl ??
-    (await getSetting("pi_server_url")) ??
-    "http://localhost:3000";
-
-  const model =
-    options.model ??
-    (await getSetting("pi_model")) ??
-    "gemma-4-e4b";
-
-  const client = new OpenAI({
-    baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
-    apiKey: "pi-harness",
-    dangerouslyAllowBrowser: true,
-    fetch: safeFetch,
-  });
+  let serverUrl = options.serverUrl ?? DEFAULT_PI_SERVER_URL;
+  let client: OpenAI;
+  let model: string;
+  try {
+    ({ client, model, serverUrl } = await openPiClient(options));
+  } catch (err) {
+    throw explainPiConnectionError(err, serverUrl);
+  }
 
   const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
     { role: "system", content: PI_FILTER_AGENT_SYSTEM_PROMPT },
@@ -519,7 +542,7 @@ export async function suggestFilterWithPiAgent(
   const toolCallsExecuted: PiAgentToolExecutionRecord[] = [];
 
   for (let step = 0; step < maxSteps; step++) {
-    const response = await client.chat.completions.create({
+    const response = await piCompletion(client, serverUrl, {
       model,
       messages,
       tools: PI_EMAIL_TOOLS,
@@ -620,7 +643,7 @@ export async function suggestFilterWithPiAgent(
       "Output the final filter specification now as JSON with format: {\"name\": \"...\", \"criteria\": {...}, \"actions\": {...}, \"explanation\": \"...\"}",
   });
 
-  const finalResponse = await client.chat.completions.create({
+  const finalResponse = await piCompletion(client, serverUrl, {
     model,
     messages,
   });

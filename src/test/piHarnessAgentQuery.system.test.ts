@@ -7,10 +7,19 @@ import { upsertThread } from "@/services/db/threads";
 // Track API calls to Pi harness endpoint
 const piHarnessCalls: { url: string; body: unknown }[] = [];
 
-// Mock Tauri plugin-http fetch to intercept calls to Pi harness
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === "string" ? input : input.toString();
+// The agent reaches the model through platformFetch, not the HTTP plugin directly.
+vi.mock("@/platform", async () => {
+  const actual = await vi.importActual<typeof import("@/platform")>("@/platform");
+  return {
+    ...actual,
+    platformFetch: vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes("/v1/models")) {
+      return new Response(JSON.stringify({ data: [{ id: "gemma-4-e4b" }] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     const body = init?.body ? JSON.parse(init.body as string) : null;
     piHarnessCalls.push({ url, body });
 
@@ -120,8 +129,9 @@ vi.mock("@tauri-apps/plugin-http", () => ({
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     );
-  }),
-}));
+    }),
+  };
+});
 
 // Mock Database with memory tables for system test
 const dbMemory = {
@@ -186,7 +196,7 @@ describe("System Test: Pi Harness + Gemma 4 E4B with SQLite Tool Calling", () =>
 
     // 1. Configure SuperMail to use Pi harness with local Gemma 4 E4B
     await setSetting("ai_provider", "pi");
-    await setSetting("pi_server_url", "http://localhost:3000");
+    await setSetting("pi_server_url", "http://localhost:18420");
     await setSetting("pi_model", "gemma-4-e4b");
 
     // 2. Populate SQLite database with sample flight booking emails
@@ -238,7 +248,7 @@ describe("System Test: Pi Harness + Gemma 4 E4B with SQLite Tool Calling", () =>
 
     // Turn 1 check: Called /v1/chat/completions with tools specification and gemma-4-e4b
     const firstCall = piHarnessCalls[0];
-    expect(firstCall?.url).toContain("http://localhost:3000/v1/chat/completions");
+    expect(firstCall?.url).toContain("http://127.0.0.1:18420/v1/chat/completions");
     expect((firstCall?.body as any)?.model).toBe("gemma-4-e4b");
     const tools = (firstCall?.body as any)?.tools;
     expect(tools.map((t: any) => t.function.name)).toEqual([

@@ -15,6 +15,8 @@ import { DetectedEventChip } from "./DetectedEventChip";
 import { detectInviteFromMessage } from "@/services/calendar/inviteDetector";
 import { detectShipmentsAndFlights } from "@/utils/trackingDetector";
 import { detectDateTime } from "@/utils/dateTimeDetector";
+import { messageHasContract, stripContractMarkup } from "@/services/contracts/contractMessage";
+import { ContractCard } from "./ContractCard";
 import type { DetectedTracker } from "@/utils/trackingPixels";
 import { spamThread } from "@/services/emailActions";
 
@@ -275,8 +277,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
           {blockImages != null ? (
             <EmailRenderer
-              html={message.body_html}
-              text={message.body_text}
+              html={message.body_html ? stripContractMarkup(message.body_html) : null}
+              text={message.body_text ? stripContractMarkup(message.body_text) : null}
               blockImages={blockImages}
               senderAddress={message.from_address}
               accountId={message.account_id}
@@ -287,6 +289,10 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             />
           ) : (
             <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>
+          )}
+
+          {messageHasContract(message.body_html, message.body_text) && (
+            <ContractCard message={message} />
           )}
 
           <InlineAttachmentPreview

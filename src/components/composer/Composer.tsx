@@ -12,6 +12,7 @@ import { AddressInput } from "./AddressInput";
 import { EditorToolbar } from "./EditorToolbar";
 import { AiAssistPanel } from "./AiAssistPanel";
 import { AttachmentPicker } from "./AttachmentPicker";
+import { ContractEditor } from "./ContractEditor";
 import { ScheduleSendDialog } from "./ScheduleSendDialog";
 import { SignatureSelector } from "./SignatureSelector";
 import { TemplatePicker } from "./TemplatePicker";
@@ -35,6 +36,7 @@ import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
 import { sanitizeHtml } from "@/utils/sanitize";
+import { appendSealedContract } from "@/services/contracts/contractCrypto";
 
 export function Composer() {
   // Individual selectors — only re-render when each specific value changes
@@ -332,6 +334,24 @@ export function Composer() {
     return finalHtml;
   }, [editor, quotedHtml, signatureHtml]);
 
+  const getOutgoingHtml = useCallback(async () => {
+    const state = useComposerStore.getState();
+    const from = state.fromEmail ?? activeAccount?.email ?? "";
+    const editorHtml = editor?.getHTML() ?? "";
+    let finalHtml = await appendSealedContract(
+      editorHtml,
+      state.contractActive ? state.contractText : "",
+      from,
+    );
+    if (quotedHtml) {
+      finalHtml += `<br><br>${quotedHtml}`;
+    }
+    if (signatureHtml) {
+      finalHtml += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${sanitizeHtml(signatureHtml)}</div>`;
+    }
+    return finalHtml;
+  }, [activeAccount?.email, editor, quotedHtml, signatureHtml]);
+
   const handleSend = useCallback(async () => {
     if (!activeAccountId || !activeAccount || sendingRef.current) return;
     const state = useComposerStore.getState();
@@ -340,7 +360,7 @@ export function Composer() {
     sendingRef.current = true;
     stopAutoSave();
 
-    const html = getFullHtml();
+    const html = await getOutgoingHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
     const raw = buildRawEmail({
       from: senderEmail,
@@ -396,14 +416,15 @@ export function Composer() {
 
     state.setUndoSendTimer(timer);
     closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+  }, [activeAccountId, activeAccount, closeComposer, getOutgoingHtml]);
 
   const handleSchedule = useCallback(async (scheduledAt: number, recurrenceRule?: string | null) => {
     if (!activeAccountId || !activeAccount) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
 
-    const html = getFullHtml();
+    const html = await getOutgoingHtml();
+    const editableHtml = getFullHtml();
 
     const attachmentData = state.attachments.length > 0
       ? JSON.stringify(state.attachments.map((a) => ({
@@ -450,15 +471,17 @@ export function Composer() {
         cc: [...state.cc],
         bcc: [...state.bcc],
         subject: state.subject,
-        bodyHtml: html,
+        bodyHtml: editableHtml,
         threadId: state.threadId,
         inReplyToMessageId: state.inReplyToMessageId,
+        contractActive: state.contractActive,
+        contractText: state.contractText,
       },
     });
 
     setShowSchedule(false);
     closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml]);
+  }, [activeAccountId, activeAccount, closeComposer, getFullHtml, getOutgoingHtml]);
 
   const handleDiscard = useCallback(async () => {
     stopAutoSave();
@@ -848,6 +871,7 @@ export function Composer() {
             />
           )}
           <EditorContent editor={editor} />
+          <ContractEditor />
           {/* Collapsible Quoted Context for replies/forwards */}
           {quotedHtml && (
             <div data-testid="quoted-headers-container" className="border-t border-border-secondary/60">

@@ -1,6 +1,7 @@
 import { getDb } from "@/services/db/connection";
 import { getEmbeddingsForAccount, upsertEmbedding } from "@/services/db/embeddings";
 import { getSetting } from "@/services/db/settings";
+import { loadPiServerUrl } from "./llamaServer";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 export interface SemanticSearchResult {
@@ -114,8 +115,9 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     return new Array<number>(384).fill(0);
   }
 
-  const piServerUrl = await getSetting("pi_server_url");
-  if (piServerUrl) {
+  const storedPiServerUrl = await getSetting("pi_server_url");
+  if (storedPiServerUrl) {
+    const piServerUrl = await loadPiServerUrl();
     try {
       const endpoint = `${piServerUrl.replace(/\/+$/, "")}/v1/embeddings`;
       const res = await safeFetch(endpoint, {

@@ -44,20 +44,26 @@ export function removeClient(accountId: string): void {
   clients.delete(accountId);
 }
 
+const ENV_GMAIL_CLIENT_ID = "GMAIL_OAUTH_CLIENT_ID";
+const ENV_GMAIL_CLIENT_SECRET = "GMAIL_OAUTH_CLIENT_SECRET";
+const ENV_GMAIL_PAIR_ERROR =
+  "GMAIL_OAUTH_CLIENT_ID and GMAIL_OAUTH_CLIENT_SECRET must both be set in .env.";
+
 /**
- * Read GMAIL_OAUTH_CLIENT_ID from environment variables (.env via Vite or process.env).
+ * Read a Gmail OAuth value from Vite's env or process.env.
  */
-export function getEnvGmailClientId(): string | undefined {
+function readGmailEnv(key: typeof ENV_GMAIL_CLIENT_ID | typeof ENV_GMAIL_CLIENT_SECRET): string | undefined {
+  // Static property access so Vite inlines both values in dev and production builds.
   const metaEnv =
-    typeof import.meta !== "undefined"
-      ? (import.meta as unknown as { env?: Record<string, string> }).env?.GMAIL_OAUTH_CLIENT_ID
-      : undefined;
+    key === ENV_GMAIL_CLIENT_ID
+      ? import.meta.env.GMAIL_OAUTH_CLIENT_ID
+      : import.meta.env.GMAIL_OAUTH_CLIENT_SECRET;
   if (typeof metaEnv === "string" && metaEnv.trim()) {
     return metaEnv.trim();
   }
 
-  const proc = (globalThis as unknown as { process?: { env?: Record<string, string> } }).process;
-  const procEnv = proc?.env?.GMAIL_OAUTH_CLIENT_ID;
+  const proc = (globalThis as unknown as { process?: { env?: Record<string, string | undefined> } }).process;
+  const procEnv = proc?.env?.[key];
   if (typeof procEnv === "string" && procEnv.trim()) {
     return procEnv.trim();
   }
@@ -66,12 +72,40 @@ export function getEnvGmailClientId(): string | undefined {
 }
 
 /**
+ * Read GMAIL_OAUTH_CLIENT_ID from environment variables (.env via Vite or process.env).
+ */
+export function getEnvGmailClientId(): string | undefined {
+  return readGmailEnv(ENV_GMAIL_CLIENT_ID);
+}
+
+/**
+ * Read GMAIL_OAUTH_CLIENT_SECRET from environment variables (.env via Vite or process.env).
+ */
+export function getEnvGmailClientSecret(): string | undefined {
+  return readGmailEnv(ENV_GMAIL_CLIENT_SECRET);
+}
+
+/**
+ * The desktop OAuth client in .env. Both values are required together.
+ * Returns undefined when neither variable is set.
+ */
+export function getEnvGmailCredentials(): { clientId: string; clientSecret: string } | undefined {
+  const clientId = getEnvGmailClientId();
+  const clientSecret = getEnvGmailClientSecret();
+  if (!clientId && !clientSecret) return undefined;
+  if (!clientId || !clientSecret) {
+    throw new Error(ENV_GMAIL_PAIR_ERROR);
+  }
+  return { clientId, clientSecret };
+}
+
+/**
  * Get the Google OAuth client ID from environment or settings.
  */
 export async function getClientId(): Promise<string> {
-  const envClientId = getEnvGmailClientId();
-  if (envClientId) {
-    return envClientId;
+  const envCredentials = getEnvGmailCredentials();
+  if (envCredentials) {
+    return envCredentials.clientId;
   }
   const clientId = await getSetting("google_client_id");
   if (!clientId || !clientId.trim()) {
@@ -81,11 +115,17 @@ export async function getClientId(): Promise<string> {
 }
 
 /**
- * Get the Google OAuth client secret from settings (optional, for Web app clients).
+ * Get the Google OAuth client secret. The .env desktop client always has one.
+ * A client ID entered in Settings may still omit it.
  */
 export async function getClientSecret(): Promise<string | undefined> {
+  const envCredentials = getEnvGmailCredentials();
+  if (envCredentials) {
+    return envCredentials.clientSecret;
+  }
   const clientSecret = await getSecureSetting("google_client_secret");
-  return clientSecret ?? undefined;
+  const trimmed = clientSecret?.trim();
+  return trimmed || undefined;
 }
 
 /**
@@ -93,9 +133,18 @@ export async function getClientSecret(): Promise<string | undefined> {
  */
 export async function initializeClients(): Promise<void> {
   const accounts = await getAllAccounts();
-  const clientId = await getClientId().catch(() => null);
-  if (!clientId) return;
-  const clientSecret = (await getSecureSetting("google_client_secret")) ?? undefined;
+  let clientId: string;
+  let clientSecret: string | undefined;
+  try {
+    clientId = await getClientId();
+    clientSecret = await getClientSecret();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message !== "Google Client ID not configured. Go to Settings to set it up.") {
+      console.error(message);
+    }
+    return;
+  }
 
   for (const account of accounts) {
     if (account.is_active && account.access_token && account.refresh_token) {

@@ -19,6 +19,7 @@ import {
   CalendarClock,
   Archive,
   FileSignature,
+  ScrollText,
   FileText,
   Users,
   Save,
@@ -117,7 +118,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Add your email account",
         summary: "Connect a Gmail or IMAP/SMTP account to start using the app.",
         description:
-          "Click the account switcher at the top of the sidebar to add an account. For Gmail, follow the OAuth sign-in flow using your own Google Cloud credentials. For other providers (Outlook, Yahoo, iCloud, Fastmail, etc.), choose 'Add IMAP Account' and enter your email and password — server settings are auto-discovered for popular providers. You can add multiple accounts of any type and switch between them instantly. Each account syncs independently with its own inbox, labels, and settings.",
+          "When the app starts with no mail account connected, the add-account flow opens automatically. You can also add an account later from the account switcher at the top of the sidebar. For Gmail, follow the OAuth sign-in flow using your own Google Cloud credentials. For other providers (Outlook, Yahoo, iCloud, Fastmail, etc.), choose 'Add IMAP Account' and enter your email and password — server settings are auto-discovered for popular providers. You can add multiple accounts of any type and switch between them instantly. Each account syncs independently with its own inbox, labels, and settings. A calendar-only CalDAV account does not count as a mail account, so the add-account flow still opens until you connect one.",
         tips: [
           { text: "The account switcher is always visible at the top of the sidebar." },
           { text: "Gmail accounts use OAuth; IMAP accounts use password or app-password." },
@@ -313,6 +314,20 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "Recipient autocomplete is ranked by contact frequency." },
           { text: "Use the toolbar or markdown-style shortcuts for formatting." },
           { text: "Close the composer with Escape (draft is auto-saved)." },
+        ],
+      },
+      {
+        id: "contracts",
+        icon: ScrollText,
+        title: "Negotiate a contract",
+        summary: "Sign contract terms into a new email, then revise them in a reply.",
+        description:
+          "On a new message, Start Contract sits beside Attach and opens a contract under your letter. When you send, SuiteMail signs that contract with your key and includes your public key. A recipient who also uses SuiteMail checks the signature. The first time they see your address with that key, they are asked to verify the key's authority. They can edit the terms, for example by adding ACCEPT, and reply. Their reply is signed with their own key.",
+        tips: [
+          { text: "Start Contract is available when you compose a new message." },
+          { text: "A line separates the letter from the contract." },
+          { text: "Reply to a contract to edit the terms and send them back signed." },
+          { text: "Confirm a new key with the sender before you rely on the contract." },
         ],
       },
       {
@@ -1102,7 +1117,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Light & dark mode",
         summary: "Switch between light, dark, or system theme.",
         description:
-          "Choose between light mode, dark mode, or system-matched (follows your OS setting). Dark mode uses carefully chosen colors for comfortable reading in low-light environments, with a darker background and softer text. The theme switches instantly and persists across restarts. The animated gradient background also adapts — light mode uses blues/purples/pinks, dark mode uses deeper blues and purples.",
+          "Choose between light mode, dark mode, or system-matched (follows your OS setting). Dark mode uses the SuiteLeaf palette: a near-black canvas, soft gray text, and a sage sidebar. The theme switches instantly and persists across restarts. The animated background also adapts — light mode uses pale sage and blue washes, dark mode uses deeper greens and blues.",
         tips: [
           { text: "Change theme in Settings > General." },
           { text: "\"System\" follows your OS light/dark preference." },
@@ -1115,12 +1130,12 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         id: "accent-colors",
         icon: Palette,
         title: "Accent colors",
-        summary: "8 color presets to personalize the app.",
+        summary: "9 color presets to personalize the app.",
         description:
-          "Choose from 8 accent color presets to personalize the look of the app: Indigo (default), Rose, Emerald, Amber, Sky, Violet, Orange, or Slate. Each preset has separate light and dark mode variants that are optimized for readability. The accent color is used for buttons, active states, links, badges, and highlights throughout the app. Accent colors are independent of the light/dark theme.",
+          "Choose from 9 accent color presets to personalize the look of the app: Leaf (default), Indigo, Rose, Emerald, Amber, Sky, Violet, Orange, or Slate. Leaf matches SuiteLeaf: green #188038 in light mode and #81c995 in dark mode. Each preset has separate light and dark mode variants that are optimized for readability. The accent color is used for buttons, active states, links, badges, and highlights throughout the app. Accent colors are independent of the light/dark theme.",
         tips: [
           { text: "Change accent color in Settings > General." },
-          { text: "8 presets: Indigo, Rose, Emerald, Amber, Sky, Violet, Orange, Slate." },
+          { text: "9 presets: Leaf, Indigo, Rose, Emerald, Amber, Sky, Violet, Orange, Slate." },
           { text: "Each color has optimized light and dark variants." },
           { text: "Accent color is independent of light/dark theme." },
         ],

@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { platformFetch as tauriFetch } from "@/platform";
 import type { AiProviderClient, AiCompletionRequest } from "../types";
+import { ipv4LoopbackUrl } from "../llamaServer";
 
 const safeFetch: typeof fetch = async (input, init) => {
   try {
@@ -23,7 +24,7 @@ function getClient(serverUrl: string, model: string): OpenAI {
   const cacheKey = `${serverUrl}|${model}`;
   if (!instance || cachedKey !== cacheKey) {
     instance = new OpenAI({
-      baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
+      baseURL: `${ipv4LoopbackUrl(serverUrl)}/v1`,
       apiKey: "pi-harness",
       dangerouslyAllowBrowser: true,
       fetch: safeFetch,

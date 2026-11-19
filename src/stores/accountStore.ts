@@ -10,6 +10,11 @@ export interface Account {
   provider?: string;
 }
 
+/** True when at least one account can receive mail. Calendar-only CalDAV accounts do not count. */
+export function hasMailAccount(accounts: Pick<Account, "provider">[]): boolean {
+  return accounts.some((account) => account.provider !== "caldav");
+}
+
 interface AccountState {
   accounts: Account[];
   activeAccountId: string | null;

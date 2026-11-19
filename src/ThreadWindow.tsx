@@ -10,7 +10,7 @@ import { getAllAccounts } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
 import { initializeClients } from "./services/gmail/tokenManager";
 import { getThreadById, getThreadLabelIds } from "./services/db/threads";
-import { getThemeById, COLOR_THEMES } from "./constants/themes";
+import { getThemeById, COLOR_THEMES, DEFAULT_COLOR_THEME } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { Thread } from "./stores/threadStore";
 
@@ -143,7 +143,7 @@ export default function ThreadWindow() {
     const props = ["--color-accent", "--color-accent-hover", "--color-accent-light", "--color-bg-selected", "--color-sidebar-active"];
 
     const apply = () => {
-      if (colorTheme === "indigo") {
+      if (colorTheme === DEFAULT_COLOR_THEME) {
         for (const p of props) root.style.removeProperty(p);
         return;
       }

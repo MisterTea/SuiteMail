@@ -18,6 +18,8 @@ import type { QuickStep, QuickStepAction } from "@/services/quickSteps/types";
 import { SnoozeDialog } from "../email/SnoozeDialog";
 import { useToastStore } from "@/stores/toastStore";
 import { buildForwardQuote } from "@/utils/forwardQuoteBuilder";
+import { stripContractMarkup } from "@/services/contracts/contractMessage";
+import { contractReplyFields } from "@/services/contracts/contractReply";
 import {
   Reply,
   ReplyAll,
@@ -50,7 +52,8 @@ function buildQuote(msg: { from_name: string | null; from_address: string | null
   const from = msg.from_name
     ? `${msg.from_name} &lt;${msg.from_address}&gt;`
     : (msg.from_address ?? "Unknown");
-  return `<br><br><div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666">On ${date}, ${from} wrote:<br>${msg.body_html ?? msg.body_text ?? ""}</div>`;
+  const body = stripContractMarkup(msg.body_html ?? msg.body_text ?? "");
+  return `<br><br><div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666">On ${date}, ${from} wrote:<br>${body}</div>`;
 }
 
 export function ContextMenuPortal() {
@@ -276,6 +279,7 @@ function ThreadMenu({
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
+    const contract = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
     openComposer({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
@@ -283,6 +287,8 @@ function ThreadMenu({
       bodyHtml: buildQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
+      contractActive: contract.contractActive,
+      contractText: contract.contractText,
     });
   };
 
@@ -300,6 +306,7 @@ function ThreadMenu({
     if (lastMessage.cc_addresses) {
       lastMessage.cc_addresses.split(",").forEach((a) => ccList.push(a.trim()));
     }
+    const contract = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
     openComposer({
       mode: "replyAll",
       to: Array.from(allRecipients),
@@ -308,6 +315,8 @@ function ThreadMenu({
       bodyHtml: buildQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
+      contractActive: contract.contractActive,
+      contractText: contract.contractText,
     });
   };
 
@@ -672,8 +681,9 @@ function MessageMenu({
 
   const msg = { from_name: fromName, from_address: fromAddress, date, body_html: bodyHtml, body_text: bodyText, subject, to_addresses: toAddresses };
 
-  const handleReply = () => {
+  const handleReply = async () => {
     const replyAddr = replyTo ?? fromAddress;
+    const contract = await contractReplyFields(bodyHtml, bodyText);
     openComposer({
       mode: "reply",
       to: replyAddr ? [replyAddr] : [],
@@ -681,10 +691,12 @@ function MessageMenu({
       bodyHtml: buildQuote(msg),
       threadId,
       inReplyToMessageId: messageId,
+      contractActive: contract.contractActive,
+      contractText: contract.contractText,
     });
   };
 
-  const handleReplyAll = () => {
+  const handleReplyAll = async () => {
     const replyAddr = replyTo ?? fromAddress;
     const allRecipients = new Set<string>();
     if (replyAddr) allRecipients.add(replyAddr);
@@ -695,6 +707,7 @@ function MessageMenu({
     if (ccAddresses) {
       ccAddresses.split(",").forEach((a) => ccList.push(a.trim()));
     }
+    const contract = await contractReplyFields(bodyHtml, bodyText);
     openComposer({
       mode: "replyAll",
       to: Array.from(allRecipients),
@@ -703,6 +716,8 @@ function MessageMenu({
       bodyHtml: buildQuote(msg),
       threadId,
       inReplyToMessageId: messageId,
+      contractActive: contract.contractActive,
+      contractText: contract.contractText,
     });
   };
 

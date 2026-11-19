@@ -160,7 +160,7 @@ export function EmailRenderer({
       font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", system-ui, sans-serif;
       font-size: 15px;
       line-height: 1.65;
-      color: ${plainTextDark ? "#f1f5f9" : "#0f172a"};
+      color: ${plainTextDark ? "#e8eaed" : "#202124"};
       background: ${htmlDark ? "#f8f9fa" : "transparent"};
       word-wrap: break-word;
       overflow-wrap: break-word;
@@ -184,7 +184,7 @@ export function EmailRenderer({
       border-collapse: collapse;
     }
     a {
-      color: ${plainTextDark ? "#818cf8" : "#4338ca"};
+      color: ${plainTextDark ? "#81c995" : "#188038"};
       text-decoration-thickness: 1px;
       text-underline-offset: 2px;
       touch-action: manipulation;
@@ -193,10 +193,10 @@ export function EmailRenderer({
       text-decoration: underline;
     }
     blockquote {
-      border-left: 3px solid ${plainTextDark ? "#4b5563" : "#cbd5e1"};
+      border-left: 3px solid ${plainTextDark ? "#3c4043" : "#dadce0"};
       margin: 8px 0;
       padding: 4px 12px;
-      color: ${plainTextDark ? "#9ca3af" : "#64748b"};
+      color: ${plainTextDark ? "#9aa0a6" : "#5f6368"};
     }
     pre {
       overflow-x: auto;

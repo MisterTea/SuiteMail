@@ -10,8 +10,8 @@
   --color-text-secondary: #a1a1aa;
   --color-text-muted: #71717a;
 
-  --color-accent: #6366F1;
-  --color-accent-hover: #818CF8;
+  --color-accent: #188038;
+  --color-accent-hover: #146c2e;
 
   --color-border: rgba(255, 255, 255, 0.08);
 }
@@ -30,7 +30,7 @@ body {
 }
 
 ::selection {
-  background-color: rgba(99, 102, 241, 0.3);
+  background-color: rgba(24, 128, 56, 0.3);
   color: #fff;
 }
 
@@ -57,7 +57,7 @@ body {
 
 /* ── Gradient text ── */
 .gradient-text {
-  background: linear-gradient(135deg, #e0e7ff 0%, #818CF8 50%, #6366F1 100%);
+  background: linear-gradient(135deg, #e6f4ea 0%, #81c995 50%, #188038 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -96,7 +96,7 @@ body {
 .btn-primary:hover {
   background: var(--color-accent-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 24px rgba(99, 102, 241, 0.25);
+  box-shadow: 0 4px 24px rgba(24, 128, 56, 0.25);
 }
 
 .btn-primary:hover::before {
@@ -150,7 +150,7 @@ body {
   transform: translateY(-4px);
   box-shadow:
     0 20px 60px rgba(0, 0, 0, 0.4),
-    0 0 80px rgba(99, 102, 241, 0.08);
+    0 0 80px rgba(24, 128, 56, 0.08);
 }
 
 /* ── Reduced motion ── */

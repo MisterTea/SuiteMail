@@ -28,7 +28,7 @@ export function SplitInboxMockup() {
             key={tab.label}
             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap transition-colors ${
               tab.active
-                ? 'text-indigo-400 bg-indigo-500/10'
+                ? 'text-green-300 bg-green-700/10'
                 : 'text-zinc-600 hover:text-zinc-400 hover:bg-white/[0.03]'
             }`}
           >
@@ -36,7 +36,7 @@ export function SplitInboxMockup() {
             {tab.label}
             {tab.count && (
               <span className={`text-[9px] px-1.5 rounded-full ${
-                tab.active ? 'bg-indigo-500/20 text-indigo-400' : 'bg-zinc-800 text-zinc-600'
+                tab.active ? 'bg-green-700/20 text-green-300' : 'bg-zinc-800 text-zinc-600'
               }`}>{tab.count}</span>
             )}
           </button>
@@ -54,7 +54,7 @@ export function SplitInboxMockup() {
           >
             <div className="flex items-start gap-2.5">
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-medium flex-shrink-0 mt-0.5 ${
-                thread.unread ? 'bg-indigo-500 text-white' : 'bg-zinc-800 text-zinc-500'
+                thread.unread ? 'bg-green-700 text-white' : 'bg-zinc-800 text-zinc-500'
               }`}>{thread.avatar}</div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between">

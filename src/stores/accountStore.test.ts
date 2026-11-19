@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { useAccountStore, type Account } from "./accountStore";
+import { hasMailAccount, useAccountStore, type Account } from "./accountStore";
 
 const mockAccount: Account = {
   id: "acc-1",
@@ -23,6 +23,15 @@ describe("accountStore", () => {
       accounts: [],
       activeAccountId: null,
     });
+  });
+
+  it("treats an empty list and calendar-only accounts as having no mail", () => {
+    expect(hasMailAccount([])).toBe(false);
+    expect(hasMailAccount([{ provider: "caldav" }, { provider: "caldav" }])).toBe(false);
+    expect(hasMailAccount([{ provider: "gmail_api" }])).toBe(true);
+    expect(hasMailAccount([{ provider: "imap" }])).toBe(true);
+    expect(hasMailAccount([{ provider: "caldav" }, { provider: "imap" }])).toBe(true);
+    expect(hasMailAccount([{}])).toBe(true);
   });
 
   it("should start with no accounts", () => {

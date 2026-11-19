@@ -28,9 +28,13 @@ vi.mock("@/services/db/aiCache", () => ({
 }));
 
 const mockFetch = vi.fn();
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: (...args: unknown[]) => mockFetch(...args),
-}));
+vi.mock("@/platform", async () => {
+  const actual = await vi.importActual<typeof import("@/platform")>("@/platform");
+  return {
+    ...actual,
+    platformFetch: (...args: unknown[]) => mockFetch(...args),
+  };
+});
 
 import { summarizeThread } from "@/services/ai/aiService";
 import { clearProviderClients, getActiveProviderName } from "@/services/ai/providerManager";
@@ -120,7 +124,7 @@ describe("System Test: Email Summarization with Pi Harness and local Gemma 4 E4B
     // 1. Configure the app settings to use Pi Harness with local Gemma 4 e4b
     inMemorySettings["ai_enabled"] = "true";
     inMemorySettings["ai_provider"] = "pi";
-    inMemorySettings["pi_server_url"] = "http://localhost:3000";
+    inMemorySettings["pi_server_url"] = "http://localhost:18420";
     inMemorySettings["pi_model"] = "gemma-4-e4b";
 
     expect(await getActiveProviderName()).toBe("pi");
@@ -167,7 +171,7 @@ describe("System Test: Email Summarization with Pi Harness and local Gemma 4 E4B
     // 5. Verify the HTTP payload sent to the local Pi Harness endpoint
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const [calledUrl, calledOptions] = mockFetch.mock.calls[0] as [string, RequestInit];
-    expect(calledUrl).toBe("http://localhost:3000/v1/chat/completions");
+    expect(calledUrl).toBe("http://127.0.0.1:18420/v1/chat/completions");
     expect(calledOptions.method).toBe("POST");
 
     const sentBody = JSON.parse(calledOptions.body as string);
@@ -195,7 +199,7 @@ describe("System Test: Email Summarization with Pi Harness and local Gemma 4 E4B
   it("supports switching to Gemma 4 E4B Instruct model variant dynamically", async () => {
     inMemorySettings["ai_enabled"] = "true";
     inMemorySettings["ai_provider"] = "pi";
-    inMemorySettings["pi_server_url"] = "http://localhost:3000";
+    inMemorySettings["pi_server_url"] = "http://localhost:18420";
     inMemorySettings["pi_model"] = "gemma-4-e4b-it";
 
     const instructSummary =
@@ -241,11 +245,11 @@ describe("System Test: Email Summarization with Pi Harness and local Gemma 4 E4B
   it("handles offline or unreachable local Pi harness server gracefully", async () => {
     inMemorySettings["ai_enabled"] = "true";
     inMemorySettings["ai_provider"] = "pi";
-    inMemorySettings["pi_server_url"] = "http://localhost:3000";
+    inMemorySettings["pi_server_url"] = "http://localhost:18420";
     inMemorySettings["pi_model"] = "gemma-4-e4b";
 
     mockFetch.mockRejectedValueOnce(
-      new TypeError("fetch failed: ECONNREFUSED http://localhost:3000"),
+      new TypeError("fetch failed: ECONNREFUSED http://localhost:18420"),
     );
 
     await expect(

@@ -5,8 +5,9 @@ import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
+import { DEFAULT_PI_SERVER_URL, loadPiServerUrl, piServerPort } from "@/services/ai/llamaServer";
 import { deleteAccount } from "@/services/db/accounts";
-import { removeClient, reauthorizeAccount, getEnvGmailClientId } from "@/services/gmail/tokenManager";
+import { removeClient, reauthorizeAccount, getEnvGmailCredentials } from "@/services/gmail/tokenManager";
 import { triggerSync, forceFullSync, resyncAccount } from "@/services/gmail/syncManager";
 import {
   registerComposeShortcut,
@@ -118,7 +119,7 @@ export function SettingsPage() {
   const [copilotApiKey, setCopilotApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
-  const [piServerUrl, setPiServerUrl] = useState("http://localhost:3000");
+  const [piServerUrl, setPiServerUrl] = useState(DEFAULT_PI_SERVER_URL);
   const [piModel, setPiModel] = useState("gemma-4-e4b");
   const [aicoreModel, setAicoreModel] = useState("gemma-4-26b");
   const [isAndroidPlatform, setIsAndroidPlatform] = useState(false);
@@ -157,11 +158,21 @@ export function SettingsPage() {
       setNotificationsEnabled(notif !== "false");
       const delay = await getSetting("undo_send_delay_seconds");
       setUndoSendDelay(delay ?? "5");
-      const id = await getSetting("google_client_id");
-      const envId = getEnvGmailClientId();
-      setClientId(id || envId || "");
-      const secret = await getSecureSetting("google_client_secret");
-      setClientSecret(secret ?? "");
+      let envCredentials: { clientId: string; clientSecret: string } | undefined;
+      try {
+        envCredentials = getEnvGmailCredentials();
+      } catch (err) {
+        console.error(err);
+      }
+      if (envCredentials) {
+        setClientId(envCredentials.clientId);
+        setClientSecret(envCredentials.clientSecret);
+      } else {
+        const id = await getSetting("google_client_id");
+        setClientId(id || "");
+        const secret = await getSecureSetting("google_client_secret");
+        setClientSecret(secret ?? "");
+      }
       const blockImg = await getSetting("block_remote_images");
       setBlockRemoteImages(blockImg !== "false");
       const phishingEnabled = await getSetting("phishing_detection_enabled");
@@ -201,8 +212,7 @@ export function SettingsPage() {
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
       const ollamaModelVal = await getSetting("ollama_model");
       if (ollamaModelVal) setOllamaModel(ollamaModelVal);
-      const piUrl = await getSetting("pi_server_url");
-      if (piUrl) setPiServerUrl(piUrl);
+      setPiServerUrl(await loadPiServerUrl());
       const piModelVal = await getSetting("pi_model");
       if (piModelVal) setPiModel(piModelVal);
       const claudeModelVal = await getSetting("claude_model");
@@ -1064,10 +1074,10 @@ export function SettingsPage() {
                         type="password"
                         value={clientSecret}
                         onChange={(e) => setClientSecret(e.target.value)}
-                        placeholder="Leave blank for Desktop app credentials"
+                        placeholder="Google OAuth client secret"
                       />
                       <p className="text-text-tertiary text-xs">
-                        Desktop app credentials use PKCE and do not require a Client Secret.
+                        GMAIL_OAUTH_CLIENT_ID and GMAIL_OAUTH_CLIENT_SECRET in .env are used together when both are set. Otherwise the Client ID and Client Secret saved here are used.
                       </p>
                       <Button
                         variant="primary"
@@ -1199,7 +1209,7 @@ export function SettingsPage() {
                           size="md"
                           value={piServerUrl}
                           onChange={(e) => setPiServerUrl(e.target.value)}
-                          placeholder="http://localhost:3000"
+                          placeholder={DEFAULT_PI_SERVER_URL}
                         />
                         <SettingRow label="Model">
                           <select
@@ -1234,7 +1244,10 @@ export function SettingsPage() {
                             onClick={async () => {
                               try {
                                 const { invoke } = await import("@tauri-apps/api/core");
-                                await invoke("start_llama_server", { modelId: piModel, port: 3000 });
+                                await invoke("start_llama_server", {
+                                  modelId: piModel,
+                                  port: piServerPort(piServerUrl),
+                                });
                               } catch (e) {
                                 console.error("Start llama server error:", e);
                               }

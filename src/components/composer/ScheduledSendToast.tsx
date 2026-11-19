@@ -51,6 +51,8 @@ export function ScheduledSendToast() {
         bodyHtml: toastData.savedDraft.bodyHtml,
         threadId: toastData.savedDraft.threadId,
         inReplyToMessageId: toastData.savedDraft.inReplyToMessageId,
+        contractActive: toastData.savedDraft.contractActive,
+        contractText: toastData.savedDraft.contractText,
       });
     }
   };

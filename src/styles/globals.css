@@ -1,31 +1,32 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: rgba(250, 250, 249, 0.92);
-  --color-bg-secondary: rgba(245, 245, 244, 0.88);
-  --color-bg-tertiary: rgba(231, 229, 228, 0.88);
-  --color-bg-hover: rgba(231, 229, 228, 0.65);
-  --color-bg-selected: rgba(224, 231, 255, 0.75);
+  /* SuiteLeaf light palette (apps/web/src/styles/base.css) */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f8f9fa;
+  --color-bg-tertiary: #f1f3f4;
+  --color-bg-hover: #f1f3f4;
+  --color-bg-selected: #dce9dd;
 
-  --color-text-primary: #1c1917;
-  --color-text-secondary: #57534e;
-  --color-text-tertiary: #78716c;
+  --color-text-primary: #202124;
+  --color-text-secondary: #5f6368;
+  --color-text-tertiary: #80868b;
 
-  --color-border-primary: rgba(0, 0, 0, 0.08);
-  --color-border-secondary: rgba(0, 0, 0, 0.04);
+  --color-border-primary: #dadce0;
+  --color-border-secondary: #e2e7e1;
 
-  --color-accent: #4f46e5;
-  --color-accent-hover: #4338ca;
-  --color-accent-light: #e0e7ff;
+  --color-accent: #188038;
+  --color-accent-hover: #146c2e;
+  --color-accent-light: #dce9dd;
 
-  --color-danger: #dc2626;
-  --color-warning: #f59e0b;
-  --color-success: #059669;
+  --color-danger: #ea4335;
+  --color-warning: #f9ab00;
+  --color-success: #188038;
 
-  --color-sidebar-bg: rgba(245, 245, 244, 0.95);
-  --color-sidebar-text: #1c1917;
-  --color-sidebar-hover: rgba(231, 229, 228, 0.8);
-  --color-sidebar-active: #4f46e5;
+  --color-sidebar-bg: #f0f4ef;
+  --color-sidebar-text: #202124;
+  --color-sidebar-hover: #e8eaed;
+  --color-sidebar-active: #188038;
 
   --glass-blur: 20px;
   --glass-blur-heavy: 24px;
@@ -42,32 +43,42 @@
  * Dark mode overrides — applied when <html class="dark">
  */
 .dark {
-  --color-bg-primary: rgba(15, 23, 42, 0.88);
-  --color-bg-secondary: rgba(30, 41, 59, 0.82);
-  --color-bg-tertiary: rgba(51, 65, 85, 0.78);
-  --color-bg-hover: rgba(51, 65, 85, 0.58);
-  --color-bg-selected: rgba(30, 58, 95, 0.68);
+  /* SuiteLeaf dark palette */
+  --color-bg-primary: #1f2125;
+  --color-bg-secondary: #18191c;
+  --color-bg-tertiary: #2a2d33;
+  --color-bg-hover: #2d3137;
+  --color-bg-selected: #24382c;
 
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #cbd5e1;
-  --color-text-tertiary: #94a3b8;
+  --color-text-primary: #e8eaed;
+  --color-text-secondary: #9aa0a6;
+  --color-text-tertiary: #80868b;
 
-  --color-border-primary: rgba(255, 255, 255, 0.1);
-  --color-border-secondary: rgba(255, 255, 255, 0.06);
+  --color-border-primary: #3c4043;
+  --color-border-secondary: #303338;
 
-  --color-accent: #818cf8;
-  --color-accent-hover: #6366f1;
-  --color-accent-light: #312e81;
+  --color-accent: #81c995;
+  --color-accent-hover: #9ad4ad;
+  --color-accent-light: #24382c;
 
-  --color-sidebar-bg: rgba(15, 23, 42, 0.88);
-  --color-sidebar-text: #e2e8f0;
-  --color-sidebar-hover: rgba(30, 41, 59, 0.7);
-  --color-warning: #fbbf24;
+  --color-danger: #f28b82;
+  --color-warning: #fdd663;
+  --color-success: #81c995;
+
+  --color-sidebar-bg: #1c1d22;
+  --color-sidebar-text: #e8eaed;
+  --color-sidebar-hover: #2d3137;
+  --color-sidebar-active: #81c995;
 
   --glass-border: rgba(255, 255, 255, 0.1);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   --glass-shadow-elevated: 0 16px 48px rgba(0, 0, 0, 0.3);
   --glass-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+/* SuiteLeaf draws dark text on the light green dark-mode button. */
+.dark :where(.text-white).bg-accent {
+  color: #102117;
 }
 
 /* Font scale — set on <html> like .dark */
@@ -89,7 +100,7 @@ body {
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
-  background: linear-gradient(135deg, #f5f0eb 0%, #ede4f5 30%, #fce7f3 60%, #fef3e2 80%, #e8eff8 100%);
+  background: #f8f9fa;
   background-attachment: fixed;
   color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
@@ -98,7 +109,7 @@ body {
 }
 
 .dark body {
-  background-image: linear-gradient(135deg, #0c1222 0%, #151030 35%, #1a0a2e 65%, #0f172a 100%);
+  background: #18191c;
 }
 
 /* Animated gradient blobs behind content */
@@ -114,7 +125,7 @@ body {
   position: absolute;
   border-radius: 50%;
   filter: blur(80px);
-  opacity: 0.5;
+  opacity: 0.55;
   animation: blobMove 20s ease-in-out infinite alternate;
 }
 
@@ -126,7 +137,7 @@ body {
 .animated-bg .blob:nth-child(1) {
   width: 500px;
   height: 500px;
-  background: radial-gradient(circle, #c7d2fe 0%, #a5b4fc 50%, transparent 70%);
+  background: radial-gradient(circle, #d3e3fd 0%, #c5d4f5 50%, transparent 70%);
   top: -10%;
   left: -5%;
   animation-duration: 22s;
@@ -135,7 +146,7 @@ body {
 .animated-bg .blob:nth-child(2) {
   width: 450px;
   height: 450px;
-  background: radial-gradient(circle, #ddd6fe 0%, #c4b5fd 50%, transparent 70%);
+  background: radial-gradient(circle, #dce9dd 0%, #c5dcc8 50%, transparent 70%);
   top: 30%;
   right: -10%;
   animation-duration: 18s;
@@ -145,7 +156,7 @@ body {
 .animated-bg .blob:nth-child(3) {
   width: 400px;
   height: 400px;
-  background: radial-gradient(circle, #fecdd3 0%, #fda4af 50%, transparent 70%);
+  background: radial-gradient(circle, #e6f4ea 0%, #b7e1c2 50%, transparent 70%);
   bottom: -5%;
   left: 30%;
   animation-duration: 25s;
@@ -155,7 +166,7 @@ body {
 .animated-bg .blob:nth-child(4) {
   width: 350px;
   height: 350px;
-  background: radial-gradient(circle, #d9c8ae 0%, #c4a882 50%, transparent 70%);
+  background: radial-gradient(circle, #edf2fa 0%, #d3e3fd 50%, transparent 70%);
   bottom: 20%;
   left: -8%;
   animation-duration: 20s;
@@ -165,7 +176,7 @@ body {
 .animated-bg .blob:nth-child(5) {
   width: 300px;
   height: 300px;
-  background: radial-gradient(circle, #fde68a 0%, #fbbf24 50%, transparent 70%);
+  background: radial-gradient(circle, #f0f4ef 0%, #dce9dd 50%, transparent 70%);
   top: 10%;
   left: 50%;
   animation-duration: 24s;
@@ -192,28 +203,28 @@ body {
 
 /* Dark mode blobs */
 .dark .animated-bg .blob:nth-child(1) {
-  background: radial-gradient(circle, #1e40af 0%, #1d4ed8 50%, transparent 70%);
-  opacity: 0.3;
+  background: radial-gradient(circle, #17324d 0%, #004a77 50%, transparent 70%);
+  opacity: 0.28;
 }
 
 .dark .animated-bg .blob:nth-child(2) {
-  background: radial-gradient(circle, #5b21b6 0%, #6d28d9 50%, transparent 70%);
-  opacity: 0.25;
+  background: radial-gradient(circle, #24382c 0%, #1b583e 50%, transparent 70%);
+  opacity: 0.32;
 }
 
 .dark .animated-bg .blob:nth-child(3) {
-  background: radial-gradient(circle, #9d174d 0%, #be185d 50%, transparent 70%);
-  opacity: 0.2;
+  background: radial-gradient(circle, #1e4d34 0%, #146c2e 50%, transparent 70%);
+  opacity: 0.22;
 }
 
 .dark .animated-bg .blob:nth-child(4) {
-  background: radial-gradient(circle, #065f46 0%, #047857 50%, transparent 70%);
-  opacity: 0.25;
+  background: radial-gradient(circle, #26292f 0%, #17324d 50%, transparent 70%);
+  opacity: 0.28;
 }
 
 .dark .animated-bg .blob:nth-child(5) {
-  background: radial-gradient(circle, #92400e 0%, #b45309 50%, transparent 70%);
-  opacity: 0.2;
+  background: radial-gradient(circle, #24382c 0%, #188038 50%, transparent 70%);
+  opacity: 0.18;
 }
 
 /* Prevent text selection on UI chrome (not email content) */
@@ -605,18 +616,18 @@ body {
 
 /* Forwarded email card theme styling */
 .dark .forwarded-message-card {
-  background: rgba(99, 102, 241, 0.08) !important;
+  background: rgba(129, 201, 149, 0.08) !important;
   border-color: rgba(255, 255, 255, 0.12) !important;
-  border-left-color: #818cf8 !important;
-  color: #cbd5e1 !important;
+  border-left-color: #81c995 !important;
+  color: #9aa0a6 !important;
 }
 .dark .forwarded-message-card table td {
-  color: #94a3b8 !important;
+  color: #80868b !important;
 }
 .dark .forwarded-message-card table td strong {
-  color: #f1f5f9 !important;
+  color: #e8eaed !important;
 }
 .dark .forwarded-message-card table td span {
   background: rgba(255, 255, 255, 0.1) !important;
-  color: #e2e8f0 !important;
+  color: #e8eaed !important;
 }

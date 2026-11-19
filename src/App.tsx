@@ -11,10 +11,10 @@ import { AskInbox } from "./components/search/AskInbox";
 import { AgentConsentPopover } from "./components/ai/AgentConsentPopover";
 import { OutgoingSyncPopover } from "./components/sync/OutgoingSyncPopover";
 import { useUIStore } from "./stores/uiStore";
-import { useAccountStore } from "./stores/accountStore";
+import { hasMailAccount, useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { runMigrations } from "./services/db/migrations";
-import { getAllAccounts } from "./services/db/accounts";
+import { getAllAccounts, type DbAccount } from "./services/db/accounts";
 import { getSetting } from "./services/db/settings";
 import {
   startBackgroundSync,
@@ -81,7 +81,7 @@ import { UpdateToast } from "./components/ui/UpdateToast";
 import { ActionFeedbackToast } from "./components/ui/ActionFeedbackToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
-import { getThemeById, COLOR_THEMES } from "./constants/themes";
+import { getThemeById, COLOR_THEMES, DEFAULT_COLOR_THEME } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { router } from "./router";
 import { getSelectedThreadId } from "./router/navigate";
@@ -104,6 +104,17 @@ function useRouterSyncBridge() {
 
 import { useThreadStore } from "./stores/threadStore";
 
+function toStoreAccounts(dbAccounts: DbAccount[]) {
+  return dbAccounts.map((a) => ({
+    id: a.id,
+    email: a.email,
+    displayName: a.display_name,
+    avatarUrl: a.avatar_url,
+    isActive: a.is_active === 1,
+    provider: a.provider,
+  }));
+}
+
 export default function App() {
   const theme = useUIStore((s) => s.theme);
   const fontScale = useUIStore((s) => s.fontScale);
@@ -112,6 +123,7 @@ export default function App() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const accountCount = useAccountStore((s) => s.accounts.length);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -335,16 +347,15 @@ export default function App() {
         await useShortcutStore.getState().loadKeyMap();
 
         const dbAccounts = await getAllAccounts();
-        const mapped = dbAccounts.map((a) => ({
-          id: a.id,
-          email: a.email,
-          displayName: a.display_name,
-          avatarUrl: a.avatar_url,
-          isActive: a.is_active === 1,
-          provider: a.provider,
-        }));
+        const mapped = toStoreAccounts(dbAccounts);
         const savedAccountId = await getSetting("active_account_id");
         useAccountStore.getState().setAccounts(mapped, savedAccountId);
+
+        // No mail yet: open add-account instead of the empty inbox.
+        // Calendar-only CalDAV accounts do not count as mail.
+        if (!hasMailAccount(mapped)) {
+          setShowAddAccount(true);
+        }
 
         // Initialize Gmail clients for existing accounts
         await initializeClients();
@@ -422,6 +433,41 @@ export default function App() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store setters are stable references
   }, []);
+
+  // The in-memory list can be empty while SQLite still has accounts (for example
+  // after a hot reload). Reload them instead of showing the empty inbox.
+  useEffect(() => {
+    if (!initialized || accountCount > 0) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const dbAccounts = await getAllAccounts();
+        if (cancelled || useAccountStore.getState().accounts.length > 0) return;
+        if (dbAccounts.length === 0) {
+          setShowAddAccount(true);
+          return;
+        }
+
+        const mapped = toStoreAccounts(dbAccounts);
+        const savedAccountId = await getSetting("active_account_id");
+        if (cancelled || useAccountStore.getState().accounts.length > 0) return;
+        useAccountStore.getState().setAccounts(mapped, savedAccountId);
+        setShowAddAccount(false);
+
+        const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
+        if (activeIds.length > 0) {
+          startBackgroundSync(activeIds, true);
+        }
+      } catch (err) {
+        console.error("Failed to reload accounts from database:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialized, accountCount]);
 
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
@@ -506,7 +552,7 @@ export default function App() {
     const props = ["--color-accent", "--color-accent-hover", "--color-accent-light", "--color-bg-selected", "--color-sidebar-active"];
 
     const apply = () => {
-      if (colorTheme === "indigo") {
+      if (colorTheme === DEFAULT_COLOR_THEME) {
         // Default theme — remove inline overrides, let CSS handle it
         for (const p of props) root.style.removeProperty(p);
         return;
@@ -535,14 +581,7 @@ export default function App() {
   const handleAddAccountSuccess = useCallback(async () => {
     setShowAddAccount(false);
     const dbAccounts = await getAllAccounts();
-    const mapped = dbAccounts.map((a) => ({
-      id: a.id,
-      email: a.email,
-      displayName: a.display_name,
-      avatarUrl: a.avatar_url,
-      isActive: a.is_active === 1,
-      provider: a.provider,
-    }));
+    const mapped = toStoreAccounts(dbAccounts);
     useAccountStore.getState().setAccounts(mapped);
 
     // Re-initialize clients for the new account

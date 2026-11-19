@@ -27,6 +27,8 @@ export interface ScheduledToastInfo {
     bodyHtml: string;
     threadId: string | null;
     inReplyToMessageId: string | null;
+    contractActive?: boolean;
+    contractText?: string;
   };
 }
 
@@ -53,6 +55,8 @@ export interface ComposerState {
   signatureHtml: string;
   signatureId: string | null;
   quotedHtml: string | null;
+  contractActive: boolean;
+  contractText: string;
 
   openComposer: (opts?: {
     mode?: ComposerMode;
@@ -66,6 +70,8 @@ export interface ComposerState {
     draftId?: string | null;
     attachments?: ComposerAttachment[];
     quotedHtml?: string | null;
+    contractActive?: boolean;
+    contractText?: string;
   }) => void;
   closeComposer: () => void;
   setTo: (to: string[]) => void;
@@ -88,6 +94,8 @@ export interface ComposerState {
   setViewMode: (mode: ComposerViewMode) => void;
   setSignatureHtml: (html: string) => void;
   setSignatureId: (id: string | null) => void;
+  setContractActive: (active: boolean) => void;
+  setContractText: (text: string) => void;
 }
 
 export const useComposerStore = create<ComposerState>((set) => ({
@@ -113,6 +121,8 @@ export const useComposerStore = create<ComposerState>((set) => ({
   signatureHtml: "",
   signatureId: null,
   quotedHtml: null,
+  contractActive: false,
+  contractText: "",
 
   openComposer: (opts) =>
     set({
@@ -135,6 +145,8 @@ export const useComposerStore = create<ComposerState>((set) => ({
       signatureHtml: "",
       signatureId: null,
       quotedHtml: opts?.quotedHtml ?? null,
+      contractActive: opts?.contractActive ?? false,
+      contractText: opts?.contractText ?? "",
     }),
   closeComposer: () =>
     set({
@@ -157,6 +169,8 @@ export const useComposerStore = create<ComposerState>((set) => ({
       signatureHtml: "",
       signatureId: null,
       quotedHtml: null,
+      contractActive: false,
+      contractText: "",
     }),
   setTo: (to) => set({ to }),
   setCc: (cc) => set({ cc }),
@@ -182,4 +196,6 @@ export const useComposerStore = create<ComposerState>((set) => ({
   setSignatureHtml: (signatureHtml) => set({ signatureHtml }),
   setSignatureId: (signatureId) => set({ signatureId }),
   setQuotedHtml: (quotedHtml) => set({ quotedHtml }),
+  setContractActive: (contractActive) => set({ contractActive }),
+  setContractText: (contractText) => set({ contractText }),
 }));

@@ -93,7 +93,7 @@ Google Calendar sync with month, week, and day views. Create events without leav
 ### UI & Design
 
 - Glassmorphism with animated gradient background
-- Dark / light / system theme with 8 accent color presets
+- Dark / light / system theme with 9 accent color presets
 - Flexible reading pane (right, bottom, hidden), resizable panels
 - Configurable density and font scaling
 - Pop-out thread windows, custom titlebar, splash screen

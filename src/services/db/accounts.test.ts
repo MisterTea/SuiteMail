@@ -4,6 +4,7 @@ import {
   getAccountByEmail,
   insertImapAccount,
   insertAccount,
+  saveGmailAccount,
   deleteAccount,
   updateAccountTokens,
   updateAccountSyncState,
@@ -91,6 +92,10 @@ describe("accounts", () => {
 
       const result = await getAccountByEmail("user@example.com");
 
+      expect(mockSelectFirstBy).toHaveBeenCalledWith(
+        "SELECT * FROM accounts WHERE lower(email) = lower($1)",
+        ["user@example.com"],
+      );
       expect(result).not.toBeNull();
       expect(result!.email).toBe("user@example.com");
     });
@@ -221,6 +226,59 @@ describe("accounts", () => {
       const [sql] = mockExecute.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("NULL, NULL");
       expect(sql).toContain("'imap'");
+    });
+  });
+
+  describe("saveGmailAccount", () => {
+    const gmailInput = {
+      id: "gmail-new",
+      email: "user@gmail.com",
+      displayName: "Test User",
+      avatarUrl: "https://example.com/avatar.jpg",
+      accessToken: "access-token-123",
+      refreshToken: "refresh-token-456",
+      tokenExpiresAt: 9999999999,
+    };
+
+    it("inserts when the email is not already stored", async () => {
+      mockSelectFirstBy.mockResolvedValue(null);
+      mockExecute.mockResolvedValue(undefined);
+
+      const id = await saveGmailAccount(gmailInput);
+
+      expect(id).toBe("gmail-new");
+      const [sql] = mockExecute.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("INSERT INTO accounts");
+    });
+
+    it("refreshes the existing row when the email is already stored", async () => {
+      mockSelectFirstBy.mockResolvedValue(createMockGmailAccount({ id: "gmail-existing", email: "user@gmail.com" }));
+      mockExecute.mockResolvedValue(undefined);
+
+      const id = await saveGmailAccount(gmailInput);
+
+      expect(id).toBe("gmail-existing");
+      const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("UPDATE accounts");
+      expect(sql).not.toContain("INSERT INTO accounts");
+      expect(params).toContain("gmail-existing");
+      expect(params).toContain("enc:access-token-123");
+      expect(params).toContain("enc:refresh-token-456");
+    });
+
+    it("refreshes the existing row when insert hits the email unique constraint", async () => {
+      mockSelectFirstBy
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(createMockGmailAccount({ id: "gmail-existing", email: "user@gmail.com" }));
+      mockExecute
+        .mockRejectedValueOnce(new Error("UNIQUE constraint failed: accounts.email"))
+        .mockResolvedValueOnce(undefined);
+
+      const id = await saveGmailAccount(gmailInput);
+
+      expect(id).toBe("gmail-existing");
+      const [updateSql] = mockExecute.mock.calls[1] as [string, unknown[]];
+      expect(updateSql).toContain("UPDATE accounts");
     });
   });
 

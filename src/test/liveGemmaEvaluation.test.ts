@@ -15,7 +15,7 @@ vi.mock("@/services/ai/piEmailTools", async () => {
 });
 
 describe("Live AI Evaluation: Gemma 4 E4B on Local Llama Server", () => {
-  const serverUrl = "http://127.0.0.1:3000";
+  const serverUrl = "http://127.0.0.1:18420";
   const model = "gemma-4-e4b";
 
   it("Prompt 1 (Flight Itinerary): accurately extracts date, flight number, and confirmation code", async () => {

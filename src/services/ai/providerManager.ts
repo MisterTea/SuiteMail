@@ -8,6 +8,7 @@ import { createGeminiProvider, clearGeminiProvider } from "./providers/geminiPro
 import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
 import { createPiProvider, clearPiProvider } from "./providers/piProvider";
+import { loadPiServerUrl } from "./llamaServer";
 import { createAiCoreProvider, clearAiCoreProvider } from "./providers/aicoreProvider";
 
 const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama" | "pi" | "aicore">, string> = {
@@ -75,7 +76,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
   }
 
   if (providerName === "pi") {
-    const serverUrl = (await getSetting("pi_server_url")) ?? "http://localhost:3000";
+    const serverUrl = await loadPiServerUrl();
     const model = (await getSetting("pi_model")) ?? DEFAULT_MODELS.pi;
     const cacheKey = `${serverUrl}|${model}`;
 

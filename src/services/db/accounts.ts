@@ -95,10 +95,78 @@ export async function getAccountByEmail(
   email: string,
 ): Promise<DbAccount | null> {
   const account = await selectFirstBy<DbAccount>(
-    "SELECT * FROM accounts WHERE email = $1",
+    "SELECT * FROM accounts WHERE lower(email) = lower($1)",
     [email],
   );
   return account ? decryptAccountTokens(account) : null;
+}
+
+function isUniqueConstraintError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("UNIQUE constraint failed");
+}
+
+/**
+ * Insert a Gmail account, or refresh the existing row when that email is already stored.
+ * Returns the account id that should be shown in the UI.
+ */
+export async function saveGmailAccount(account: {
+  id: string;
+  email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+}): Promise<string> {
+  const existing = await getAccountByEmail(account.email);
+  if (existing) {
+    await reconnectGmailAccount({ ...account, id: existing.id });
+    return existing.id;
+  }
+
+  try {
+    await insertAccount(account);
+    return account.id;
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+    const again = await getAccountByEmail(account.email);
+    if (!again) throw err;
+    await reconnectGmailAccount({ ...account, id: again.id });
+    return again.id;
+  }
+}
+
+async function reconnectGmailAccount(account: {
+  id: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+}): Promise<void> {
+  const db = await getDb();
+  const encAccessToken = await encryptValue(account.accessToken);
+  const encRefreshToken = await encryptValue(account.refreshToken);
+  await db.execute(
+    `UPDATE accounts
+     SET display_name = $1,
+         avatar_url = $2,
+         access_token = $3,
+         refresh_token = $4,
+         token_expires_at = $5,
+         is_active = 1,
+         updated_at = unixepoch()
+     WHERE id = $6`,
+    [
+      account.displayName,
+      account.avatarUrl,
+      encAccessToken,
+      encRefreshToken,
+      account.tokenExpiresAt,
+      account.id,
+    ],
+  );
 }
 
 export async function insertAccount(account: {

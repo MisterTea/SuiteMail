@@ -14,7 +14,7 @@ describe("forwardQuoteBuilder", () => {
 
     expect(quote).toContain("---------- Forwarded message ---------");
     expect(quote).toContain("forwarded-message-card");
-    expect(quote).toContain("border-left: 3px solid #6366f1");
+    expect(quote).toContain("border-left: 3px solid #188038");
     expect(quote).toContain("Alice Smith");
     expect(quote).toContain("alice@example.com");
     expect(quote).toContain("Project Roadmap");

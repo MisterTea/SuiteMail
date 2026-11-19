@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Paperclip, X } from "lucide-react";
+import { FileSignature, Paperclip, X } from "lucide-react";
 import { useComposerStore, type ComposerAttachment } from "@/stores/composerStore";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { formatFileSize, getFileTypeMeta } from "@/utils/fileTypeHelpers";
@@ -10,6 +10,8 @@ const MAX_TOTAL_SIZE = 24 * 1024 * 1024; // 24MB
 export function AttachmentPicker() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const attachments = useComposerStore((s) => s.attachments);
+  const mode = useComposerStore((s) => s.mode);
+  const setContractActive = useComposerStore((s) => s.setContractActive);
   const addAttachment = useComposerStore((s) => s.addAttachment);
   const removeAttachment = useComposerStore((s) => s.removeAttachment);
 
@@ -58,6 +60,18 @@ export function AttachmentPicker() {
           <Paperclip size={14} className="text-text-tertiary" />
           <span>Attach</span>
         </button>
+
+        {mode === "new" && (
+          <button
+            type="button"
+            onClick={() => setContractActive(true)}
+            className="flex items-center gap-1.5 text-xs font-medium text-text-tertiary hover:text-text-primary transition-colors py-1 px-2 rounded-md hover:bg-bg-hover/80 active:scale-95 cursor-pointer"
+            title="Start a signed contract"
+          >
+            <FileSignature size={14} className="text-text-tertiary" />
+            <span>Start Contract</span>
+          </button>
+        )}
 
         {attachments.map((att) => {
           const meta = getFileTypeMeta(att.mimeType, att.filename);

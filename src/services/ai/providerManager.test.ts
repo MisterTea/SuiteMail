@@ -5,10 +5,12 @@ vi.mock("@/services/db/settings", () => {
   return {
     getSetting: fn,
     getSecureSetting: fn,
+    setSetting: vi.fn(async () => {}),
   };
 });
 
 import { createMockAiProvider } from "@/test/mocks";
+import { DEFAULT_PI_SERVER_URL } from "./llamaServer";
 
 vi.mock("./providers/claudeProvider", () => ({
   createClaudeProvider: vi.fn(() => createMockAiProvider("claude response")),
@@ -205,7 +207,7 @@ describe("providerManager", () => {
       });
 
       await getActiveProvider();
-      expect(createPiProvider).toHaveBeenCalledWith("http://localhost:3000", "gemma-4-e4b");
+      expect(createPiProvider).toHaveBeenCalledWith(DEFAULT_PI_SERVER_URL, "gemma-4-e4b");
     });
 
     it("creates pi provider with custom model and url", async () => {

@@ -9,7 +9,7 @@ vi.mock("@/services/gmail/auth", () => ({
 }));
 
 vi.mock("@/services/db/accounts", () => ({
-  insertAccount: vi.fn().mockResolvedValue(undefined),
+  saveGmailAccount: vi.fn().mockResolvedValue("account-1"),
 }));
 
 vi.mock("@/services/db/settings", () => ({
@@ -19,10 +19,12 @@ vi.mock("@/services/db/settings", () => ({
 
 describe("AddAccount - Gmail Flow", () => {
   const originalEnv = process.env.GMAIL_OAUTH_CLIENT_ID;
+  const originalSecret = process.env.GMAIL_OAUTH_CLIENT_SECRET;
 
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.GMAIL_OAUTH_CLIENT_ID;
+    delete process.env.GMAIL_OAUTH_CLIENT_SECRET;
   });
 
   afterEach(() => {
@@ -31,10 +33,16 @@ describe("AddAccount - Gmail Flow", () => {
     } else {
       delete process.env.GMAIL_OAUTH_CLIENT_ID;
     }
+    if (originalSecret !== undefined) {
+      process.env.GMAIL_OAUTH_CLIENT_SECRET = originalSecret;
+    } else {
+      delete process.env.GMAIL_OAUTH_CLIENT_SECRET;
+    }
   });
 
   it("does not prompt user to enter client id when GMAIL_OAUTH_CLIENT_ID is in .env and goes directly to authenticating", async () => {
     process.env.GMAIL_OAUTH_CLIENT_ID = "env-client-id-12345.apps.googleusercontent.com";
+    process.env.GMAIL_OAUTH_CLIENT_SECRET = "env-client-secret";
 
     // Return a pending promise so it stays in "authenticating" state
     vi.mocked(auth.startOAuthFlow).mockReturnValue(new Promise(() => {}));
@@ -45,11 +53,11 @@ describe("AddAccount - Gmail Flow", () => {
     const gmailButton = screen.getByText("Google (Gmail)");
     fireEvent.click(gmailButton);
 
-    // Verify it called startOAuthFlow with the env client ID
+    // Verify it called startOAuthFlow with the env client ID and secret
     await waitFor(() => {
       expect(auth.startOAuthFlow).toHaveBeenCalledWith(
         "env-client-id-12345.apps.googleusercontent.com",
-        undefined,
+        "env-client-secret",
       );
     });
 

@@ -75,7 +75,7 @@ export const useUIStore = create<UIState>((set) => ({
   defaultReplyMode: "reply",
   markAsReadBehavior: "instant",
   fontScale: typeof window !== "undefined" && window.innerWidth < 768 ? "large" : "default",
-  colorTheme: "indigo",
+  colorTheme: "leaf",
   sendAndArchive: false,
   inboxViewMode: "unified",
   taskSidebarVisible: false,

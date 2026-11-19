@@ -74,7 +74,7 @@ const FEATURES = [
   {
     icon: Palette,
     title: 'Themes & density',
-    description: '8 accent colors, light & dark mode, 4 density levels, adjustable font scaling. Make it yours.',
+    description: '9 accent colors, light & dark mode, 4 density levels, adjustable font scaling. Make it yours.',
   },
 ]
 

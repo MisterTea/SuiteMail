@@ -2,6 +2,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { createDraft as createDraftAction, updateDraft as updateDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { useAccountStore } from "@/stores/accountStore";
+import { embedDraftContract } from "@/services/contracts/contractMessage";
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 let unsubscribe: (() => void) | null = null;
@@ -20,7 +21,7 @@ async function saveDraft(): Promise<void> {
   if (!account) return;
 
   // Don't save empty drafts
-  if (!state.bodyHtml && !state.subject && state.to.length === 0) return;
+  if (!state.bodyHtml && !state.subject && state.to.length === 0 && !state.contractText.trim()) return;
 
   state.setIsSaving(true);
 
@@ -29,7 +30,10 @@ async function saveDraft(): Promise<void> {
       from: account.email,
       to: state.to.length > 0 ? state.to : [""],
       subject: state.subject,
-      htmlBody: state.bodyHtml,
+      htmlBody: embedDraftContract(
+        state.bodyHtml,
+        state.contractActive ? state.contractText : "",
+      ),
       threadId: state.threadId ?? undefined,
       attachments: state.attachments.length > 0
         ? state.attachments.map((a) => ({
@@ -82,7 +86,9 @@ export function startAutoSave(accountId: string): void {
         state.to !== prevState.to ||
         state.cc !== prevState.cc ||
         state.bcc !== prevState.bcc ||
-        state.attachments !== prevState.attachments
+        state.attachments !== prevState.attachments ||
+        state.contractText !== prevState.contractText ||
+        state.contractActive !== prevState.contractActive
       ) {
         scheduleSave();
       }

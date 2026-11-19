@@ -23,6 +23,8 @@ describe("composerStore", () => {
       viewMode: "modal",
       signatureHtml: "",
       signatureId: null,
+      contractActive: false,
+      contractText: "",
     });
   });
 
@@ -83,6 +85,8 @@ describe("composerStore", () => {
     expect(state.to).toEqual([]);
     expect(state.subject).toBe("");
     expect(state.threadId).toBeNull();
+    expect(state.contractActive).toBe(false);
+    expect(state.contractText).toBe("");
   });
 
   it("updates individual fields", () => {

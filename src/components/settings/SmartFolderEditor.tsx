@@ -164,7 +164,7 @@ export function SmartFolderEditor() {
                 type="text"
                 value={color}
                 onChange={(e) => setColor(e.target.value)}
-                placeholder="#6366f1"
+                placeholder="#188038"
                 className="w-full px-3 py-1 bg-bg-tertiary border border-border-primary rounded text-xs text-text-primary outline-none focus:border-accent"
               />
             </div>

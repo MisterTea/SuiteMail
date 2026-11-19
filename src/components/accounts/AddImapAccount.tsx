@@ -24,6 +24,7 @@ import {
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { getEnvGmailCredentials } from "@/services/gmail/tokenManager";
 import { isProtonEmail } from "@/services/proton/protonBridgeService";
 
 interface AddImapAccountProps {
@@ -34,6 +35,15 @@ interface AddImapAccountProps {
 
 type Step = "basic" | "imap" | "smtp" | "test";
 type AuthMode = "password" | "oauth2";
+
+/** .env desktop client when both values are set, otherwise the saved Settings pair. */
+async function resolveGoogleClientCredentials(): Promise<{ clientId: string; clientSecret: string }> {
+  const env = getEnvGmailCredentials();
+  if (env) return env;
+  const savedId = (await getSetting("google_client_id"))?.trim() ?? "";
+  const savedSecret = (await getSecureSetting("google_client_secret"))?.trim() ?? "";
+  return { clientId: savedId, clientSecret: savedSecret };
+}
 
 interface FormState {
   email: string;
@@ -154,12 +164,11 @@ export function AddImapAccount({
 
       if (result.oauthProviderId === "google" && !oauthClientId) {
         try {
-          const savedId = await getSetting("google_client_id");
-          const savedSecret = await getSecureSetting("google_client_secret");
-          if (savedId) oauthClientId = savedId;
-          if (savedSecret) oauthClientSecret = savedSecret;
-        } catch {
-          // ignore error reading settings
+          const creds = await resolveGoogleClientCredentials();
+          if (creds.clientId) oauthClientId = creds.clientId;
+          if (creds.clientSecret) oauthClientSecret = creds.clientSecret;
+        } catch (err) {
+          setOauthError(err instanceof Error ? err.message : String(err));
         }
       }
 
@@ -542,16 +551,14 @@ export function AddImapAccount({
                 const prov = e.target.value || null;
                 updateForm("oauthProvider", prov);
                 if (prov === "google") {
-                  getSetting("google_client_id")
-                    .then((id) => {
-                      if (id) updateForm("oauthClientId", id);
+                  resolveGoogleClientCredentials()
+                    .then((creds) => {
+                      if (creds.clientId) updateForm("oauthClientId", creds.clientId);
+                      if (creds.clientSecret) updateForm("oauthClientSecret", creds.clientSecret);
                     })
-                    .catch(() => {});
-                  getSecureSetting("google_client_secret")
-                    .then((sec) => {
-                      if (sec) updateForm("oauthClientSecret", sec);
-                    })
-                    .catch(() => {});
+                    .catch((err) => {
+                      setOauthError(err instanceof Error ? err.message : String(err));
+                    });
                 }
               }}
               className={selectClass}
