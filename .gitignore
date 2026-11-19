@@ -81,3 +81,6 @@ velo-*.tar.gz
 *.flatpak
 *.rpm
 *.src.rpm
+
+.vercel
+.env*

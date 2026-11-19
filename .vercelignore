@@ -1,0 +1,16 @@
+# Submodules and large native code
+submodules/
+src-tauri/target/
+
+# Local databases, logs and test data
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# Test coverage and artifacts
+coverage/
+playwright-report/
+test-results/
+.flatpak-builder/
