@@ -95,13 +95,61 @@ fn json_value_to_param(val: Value) -> DynamicSqlParam {
     }
 }
 
+pub fn normalize_query(query: &str) -> String {
+    let mut out = String::with_capacity(query.len());
+    let mut chars = query.chars().peekable();
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    while let Some(c) = chars.next() {
+        if in_single_quote {
+            out.push(c);
+            if c == '\'' {
+                if chars.peek() == Some(&'\'') {
+                    out.push(chars.next().unwrap());
+                } else {
+                    in_single_quote = false;
+                }
+            }
+        } else if in_double_quote {
+            out.push(c);
+            if c == '"' {
+                in_double_quote = false;
+            }
+        } else {
+            match c {
+                '\'' => {
+                    in_single_quote = true;
+                    out.push(c);
+                }
+                '"' => {
+                    in_double_quote = true;
+                    out.push(c);
+                }
+                '$' => {
+                    if let Some(&next_c) = chars.peek() {
+                        if next_c.is_ascii_digit() {
+                            out.push('?');
+                            continue;
+                        }
+                    }
+                    out.push(c);
+                }
+                _ => out.push(c),
+            }
+        }
+    }
+    out
+}
+
 pub fn db_select(query: &str, params: Vec<Value>) -> Result<Value, String> {
     let guard = DB_CONN.lock().map_err(|e| e.to_string())?;
     let conn = guard.as_ref().ok_or("Database not initialized")?;
 
+    let normalized = normalize_query(query);
     let mut stmt = conn
-        .prepare(query)
-        .map_err(|e| format!("Query prepare error: {e} in {query}"))?;
+        .prepare(&normalized)
+        .map_err(|e| format!("Query prepare error: {e} in {normalized}"))?;
     let col_names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
 
     let sql_params: Vec<DynamicSqlParam> = params.into_iter().map(json_value_to_param).collect();
@@ -114,7 +162,7 @@ pub fn db_select(query: &str, params: Vec<Value>) -> Result<Value, String> {
             }
             Ok(Value::Object(obj))
         })
-        .map_err(|e| format!("Query map error: {e} in {query}"))?;
+        .map_err(|e| format!("Query map error: {e} in {normalized}"))?;
 
     let mut results = Vec::new();
     for r in rows {
@@ -127,10 +175,11 @@ pub fn db_execute(query: &str, params: Vec<Value>) -> Result<Value, String> {
     let guard = DB_CONN.lock().map_err(|e| e.to_string())?;
     let conn = guard.as_ref().ok_or("Database not initialized")?;
 
+    let normalized = normalize_query(query);
     let sql_params: Vec<DynamicSqlParam> = params.into_iter().map(json_value_to_param).collect();
     let rows_affected = conn
-        .execute(query, params_from_iter(sql_params.iter()))
-        .map_err(|e| format!("Execute error: {e} in {query}"))?;
+        .execute(&normalized, params_from_iter(sql_params.iter()))
+        .map_err(|e| format!("Execute error: {e} in {normalized}"))?;
 
     let last_insert_id = conn.last_insert_rowid();
 
@@ -174,6 +223,16 @@ mod tests {
         assert_eq!(rows[0]["id"], "item-1");
         assert_eq!(rows[0]["count"], 42);
         assert_eq!(rows[0]["title"], "Test Item");
+
+        // Test out-of-order positional parameter binding ($2 appears before $1 in query)
+        let select_out_of_order = db_select(
+            "SELECT count as c FROM items WHERE title = $2 AND id = $1;",
+            vec![json!("item-1"), json!("Test Item")],
+        )
+        .unwrap();
+        let rows_ooo = select_out_of_order.as_array().unwrap();
+        assert_eq!(rows_ooo.len(), 1);
+        assert_eq!(rows_ooo[0]["c"], 42);
 
         // Test FTS5 table creation and querying
         db_execute(
