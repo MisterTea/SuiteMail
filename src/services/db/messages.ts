@@ -116,6 +116,33 @@ export async function upsertMessage(msg: {
   );
 }
 
+/** Point a stored message at the id Graph returned after a move. */
+export async function relinkMessageId(
+  accountId: string,
+  oldId: string,
+  newId: string,
+  folderId: string | null,
+): Promise<void> {
+  const db = await getDb();
+  if (newId !== oldId) {
+    await db.execute(
+      "UPDATE attachments SET message_id = $1 WHERE account_id = $2 AND message_id = $3",
+      [newId, accountId, oldId],
+    );
+    await db.execute(
+      "UPDATE messages SET id = $1, imap_folder = COALESCE($2, imap_folder) WHERE account_id = $3 AND id = $4",
+      [newId, folderId, accountId, oldId],
+    );
+    return;
+  }
+  if (folderId) {
+    await db.execute(
+      "UPDATE messages SET imap_folder = $1 WHERE account_id = $2 AND id = $3",
+      [folderId, accountId, oldId],
+    );
+  }
+}
+
 export async function deleteMessage(
   accountId: string,
   messageId: string,

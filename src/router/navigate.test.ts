@@ -42,6 +42,21 @@ describe("navigate", () => {
       });
     });
 
+    it("should navigate to Gmail sidebar labels via /mail/$label", () => {
+      navigateToLabel("important");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/mail/$label",
+        params: { label: "important" },
+        search: {},
+      });
+      navigateToLabel("promotions");
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: "/mail/$label",
+        params: { label: "promotions" },
+        search: {},
+      });
+    });
+
     it("should navigate to starred", () => {
       navigateToLabel("starred");
       expect(mockNavigate).toHaveBeenCalledWith({

@@ -2,6 +2,8 @@ import { create } from "zustand";
 import { getLabelsForAccount, deleteLabel as dbDeleteLabel, updateLabelSortOrder } from "@/services/db/labels";
 import { upsertLabel } from "@/services/db/labels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
+import { useAccountStore } from "@/stores/accountStore";
+import { getEmailProvider } from "@/services/email/providerFactory";
 
 export interface Label {
   id: string;
@@ -25,6 +27,7 @@ const SYSTEM_LABEL_IDS = new Set([
   "IMPORTANT",
   "SNOOZED",
   "CHAT",
+  "FOCUSED",
 ]);
 
 const CATEGORY_PREFIX = "CATEGORY_";
@@ -73,6 +76,22 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   clearLabels: () => set({ labels: [], isLoading: false }),
 
   createLabel: async (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => {
+    const account = useAccountStore.getState().accounts.find((item) => item.id === accountId);
+    if (account?.provider === "msgraph" || account?.provider === "ews") {
+      const provider = await getEmailProvider(accountId);
+      const folder = await provider.createFolder(name);
+      await upsertLabel({
+        id: folder.path,
+        accountId,
+        name: folder.name,
+        type: "user",
+        imapFolderPath: folder.path,
+        colorBg: color?.backgroundColor ?? null,
+        colorFg: color?.textColor ?? null,
+      });
+      await get().loadLabels(accountId);
+      return;
+    }
     const client = await getGmailClient(accountId);
     const gmailLabel = await client.createLabel(name, color);
     await upsertLabel({
@@ -87,6 +106,24 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   },
 
   updateLabel: async (accountId: string, labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }) => {
+    const account = useAccountStore.getState().accounts.find((item) => item.id === accountId);
+    if (account?.provider === "msgraph" || account?.provider === "ews") {
+      if (updates.name) {
+        const provider = await getEmailProvider(accountId);
+        await provider.renameFolder(labelId, updates.name);
+      }
+      const current = get().labels.find((label) => label.id === labelId);
+      await upsertLabel({
+        id: labelId,
+        accountId,
+        name: updates.name ?? current?.name ?? labelId,
+        type: current?.type ?? "user",
+        colorBg: updates.color === null ? null : (updates.color?.backgroundColor ?? current?.colorBg ?? null),
+        colorFg: updates.color === null ? null : (updates.color?.textColor ?? current?.colorFg ?? null),
+      });
+      await get().loadLabels(accountId);
+      return;
+    }
     const client = await getGmailClient(accountId);
     const gmailLabel = await client.updateLabel(labelId, updates);
     await upsertLabel({
@@ -101,6 +138,14 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   },
 
   deleteLabel: async (accountId: string, labelId: string) => {
+    const account = useAccountStore.getState().accounts.find((item) => item.id === accountId);
+    if (account?.provider === "msgraph" || account?.provider === "ews") {
+      const provider = await getEmailProvider(accountId);
+      await provider.deleteFolder(labelId);
+      await dbDeleteLabel(accountId, labelId);
+      await get().loadLabels(accountId);
+      return;
+    }
     const client = await getGmailClient(accountId);
     await client.deleteLabel(labelId);
     await dbDeleteLabel(accountId, labelId);

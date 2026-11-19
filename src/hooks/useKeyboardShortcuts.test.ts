@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const { selectAll } = vi.hoisted(() => ({ selectAll: vi.fn() }));
+
 // Mock dependencies needed for the hook to mount and dispatch events.
 // The hook reads store state and calls navigate/emailActions — only mock
 // what's needed for the three event-dispatch tests below.
@@ -15,7 +17,7 @@ vi.mock("@/stores/threadStore", () => ({
       removeThreads: vi.fn(),
       updateThread: vi.fn(),
       clearMultiSelect: vi.fn(),
-      selectAll: vi.fn(),
+      selectAll,
       selectAllFromHere: vi.fn(),
     }),
   },
@@ -33,6 +35,7 @@ vi.mock("@/stores/shortcutStore", () => ({
         "app.askInbox": "i",
         "app.commandPalette": "/",
         "app.toggleSidebar": "Ctrl+Shift+E",
+        "action.selectAll": "Ctrl+A",
         "app.help": "?",
       },
     }),
@@ -66,7 +69,7 @@ vi.mock("@/services/gmail/draftDeletion", () => ({ deleteDraftsForThread: vi.fn(
 vi.mock("@/services/gmail/tokenManager", () => ({ getGmailClient: vi.fn() }));
 vi.mock("@/services/db/messages", () => ({ getMessagesForThread: vi.fn() }));
 vi.mock("@/components/email/MessageItem", () => ({ parseUnsubscribeUrl: vi.fn() }));
-vi.mock("@/platform", () => ({ platformOpenUrl: vi.fn() }));
+vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@/services/gmail/syncManager", () => ({ triggerSync: vi.fn() }));
 
 import { renderHook } from "@testing-library/react";
@@ -75,6 +78,35 @@ import { useKeyboardShortcuts } from "./useKeyboardShortcuts";
 describe("useKeyboardShortcuts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("lets a text field handle Cmd+A and still selects threads otherwise", () => {
+    renderHook(() => useKeyboardShortcuts());
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    const inField = new KeyboardEvent("keydown", {
+      key: "a",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(inField);
+
+    expect(inField.defaultPrevented).toBe(false);
+    expect(selectAll).not.toHaveBeenCalled();
+
+    const inMailbox = new KeyboardEvent("keydown", {
+      key: "a",
+      metaKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(inMailbox);
+
+    expect(inMailbox.defaultPrevented).toBe(true);
+    expect(selectAll).toHaveBeenCalledTimes(1);
+    input.remove();
   });
 
   it("dispatches velo-toggle-ask-inbox when 'i' is pressed", () => {

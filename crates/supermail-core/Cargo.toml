@@ -26,6 +26,8 @@ base64 = "0.22"
 utf7-imap = "0.3"
 socket2 = "0.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
+quick-xml = "0.37"
+io-msgraph = "0.9.3"
 
 [build-dependencies]
 napi-build = "2"

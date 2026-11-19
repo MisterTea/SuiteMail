@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mail, Calendar, Shield } from "lucide-react";
+import { Mail, Calendar, Shield, Building2 } from "lucide-react";
 import { startOAuthFlow } from "@/services/gmail/auth";
 import { saveGmailAccount } from "@/services/db/accounts";
 import { getClientId, getClientSecret } from "@/services/gmail/tokenManager";
@@ -9,6 +9,8 @@ import { SetupClientId } from "./SetupClientId";
 import { AddImapAccount } from "./AddImapAccount";
 import { AddCalDavAccount } from "./AddCalDavAccount";
 import { AddProtonAccount } from "./AddProtonAccount";
+import { AddMicrosoftAccount } from "./AddMicrosoftAccount";
+import { AddEwsAccount } from "./AddEwsAccount";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 
 interface AddAccountProps {
@@ -16,7 +18,7 @@ interface AddAccountProps {
   onSuccess: () => void;
 }
 
-type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton";
+type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton" | "microsoft" | "ews";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const [view, setView] = useState<View>("select-provider");
@@ -82,6 +84,26 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
           setStatus("idle");
         }}
         onCancel={onClose}
+      />
+    );
+  }
+
+  if (view === "microsoft") {
+    return (
+      <AddMicrosoftAccount
+        onClose={onClose}
+        onSuccess={onSuccess}
+        onBack={() => setView("select-provider")}
+      />
+    );
+  }
+
+  if (view === "ews") {
+    return (
+      <AddEwsAccount
+        onClose={onClose}
+        onSuccess={onSuccess}
+        onBack={() => setView("select-provider")}
       />
     );
   }
@@ -217,6 +239,40 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
                 Connect via OAuth with full Gmail API support
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setView("microsoft")}
+            className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
+          >
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-bg-tertiary flex items-center justify-center">
+              <Building2 className="w-5 h-5 text-text-secondary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
+                Microsoft 365
+              </div>
+              <div className="text-xs text-text-tertiary mt-0.5">
+                Office 365 mail via Microsoft Graph
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setView("ews")}
+            className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
+          >
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-bg-tertiary flex items-center justify-center">
+              <Mail className="w-5 h-5 text-text-secondary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
+                Microsoft Office 365 Legacy (EWS)
+              </div>
+              <div className="text-xs text-text-tertiary mt-0.5">
+                Office 365 mail via Exchange Web Services
               </div>
             </div>
           </button>

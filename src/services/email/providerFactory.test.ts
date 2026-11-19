@@ -6,6 +6,8 @@ import {
 } from "./providerFactory";
 import { GmailApiProvider } from "./gmailProvider";
 import { ImapSmtpProvider } from "./imapSmtpProvider";
+import { MsGraphProvider } from "./msgraphProvider";
+import { EwsProvider } from "./ewsProvider";
 import { getAccount } from "../db/accounts";
 import { getGmailClient } from "../gmail/tokenManager";
 
@@ -92,6 +94,78 @@ describe("providerFactory", () => {
     expect(provider).toBeInstanceOf(ImapSmtpProvider);
     expect(provider.accountId).toBe("acc-2");
     expect(provider.type).toBe("imap");
+  });
+
+  it("returns MsGraphProvider for Microsoft Graph accounts", async () => {
+    vi.mocked(getAccount).mockResolvedValue({
+      id: "acc-graph",
+      email: "eid@utexas.edu",
+      display_name: null,
+      avatar_url: null,
+      access_token: "token",
+      refresh_token: "refresh",
+      token_expires_at: 9999999999,
+      history_id: null,
+      last_sync_at: null,
+      is_active: 1,
+      created_at: 0,
+      updated_at: 0,
+      provider: "msgraph",
+      imap_host: null,
+      imap_port: null,
+      imap_security: null,
+      smtp_host: null,
+      smtp_port: null,
+      smtp_security: null,
+      auth_method: "oauth2",
+      imap_password: null,
+      oauth_provider: "microsoft_graph",
+      oauth_client_id: "bd4d4c73-8649-4fd0-9c9d-3a88e73432f5",
+      oauth_client_secret: null,
+      oauth_tenant: "31d7e2a5-bdd8-414e-9e97-bea998ebdfe1",
+      oauth_redirect_uri: "https://login.microsoftonline.com/common/oauth2/nativeclient",
+    });
+
+    const provider = await getEmailProvider("acc-graph");
+
+    expect(provider).toBeInstanceOf(MsGraphProvider);
+    expect(provider.type).toBe("msgraph");
+  });
+
+  it("returns EwsProvider for Office 365 Legacy accounts", async () => {
+    vi.mocked(getAccount).mockResolvedValue({
+      id: "acc-ews",
+      email: "person@organization.com",
+      display_name: null,
+      avatar_url: null,
+      access_token: "token",
+      refresh_token: "refresh",
+      token_expires_at: 9999999999,
+      history_id: null,
+      last_sync_at: null,
+      is_active: 1,
+      created_at: 0,
+      updated_at: 0,
+      provider: "ews",
+      imap_host: null,
+      imap_port: null,
+      imap_security: null,
+      smtp_host: null,
+      smtp_port: null,
+      smtp_security: null,
+      auth_method: "oauth2",
+      imap_password: null,
+      oauth_provider: "microsoft_ews",
+      oauth_client_id: "app-id",
+      oauth_client_secret: null,
+      oauth_tenant: "organizations",
+      oauth_redirect_uri: "",
+    });
+
+    const provider = await getEmailProvider("acc-ews");
+
+    expect(provider).toBeInstanceOf(EwsProvider);
+    expect(provider.type).toBe("ews");
   });
 
   it("caches providers and returns same instance", async () => {

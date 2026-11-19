@@ -226,6 +226,131 @@ export async function getUnreadInboxCount(): Promise<number> {
   return rows[0]?.count ?? 0;
 }
 
+/** Unread inbox conversations for one account. This is the number Gmail shows on Inbox. */
+export async function getUnreadInboxCountForAccount(accountId: string): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(*) as count FROM threads t
+     INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
+     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_read = 0 AND t.is_filtered = 1`,
+    [accountId],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+/**
+ * Threads that carry every listed label. Used for Gmail category views,
+ * which are inbox mail plus a CATEGORY_* label.
+ */
+export async function getThreadsForLabels(
+  accountId: string,
+  labelIds: string[],
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  const ids = labelIds.filter((id) => id.length > 0);
+  if (ids.length === 0) return getThreadsForAccount(accountId, undefined, limit, offset);
+  if (ids.length === 1) return getThreadsForAccount(accountId, ids[0], limit, offset);
+
+  const db = await getDb();
+  const joins = ids
+    .map(
+      (_, i) =>
+        `INNER JOIN thread_labels tl${i} ON tl${i}.account_id = t.account_id AND tl${i}.thread_id = t.id AND tl${i}.label_id = $${i + 2}`,
+    )
+    .join("\n");
+  const limitParam = ids.length + 2;
+  const offsetParam = ids.length + 3;
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
+     ${joins}
+     LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+       AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
+     WHERE t.account_id = $1 AND t.is_filtered = 1
+     GROUP BY t.account_id, t.id
+     ORDER BY t.is_pinned DESC, t.last_message_at DESC
+     LIMIT $${limitParam} OFFSET $${offsetParam}`,
+    [accountId, ...ids, limit, offset],
+  );
+}
+
+/** Unread inbox conversations that also have one of the given labels, keyed by that label id. */
+export async function getUnreadInboxCountsForLabels(
+  accountId: string,
+  labelIds: string[],
+): Promise<Map<string, number>> {
+  const counts = new Map<string, number>();
+  if (labelIds.length === 0) return counts;
+  const db = await getDb();
+  const placeholders = labelIds.map((_, i) => `$${i + 2}`).join(", ");
+  const rows = await db.select<{ label_id: string; count: number }[]>(
+    `SELECT cat.label_id as label_id, COUNT(DISTINCT t.id) as count
+     FROM threads t
+     INNER JOIN thread_labels inbox ON inbox.account_id = t.account_id AND inbox.thread_id = t.id AND inbox.label_id = 'INBOX'
+     INNER JOIN thread_labels cat ON cat.account_id = t.account_id AND cat.thread_id = t.id
+       AND cat.label_id IN (${placeholders})
+     WHERE t.account_id = $1 AND t.is_read = 0 AND t.is_filtered = 1
+     GROUP BY cat.label_id`,
+    [accountId, ...labelIds],
+  );
+  for (const row of rows) counts.set(row.label_id, row.count);
+  return counts;
+}
+
+/**
+ * Threads in INBOX that do not have the FOCUSED label.
+ * Used for the "Other" tab in EWS accounts.
+ */
+export async function getThreadsForOtherInbox(
+  accountId: string,
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  const db = await getDb();
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address, m.to_addresses FROM threads t
+     INNER JOIN thread_labels inbox ON inbox.account_id = t.account_id AND inbox.thread_id = t.id AND inbox.label_id = 'INBOX'
+     LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+       AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
+     WHERE t.account_id = $1 AND t.is_filtered = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels fl
+         WHERE fl.account_id = t.account_id AND fl.thread_id = t.id AND fl.label_id = 'FOCUSED'
+       )
+     GROUP BY t.account_id, t.id
+     ORDER BY t.is_pinned DESC, t.last_message_at DESC
+     LIMIT $2 OFFSET $3`,
+    [accountId, limit, offset],
+  );
+}
+
+export async function getUnreadFocusedInboxCount(accountId: string): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(DISTINCT t.id) as count FROM threads t
+     INNER JOIN thread_labels inbox ON inbox.account_id = t.account_id AND inbox.thread_id = t.id AND inbox.label_id = 'INBOX'
+     INNER JOIN thread_labels fl ON fl.account_id = t.account_id AND fl.thread_id = t.id AND fl.label_id = 'FOCUSED'
+     WHERE t.account_id = $1 AND t.is_read = 0 AND t.is_filtered = 1`,
+    [accountId],
+  );
+  return rows[0]?.count ?? 0;
+}
+
+export async function getUnreadOtherInboxCount(accountId: string): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ count: number }[]>(
+    `SELECT COUNT(DISTINCT t.id) as count FROM threads t
+     INNER JOIN thread_labels inbox ON inbox.account_id = t.account_id AND inbox.thread_id = t.id AND inbox.label_id = 'INBOX'
+     WHERE t.account_id = $1 AND t.is_read = 0 AND t.is_filtered = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels fl
+         WHERE fl.account_id = t.account_id AND fl.thread_id = t.id AND fl.label_id = 'FOCUSED'
+       )`,
+    [accountId],
+  );
+  return rows[0]?.count ?? 0;
+}
+
 export async function deleteThread(
   accountId: string,
   threadId: string,

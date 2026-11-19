@@ -58,11 +58,48 @@ describe("resolveLabelChange", () => {
     });
   });
 
+  it("marks important without removing the source folder", () => {
+    expect(resolveLabelChange("important", "inbox")).toEqual({
+      addLabelIds: ["IMPORTANT"],
+      removeLabelIds: [],
+      stayInView: true,
+    });
+  });
+
+  it("moves between Gmail categories by swapping the category label", () => {
+    expect(resolveLabelChange("promotions", "social")).toEqual({
+      addLabelIds: ["CATEGORY_PROMOTIONS"],
+      removeLabelIds: ["CATEGORY_SOCIAL"],
+      stayInView: false,
+    });
+  });
+
+  it("adds a category without archiving when dropped from the inbox", () => {
+    expect(resolveLabelChange("updates", "inbox")).toEqual({
+      addLabelIds: ["CATEGORY_UPDATES"],
+      removeLabelIds: [],
+      stayInView: true,
+    });
+  });
+
   it("moves from user label to system label", () => {
     const result = resolveLabelChange("inbox", "Label_1");
     expect(result).toEqual({
       addLabelIds: ["INBOX"],
       removeLabelIds: ["Label_1"],
     });
+  });
+
+  it("handles dragging between focused and other", () => {
+    expect(resolveLabelChange("focused", "other")).toEqual({
+      addLabelIds: ["INBOX", "FOCUSED"],
+      removeLabelIds: [],
+    });
+    expect(resolveLabelChange("other", "focused")).toEqual({
+      addLabelIds: ["INBOX"],
+      removeLabelIds: ["FOCUSED"],
+    });
+    expect(resolveLabelChange("focused", "focused")).toBeNull();
+    expect(resolveLabelChange("other", "other")).toBeNull();
   });
 });

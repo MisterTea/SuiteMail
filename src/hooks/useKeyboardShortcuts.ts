@@ -103,10 +103,17 @@ export function useKeyboardShortcuts() {
       const keyMap = useShortcutStore.getState().keyMap;
       const { singleKey, twoKeySequences, ctrlCombos } = getCachedReverseMap(keyMap);
 
-      // Ctrl/Cmd shortcuts work everywhere
+      // Ctrl/Cmd shortcuts work outside text fields. Inside a field, select-all
+      // stays with the field so Cmd+A selects the letters, not the mailbox.
       if (e.ctrlKey || e.metaKey) {
         for (const [actionId, binding] of ctrlCombos) {
           if (matchesKey(binding, e)) {
+            if (
+              isInputFocused
+              && (actionId === "action.selectAll" || actionId === "action.selectFromHere")
+            ) {
+              return;
+            }
             e.preventDefault();
             executeAction(actionId);
             return;
@@ -225,9 +232,17 @@ async function executeAction(actionId: string): Promise<void> {
       }
       break;
     }
-    case "nav.goInbox":
-      navigateToLabel("inbox");
+    case "nav.goInbox": {
+      const activeAccount = useAccountStore.getState().accounts.find(
+        (a) => a.id === useAccountStore.getState().activeAccountId,
+      );
+      if (activeAccount?.provider === "ews") {
+        navigateToLabel("focused");
+      } else {
+        navigateToLabel("inbox");
+      }
       break;
+    }
     case "nav.goStarred":
       navigateToLabel("starred");
       break;

@@ -1,6 +1,8 @@
 import type { EmailProvider } from "./types";
 import { GmailApiProvider } from "./gmailProvider";
 import { ImapSmtpProvider } from "./imapSmtpProvider";
+import { MsGraphProvider } from "./msgraphProvider";
+import { EwsProvider } from "./ewsProvider";
 import { getAccount } from "../db/accounts";
 import { getGmailClient } from "../gmail/tokenManager";
 
@@ -21,7 +23,11 @@ export async function getEmailProvider(
 
   let provider: EmailProvider;
 
-  if (account.provider === "imap") {
+  if (account.provider === "msgraph") {
+    provider = new MsGraphProvider(accountId);
+  } else if (account.provider === "ews") {
+    provider = new EwsProvider(accountId);
+  } else if (account.provider === "imap") {
     provider = new ImapSmtpProvider(accountId);
   } else {
     // Default: gmail_api

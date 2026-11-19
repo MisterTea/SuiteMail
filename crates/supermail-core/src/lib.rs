@@ -9,6 +9,8 @@ pub mod smtp;
 pub mod proton_bridge;
 pub mod ai_backend;
 pub mod oauth;
+pub mod ews;
+pub mod msgraph;
 pub mod dispatcher;
 
 #[napi]

@@ -11,6 +11,7 @@ import {
 import { useThreadStore } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { addThreadLabel, removeThreadLabel } from "@/services/emailActions";
+import { gmailNavSpec } from "@/constants/gmailSidebar";
 
 // Map sidebar IDs to Gmail label IDs (same as EmailList)
 const LABEL_MAP: Record<string, string> = {
@@ -36,7 +37,32 @@ export interface DragData {
 export function resolveLabelChange(
   targetSidebarId: string,
   sourceLabel: string,
-): { addLabelIds: string[]; removeLabelIds: string[] } | null {
+): { addLabelIds: string[]; removeLabelIds: string[]; stayInView?: boolean } | null {
+  const targetSpec = gmailNavSpec(targetSidebarId);
+  if (targetSpec) {
+    const sourceSpec = gmailNavSpec(sourceLabel);
+    if (sourceSpec?.id === targetSpec.id) return null;
+    // Important and categories are labels, not folders. Dropping mail on
+    // them must not archive it. Moving between categories replaces the old one.
+    const removeLabelIds = sourceSpec?.inboxOnly && targetSpec.inboxOnly
+      ? [sourceSpec.gmailLabelId]
+      : [];
+    return {
+      addLabelIds: [targetSpec.gmailLabelId],
+      removeLabelIds,
+      stayInView: removeLabelIds.length === 0,
+    };
+  }
+
+  if (targetSidebarId === "focused") {
+    if (sourceLabel === "focused") return null;
+    return { addLabelIds: ["INBOX", "FOCUSED"], removeLabelIds: [] };
+  }
+  if (targetSidebarId === "other") {
+    if (sourceLabel === "other") return null;
+    return { addLabelIds: ["INBOX"], removeLabelIds: ["FOCUSED"] };
+  }
+
   const targetGmailId = LABEL_MAP[targetSidebarId] ?? targetSidebarId;
   const sourceGmailId = LABEL_MAP[sourceLabel] ?? sourceLabel;
 
@@ -101,8 +127,10 @@ export function DndProvider({ children }: DndProviderProps) {
           await removeThreadLabel(activeAccountId, threadId, labelId);
         }
       }
-      // Remove from current view
-      removeThreads(dragData.threadIds);
+      // Important and category drops keep the thread in the current folder.
+      if (!change.stayInView) {
+        removeThreads(dragData.threadIds);
+      }
     } catch (err) {
       console.error("Failed to move threads:", err);
     }

@@ -1,6 +1,6 @@
 import type { DbAccount } from "../db/accounts";
-import { updateAccountTokens } from "../db/accounts";
-import { getOAuthProvider } from "./providers";
+import { updateAccountAllTokens, updateAccountTokens } from "../db/accounts";
+import { getOAuthProvider, microsoftEwsProvider, microsoftGraphProvider } from "./providers";
 import { refreshProviderToken } from "./oauthFlow";
 
 /** Buffer before expiry to trigger a refresh (5 minutes) */
@@ -35,8 +35,13 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
     return account.access_token;
   }
 
-  // Token expired or about to expire — refresh it
-  const provider = getOAuthProvider(account.oauth_provider);
+  // Token expired or about to expire — refresh it.
+  // Graph tokens are tenant-specific; the static provider map is the IMAP client.
+  const provider = account.oauth_provider === "microsoft_graph"
+    ? microsoftGraphProvider(account.oauth_tenant || "organizations")
+    : account.oauth_provider === "microsoft_ews"
+      ? microsoftEwsProvider(account.oauth_tenant || "organizations")
+      : getOAuthProvider(account.oauth_provider);
   if (!provider) {
     throw new Error(`Unknown OAuth provider: ${account.oauth_provider}`);
   }
@@ -54,7 +59,17 @@ export async function ensureFreshToken(account: DbAccount): Promise<string> {
 
   const newExpiresAt = Math.floor(Date.now() / 1000) + tokens.expires_in;
 
-  await updateAccountTokens(account.id, tokens.access_token, newExpiresAt);
+  if (tokens.refresh_token) {
+    await updateAccountAllTokens(
+      account.id,
+      tokens.access_token,
+      tokens.refresh_token,
+      newExpiresAt,
+    );
+    account.refresh_token = tokens.refresh_token;
+  } else {
+    await updateAccountTokens(account.id, tokens.access_token, newExpiresAt);
+  }
 
   // Update the in-memory account object so callers get the fresh token
   account.access_token = tokens.access_token;

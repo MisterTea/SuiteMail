@@ -1,3 +1,5 @@
+import { assertSafeTenant, EWS_NATIVE_REDIRECT, EWS_RESOURCE, GRAPH_SCOPES } from "../microsoft/constants";
+
 export interface OAuthProviderConfig {
   id: string;
   name: string;
@@ -7,6 +9,13 @@ export interface OAuthProviderConfig {
   userInfoUrl?: string;
   /** Whether PKCE is required (Microsoft requires it, Yahoo supports it) */
   usePkce: boolean;
+  /** When set, the sign-in flow uses this redirect instead of localhost. */
+  redirectUri?: string;
+  /**
+   * Azure AD v1 resource. When set, authorize and token requests send this
+   * resource and omit scope, PKCE, and any client secret.
+   */
+  resource?: string;
 }
 
 const providers: Record<string, OAuthProviderConfig> = {
@@ -62,4 +71,38 @@ export function getOAuthProvider(id: string): OAuthProviderConfig | null {
 
 export function getAllOAuthProviders(): OAuthProviderConfig[] {
   return Object.values(providers);
+}
+
+/**
+ * Microsoft Graph delegated mail for one tenant.
+ * Kept off the static IMAP provider map so Outlook IMAP sign-in is unchanged.
+ */
+export function microsoftGraphProvider(tenant: string): OAuthProviderConfig {
+  const safeTenant = assertSafeTenant(tenant);
+  return {
+    id: "microsoft_graph",
+    name: "Microsoft 365",
+    authUrl: `https://login.microsoftonline.com/${safeTenant}/oauth2/v2.0/authorize`,
+    tokenUrl: `https://login.microsoftonline.com/${safeTenant}/oauth2/v2.0/token`,
+    scopes: [...GRAPH_SCOPES],
+    usePkce: true,
+  };
+}
+
+/**
+ * Exchange Web Services delegated mail for one tenant.
+ * Kept off the static provider map so Outlook IMAP and Graph sign-in stay unchanged.
+ */
+export function microsoftEwsProvider(tenant: string): OAuthProviderConfig {
+  const safeTenant = assertSafeTenant(tenant);
+  return {
+    id: "microsoft_ews",
+    name: "Microsoft Office 365 Legacy (EWS)",
+    authUrl: `https://login.microsoftonline.com/${safeTenant}/oauth2/authorize`,
+    tokenUrl: `https://login.microsoftonline.com/${safeTenant}/oauth2/token`,
+    scopes: [],
+    usePkce: false,
+    redirectUri: EWS_NATIVE_REDIRECT,
+    resource: EWS_RESOURCE,
+  };
 }

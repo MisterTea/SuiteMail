@@ -5,6 +5,8 @@ import { getSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
 import { deleteAllMessagesForAccount } from "../db/messages";
 import { imapInitialSync, imapDeltaSync } from "../imap/imapSync";
+import { syncGraphAccount } from "../microsoft/graphSync";
+import { syncEwsAccount } from "../microsoft/ewsSync";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
@@ -228,7 +230,23 @@ async function syncAccountInternal(accountId: string): Promise<void> {
       return;
     }
 
-    if (account.provider === "imap") {
+    if (account.provider === "ews") {
+      await syncEwsAccount(accountId, (phase, current, total) => {
+        statusCallback?.(accountId, "syncing", {
+          phase: phase === "folders" ? "labels" : phase === "done" ? "done" : "messages",
+          current,
+          total,
+        });
+      });
+    } else if (account.provider === "msgraph") {
+      await syncGraphAccount(accountId, (phase, current, total) => {
+        statusCallback?.(accountId, "syncing", {
+          phase: phase === "folders" ? "labels" : phase === "done" ? "done" : "messages",
+          current,
+          total,
+        });
+      });
+    } else if (account.provider === "imap") {
       await syncImapAccount(accountId);
     } else {
       await syncGmailAccount(accountId);

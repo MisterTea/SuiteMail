@@ -26,6 +26,10 @@ export interface DbAccount {
   oauth_provider: string | null;
   oauth_client_id: string | null;
   oauth_client_secret: string | null;
+  /** Microsoft Entra tenant for Graph accounts. Absent on rows migrated before v29. */
+  oauth_tenant?: string | null;
+  /** OAuth redirect used when the account was connected. */
+  oauth_redirect_uri?: string | null;
   imap_username: string | null;
   caldav_url: string | null;
   caldav_username: string | null;
@@ -341,6 +345,251 @@ export async function updateAccountCalDav(
       fields.caldavHomeUrl ?? null,
       fields.calendarProvider,
       accountId,
+    ],
+  );
+}
+
+/**
+ * Insert a Microsoft Graph account, or refresh the existing row for that email.
+ * A Gmail row is left alone so a Graph sign-in cannot replace Gmail tokens.
+ */
+export async function saveMsGraphAccount(account: {
+  id: string;
+  email: string;
+  displayName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  oauthClientId: string;
+  oauthClientSecret: string | null;
+  oauthTenant: string;
+  oauthRedirectUri: string;
+}): Promise<string> {
+  const existing = await getAccountByEmail(account.email);
+  if (existing?.provider === "gmail_api") {
+    throw new Error("This email is already connected as a Gmail account.");
+  }
+  if (existing) {
+    await updateMsGraphAccount({ ...account, id: existing.id });
+    return existing.id;
+  }
+  try {
+    await insertMsGraphAccount(account);
+    return account.id;
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+    const again = await getAccountByEmail(account.email);
+    if (!again || again.provider === "gmail_api") throw err;
+    await updateMsGraphAccount({ ...account, id: again.id });
+    return again.id;
+  }
+}
+
+async function insertMsGraphAccount(account: {
+  id: string;
+  email: string;
+  displayName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  oauthClientId: string;
+  oauthClientSecret: string | null;
+  oauthTenant: string;
+  oauthRedirectUri: string;
+}): Promise<void> {
+  const db = await getDb();
+  const encAccessToken = await encryptValue(account.accessToken);
+  const encRefreshToken = await encryptValue(account.refreshToken);
+  const encClientSecret = account.oauthClientSecret
+    ? await encryptValue(account.oauthClientSecret)
+    : null;
+  await db.execute(
+    `INSERT INTO accounts (
+       id, email, display_name, access_token, refresh_token, token_expires_at,
+       provider, auth_method, oauth_provider, oauth_client_id, oauth_client_secret,
+       oauth_tenant, oauth_redirect_uri
+     ) VALUES ($1, $2, $3, $4, $5, $6, 'msgraph', 'oauth2', 'microsoft_graph', $7, $8, $9, $10)`,
+    [
+      account.id,
+      account.email,
+      account.displayName,
+      encAccessToken,
+      encRefreshToken,
+      account.tokenExpiresAt,
+      account.oauthClientId,
+      encClientSecret,
+      account.oauthTenant,
+      account.oauthRedirectUri,
+    ],
+  );
+}
+
+async function updateMsGraphAccount(account: {
+  id: string;
+  displayName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  oauthClientId: string;
+  oauthClientSecret: string | null;
+  oauthTenant: string;
+  oauthRedirectUri: string;
+}): Promise<void> {
+  const db = await getDb();
+  const encAccessToken = await encryptValue(account.accessToken);
+  const encRefreshToken = await encryptValue(account.refreshToken);
+  const encClientSecret = account.oauthClientSecret
+    ? await encryptValue(account.oauthClientSecret)
+    : null;
+  await db.execute(
+    `UPDATE accounts SET
+       display_name = $1,
+       access_token = $2,
+       refresh_token = $3,
+       token_expires_at = $4,
+       provider = 'msgraph',
+       auth_method = 'oauth2',
+       oauth_provider = 'microsoft_graph',
+       oauth_client_id = $5,
+       oauth_client_secret = $6,
+       oauth_tenant = $7,
+       oauth_redirect_uri = $8,
+       is_active = 1,
+       updated_at = unixepoch()
+     WHERE id = $9`,
+    [
+      account.displayName,
+      encAccessToken,
+      encRefreshToken,
+      account.tokenExpiresAt,
+      account.oauthClientId,
+      encClientSecret,
+      account.oauthTenant,
+      account.oauthRedirectUri,
+      account.id,
+    ],
+  );
+}
+
+/**
+ * Insert an Exchange Web Services account, or refresh the existing row for that email.
+ * A Gmail row is left alone. Re-auth of an existing EWS row keeps its sync checkpoint.
+ */
+export async function saveEwsAccount(account: {
+  id: string;
+  email: string;
+  displayName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  oauthClientId: string;
+  oauthClientSecret: string | null;
+  oauthTenant: string;
+  oauthRedirectUri: string;
+}): Promise<string> {
+  const existing = await getAccountByEmail(account.email);
+  if (existing?.provider === "gmail_api") {
+    throw new Error("This email is already connected as a Gmail account.");
+  }
+  if (existing) {
+    await updateEwsAccount({ ...account, id: existing.id });
+    return existing.id;
+  }
+  try {
+    await insertEwsAccount(account);
+    return account.id;
+  } catch (err) {
+    if (!isUniqueConstraintError(err)) throw err;
+    const again = await getAccountByEmail(account.email);
+    if (!again || again.provider === "gmail_api") throw err;
+    await updateEwsAccount({ ...account, id: again.id });
+    return again.id;
+  }
+}
+
+async function insertEwsAccount(account: {
+  id: string;
+  email: string;
+  displayName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  oauthClientId: string;
+  oauthClientSecret: string | null;
+  oauthTenant: string;
+  oauthRedirectUri: string;
+}): Promise<void> {
+  const db = await getDb();
+  const encAccessToken = await encryptValue(account.accessToken);
+  const encRefreshToken = await encryptValue(account.refreshToken);
+  const encClientSecret = account.oauthClientSecret
+    ? await encryptValue(account.oauthClientSecret)
+    : null;
+  await db.execute(
+    `INSERT INTO accounts (
+       id, email, display_name, access_token, refresh_token, token_expires_at,
+       provider, auth_method, oauth_provider, oauth_client_id, oauth_client_secret,
+       oauth_tenant, oauth_redirect_uri
+     ) VALUES ($1, $2, $3, $4, $5, $6, 'ews', 'oauth2', 'microsoft_ews', $7, $8, $9, $10)`,
+    [
+      account.id,
+      account.email,
+      account.displayName,
+      encAccessToken,
+      encRefreshToken,
+      account.tokenExpiresAt,
+      account.oauthClientId,
+      encClientSecret,
+      account.oauthTenant,
+      account.oauthRedirectUri,
+    ],
+  );
+}
+
+async function updateEwsAccount(account: {
+  id: string;
+  displayName: string | null;
+  accessToken: string;
+  refreshToken: string;
+  tokenExpiresAt: number;
+  oauthClientId: string;
+  oauthClientSecret: string | null;
+  oauthTenant: string;
+  oauthRedirectUri: string;
+}): Promise<void> {
+  const db = await getDb();
+  const encAccessToken = await encryptValue(account.accessToken);
+  const encRefreshToken = await encryptValue(account.refreshToken);
+  const encClientSecret = account.oauthClientSecret
+    ? await encryptValue(account.oauthClientSecret)
+    : null;
+  await db.execute(
+    `UPDATE accounts SET
+       display_name = $1,
+       access_token = $2,
+       refresh_token = $3,
+       token_expires_at = $4,
+       history_id = CASE WHEN provider = 'ews' THEN history_id ELSE NULL END,
+       provider = 'ews',
+       auth_method = 'oauth2',
+       oauth_provider = 'microsoft_ews',
+       oauth_client_id = $5,
+       oauth_client_secret = $6,
+       oauth_tenant = $7,
+       oauth_redirect_uri = $8,
+       is_active = 1,
+       updated_at = unixepoch()
+     WHERE id = $9`,
+    [
+      account.displayName,
+      encAccessToken,
+      encRefreshToken,
+      account.tokenExpiresAt,
+      account.oauthClientId,
+      encClientSecret,
+      account.oauthTenant,
+      account.oauthRedirectUri,
+      account.id,
     ],
   );
 }

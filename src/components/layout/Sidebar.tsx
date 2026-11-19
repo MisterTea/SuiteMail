@@ -31,6 +31,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  PenSquare,
+  RefreshCw,
   Columns2,
   Bell,
   Users,
@@ -40,10 +42,16 @@ import {
   Paperclip,
   FolderSearch,
   Loader2,
+  Bookmark,
+  ShoppingBag,
+  Info,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 import { useTaskStore } from "@/stores/taskStore";
-import { getDraftCountForAccount, getSnoozedCount, getStarredCount } from "@/services/db/threads";
+import { getDraftCountForAccount, getSnoozedCount, getStarredCount, getUnreadInboxCountForAccount, getUnreadInboxCountsForLabels, getUnreadFocusedInboxCount, getUnreadOtherInboxCount } from "@/services/db/threads";
+import { triggerSync } from "@/services/gmail/syncManager";
+import { GMAIL_NAV_SPECS, gmailNavSpec, insertGmailNavIds, isGmailProvider } from "@/constants/gmailSidebar";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -66,6 +74,15 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] = 
   { id: "labels", label: "Labels", icon: Tag },
 ];
 
+const GMAIL_EXTRA_NAV: Record<string, { id: string; label: string; icon: LucideIcon }> = {
+  important: { id: "important", label: "Important", icon: Bookmark },
+  purchases: { id: "purchases", label: "Purchases", icon: ShoppingBag },
+  social: { id: "social", label: "Social", icon: Users },
+  updates: { id: "updates", label: "Updates", icon: Info },
+  forums: { id: "forums", label: "Forums", icon: MessagesSquare },
+  promotions: { id: "promotions", label: "Promotions", icon: Tag },
+};
+
 const CATEGORY_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
   { id: "Primary", label: "Primary", icon: Inbox },
   { id: "Updates", label: "Updates", icon: Bell },
@@ -81,6 +98,7 @@ function DroppableNavItem({
   onClick,
   onContextMenu,
   title,
+  ariaLabel,
   children,
 }: {
   id: string;
@@ -89,6 +107,7 @@ function DroppableNavItem({
   onClick: () => void;
   onContextMenu?: (e: React.MouseEvent) => void;
   title?: string;
+  ariaLabel?: string;
   children: (isOver: boolean) => React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
@@ -102,6 +121,7 @@ function DroppableNavItem({
       onClick={onClick}
       onContextMenu={onContextMenu}
       title={title}
+      aria-label={ariaLabel}
       className={`flex items-center w-full py-2.5 md:py-2 min-h-[48px] md:min-h-0 text-sm rounded-xl md:rounded-lg transition-colors press-scale touch-manipulation active:scale-[0.98] ${
         collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
       } ${
@@ -231,6 +251,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeCategory = useActiveCategory();
   const openComposer = useComposerStore((s) => s.openComposer);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const isGmailAccount = useAccountStore((s) =>
+    isGmailProvider(s.accounts.find((account) => account.id === s.activeAccountId)?.provider),
+  );
+  const isEwsAccount = useAccountStore((s) =>
+    s.accounts.find((account) => account.id === s.activeAccountId)?.provider === "ews",
+  );
   const labels = useLabelStore((s) => s.labels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
@@ -243,6 +269,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const [draftCount, setDraftCount] = useState<number>(0);
   const [snoozedCount, setSnoozedCount] = useState<number>(0);
   const [starredCount, setStarredCount] = useState<number>(0);
+  const [inboxUnreadCount, setInboxUnreadCount] = useState<number>(0);
+  const [focusedUnreadCount, setFocusedUnreadCount] = useState<number>(0);
+  const [otherUnreadCount, setOtherUnreadCount] = useState<number>(0);
+  const [gmailUnread, setGmailUnread] = useState<Record<string, number>>({});
 
   const { visibleNavItems, showSmartFolders, showLabels } = useMemo(() => {
     if (!sidebarNavConfig) {
@@ -269,7 +299,31 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     return { visibleNavItems: result, showSmartFolders: smartFoldersVisible, showLabels: labelsVisible };
   }, [sidebarNavConfig]);
 
+  const displayedNavItems = useMemo(() => {
+    let items = visibleNavItems;
+    if (isEwsAccount) {
+      items = items.flatMap((item) => {
+        if (item.id === "inbox") {
+          return [
+            { id: "focused", label: "Focused", icon: Inbox },
+            { id: "other", label: "Other", icon: Inbox },
+          ];
+        }
+        return [item];
+      });
+    }
+    if (!isGmailAccount) return items;
+    const byId = new Map<string, { id: string; label: string; icon: LucideIcon }>(
+      items.map((item) => [item.id, item]),
+    );
+    return insertGmailNavIds(items.map((item) => item.id)).flatMap((id) => {
+      const item = byId.get(id) ?? GMAIL_EXTRA_NAV[id];
+      return item ? [item] : [];
+    });
+  }, [visibleNavItems, isEwsAccount, isGmailAccount]);
+
   const [labelsExpanded, setLabelsExpanded] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Inline label editing state
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
@@ -318,10 +372,24 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       getStarredCount(activeAccountId).then((c) => {
         if (!cancelled) setStarredCount(c);
       }).catch(() => {});
+      getUnreadInboxCountForAccount(activeAccountId).then((c) => {
+        if (!cancelled) setInboxUnreadCount(c);
+      }).catch(() => {});
+      if (isEwsAccount) {
+        getUnreadFocusedInboxCount(activeAccountId).then((c) => {
+          if (!cancelled) setFocusedUnreadCount(c);
+        }).catch(() => {});
+        getUnreadOtherInboxCount(activeAccountId).then((c) => {
+          if (!cancelled) setOtherUnreadCount(c);
+        }).catch(() => {});
+      }
     } else {
       setDraftCount(0);
       setSnoozedCount(0);
       setStarredCount(0);
+      setInboxUnreadCount(0);
+      setFocusedUnreadCount(0);
+      setOtherUnreadCount(0);
     }
     return () => {
       cancelled = true;
@@ -340,6 +408,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           getDraftCountForAccount(activeAccountId).then(setDraftCount).catch(() => {});
           getSnoozedCount(activeAccountId).then(setSnoozedCount).catch(() => {});
           getStarredCount(activeAccountId).then(setStarredCount).catch(() => {});
+          getUnreadInboxCountForAccount(activeAccountId).then(setInboxUnreadCount).catch(() => {});
+          if (isEwsAccount) {
+            getUnreadFocusedInboxCount(activeAccountId).then(setFocusedUnreadCount).catch(() => {});
+            getUnreadOtherInboxCount(activeAccountId).then(setOtherUnreadCount).catch(() => {});
+          }
         }
         useUIStore.getState().setSyncingFolder(null);
       }, 500);
@@ -351,14 +424,57 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       }
     };
 
+    const unreadHandler = () => {
+      if (activeAccountId) {
+        getUnreadInboxCountForAccount(activeAccountId).then(setInboxUnreadCount).catch(() => {});
+        if (isEwsAccount) {
+          getUnreadFocusedInboxCount(activeAccountId).then(setFocusedUnreadCount).catch(() => {});
+          getUnreadOtherInboxCount(activeAccountId).then(setOtherUnreadCount).catch(() => {});
+        }
+        refreshSmartFolderCounts(activeAccountId);
+      }
+    };
+
     window.addEventListener("velo-sync-done", handler);
     window.addEventListener("draft-count-changed", draftHandler);
+    window.addEventListener("unread-count-changed", unreadHandler);
     return () => {
       window.removeEventListener("velo-sync-done", handler);
       window.removeEventListener("draft-count-changed", draftHandler);
+      window.removeEventListener("unread-count-changed", unreadHandler);
       if (timer) clearTimeout(timer);
     };
   }, [activeAccountId, loadLabels, refreshSmartFolderCounts]);
+
+  // Unread counts for Gmail categories (Purchases, Social, Updates, Forums, Promotions).
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeAccountId || !isGmailAccount) {
+      setGmailUnread({});
+      return;
+    }
+    const labelIds = GMAIL_NAV_SPECS.filter((spec) => spec.showUnreadCount).map((spec) => spec.gmailLabelId);
+    const load = () => {
+      getUnreadInboxCountsForLabels(activeAccountId, labelIds).then((counts) => {
+        if (cancelled) return;
+        const next: Record<string, number> = {};
+        for (const spec of GMAIL_NAV_SPECS) {
+          if (!spec.showUnreadCount) continue;
+          const count = counts.get(spec.gmailLabelId) ?? 0;
+          if (count > 0) next[spec.id] = count;
+        }
+        setGmailUnread(next);
+      }).catch(() => {});
+    };
+    load();
+    window.addEventListener("velo-sync-done", load);
+    window.addEventListener("unread-count-changed", load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("velo-sync-done", load);
+      window.removeEventListener("unread-count-changed", load);
+    };
+  }, [activeAccountId, isGmailAccount]);
 
   const handleDeleteLabel = useCallback(async (labelId: string) => {
     if (!activeAccountId) return;
@@ -400,6 +516,20 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     setShowSmartFolderModal(true);
   }, []);
 
+  const handleManualSync = useCallback(async () => {
+    if (!activeAccountId || isSyncing) return;
+    setIsSyncing(true);
+    useUIStore.getState().setSyncingFolder(activeLabel);
+    try {
+      await triggerSync([activeAccountId]);
+    } catch (err) {
+      console.error("Manual sync failed:", err);
+    } finally {
+      setIsSyncing(false);
+      useUIStore.getState().setSyncingFolder(null);
+    }
+  }, [activeAccountId, activeLabel, isSyncing]);
+
   const editingLabel = editingLabelId ? labels.find((l) => l.id === editingLabelId) ?? null : null;
 
   return (
@@ -420,24 +550,40 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       >
       <AccountSwitcher collapsed={collapsed && !mobileSidebarOpen} onAddAccount={onAddAccount} />
 
-      {/* Compose button */}
-      <div className="px-3 py-2">
+      {/* Compose and sync */}
+      <div className={`px-3 py-2 flex gap-2 ${collapsed && !mobileSidebarOpen ? "flex-col items-center" : "items-center"}`}>
         <button
+          type="button"
+          aria-label="Compose"
+          title="Compose"
           onClick={() => {
             openComposer();
             setMobileSidebarOpen(false);
           }}
-          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent-hover text-white rounded-lg py-2.5 md:py-2 text-sm font-medium interactive-btn"
+          className="flex items-center justify-center h-9 w-9 shrink-0 bg-accent hover:bg-accent-hover text-white rounded-lg interactive-btn"
         >
-          {collapsed && !mobileSidebarOpen ? <Plus size={16} /> : "Compose"}
+          <PenSquare size={16} />
+        </button>
+        <button
+          type="button"
+          aria-label="Sync"
+          title="Sync"
+          onClick={() => { void handleManualSync(); }}
+          disabled={!activeAccountId || isSyncing}
+          className="flex items-center justify-center h-9 w-9 shrink-0 rounded-lg text-sidebar-text hover:bg-sidebar-hover disabled:opacity-40 interactive-btn"
+        >
+          <RefreshCw size={16} className={isSyncing ? "animate-spin" : ""} />
         </button>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
-        {visibleNavItems.map((item) => {
+        {displayedNavItems.map((item) => {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
+          const isFocused = item.id === "focused";
+          const isOther = item.id === "other";
           const isEffectiveCollapsed = collapsed && !mobileSidebarOpen;
+          const gmailCount = gmailNavSpec(item.id)?.showUnreadCount ? (gmailUnread[item.id] ?? 0) : 0;
           return (
             <div key={item.id}>
               <DroppableNavItem
@@ -453,6 +599,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 }}
                 onContextMenu={(e) => handleNavContextMenu(e, item.id)}
                 title={collapsed ? item.label : undefined}
+                ariaLabel={gmailCount > 0 ? `${item.label}, ${gmailCount.toLocaleString("en-US")} unread` : undefined}
               >
                 {() => (
                   <>
@@ -479,7 +626,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       />
                     )}
                     {!isEffectiveCollapsed && (
-                      <span className="flex-1 truncate">{item.label}</span>
+                      <span className={`flex-1 truncate ${gmailCount > 0 ? "font-semibold" : ""}`}>{item.label}</span>
                     )}
                     {item.id === "starred" && starredCount > 0 && !isEffectiveCollapsed && (
                       <span
@@ -505,6 +652,38 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         className="text-[0.6875rem] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/25 px-2 py-0.5 rounded-full leading-tight shadow-2xs min-w-[1.25rem] text-center"
                       >
                         {draftCount}
+                      </span>
+                    )}
+                    {gmailCount > 0 && !isEffectiveCollapsed && (
+                      <span
+                        data-testid={`gmail-count-${item.id}`}
+                        className="text-xs font-semibold tabular-nums"
+                      >
+                        {gmailCount.toLocaleString("en-US")}
+                      </span>
+                    )}
+                    {isInbox && inboxUnreadCount > 0 && !isEffectiveCollapsed && (
+                      <span
+                        data-testid="inbox-unread-badge"
+                        className="text-[0.6875rem] font-bold bg-accent/15 text-accent px-1.5 rounded-full leading-normal min-w-[1.25rem] text-center"
+                      >
+                        {inboxUnreadCount}
+                      </span>
+                    )}
+                    {isFocused && focusedUnreadCount > 0 && !isEffectiveCollapsed && (
+                      <span
+                        data-testid="focused-unread-badge"
+                        className="text-[0.6875rem] font-bold bg-accent/15 text-accent px-1.5 rounded-full leading-normal min-w-[1.25rem] text-center"
+                      >
+                        {focusedUnreadCount}
+                      </span>
+                    )}
+                    {isOther && otherUnreadCount > 0 && !isEffectiveCollapsed && (
+                      <span
+                        data-testid="other-unread-badge"
+                        className="text-[0.6875rem] font-bold bg-accent/15 text-accent px-1.5 rounded-full leading-normal min-w-[1.25rem] text-center"
+                      >
+                        {otherUnreadCount}
                       </span>
                     )}
                     {isInbox && !isEffectiveCollapsed && (

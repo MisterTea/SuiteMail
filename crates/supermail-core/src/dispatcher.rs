@@ -1,5 +1,7 @@
 use crate::ai_backend;
 use crate::commands;
+use crate::ews;
+use crate::msgraph;
 use crate::oauth;
 use serde_json::{json, Value};
 
@@ -267,6 +269,218 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             let model = args.get("model").and_then(|v| v.as_str()).map(String::from);
             let res = ai_backend::aicore_generate(system_prompt, prompt, model).await?;
             Ok(json!(res))
+        }
+        "ews_ping" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            ews::ews_ping(token, anchor).await?;
+            Ok(Value::Null)
+        }
+        "ews_list_folders" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let res = ews::ews_list_folders(token, anchor).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_sync_page" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let checkpoint = args["checkpoint"].as_str().unwrap_or("").to_string();
+            let received_after = args.get("receivedAfter").or_else(|| args.get("received_after")).and_then(|v| v.as_str()).map(String::from);
+            let limit = args.get("limit").and_then(|v| v.as_u64()).unwrap_or(40) as u32;
+            let res = ews::ews_sync_page(token, anchor, checkpoint, received_after, limit).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_get_message" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = ews::ews_get_message(token, anchor, message_id).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_get_raw" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = ews::ews_get_raw(token, anchor, message_id).await?;
+            Ok(json!(res))
+        }
+        "ews_get_attachment" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let attachment_id = args.get("attachmentId").or_else(|| args.get("attachment_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = ews::ews_get_attachment(token, anchor, attachment_id).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_move_message" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let destination = args["destination"].as_str().unwrap_or("").to_string();
+            let res = ews::ews_move_message(token, anchor, message_id, destination).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_update_flags" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let is_read = args.get("isRead").or_else(|| args.get("is_read")).and_then(|v| v.as_bool());
+            let flagged = args.get("flagged").and_then(|v| v.as_bool());
+            ews::ews_update_flags(token, anchor, message_id, is_read, flagged).await?;
+            Ok(Value::Null)
+        }
+        "ews_set_focused" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let focused = args["focused"].as_bool().unwrap_or(true);
+            ews::ews_set_focused(token, anchor, message_id, focused).await?;
+            Ok(Value::Null)
+        }
+        "ews_delete_message" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            ews::ews_delete_message(token, anchor, message_id).await?;
+            Ok(Value::Null)
+        }
+        "ews_send_mime" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let raw_base64_url = args.get("rawBase64Url").or_else(|| args.get("raw_base64_url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = ews::ews_send_mime(token, anchor, raw_base64_url).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_create_draft_mime" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let raw_base64_url = args.get("rawBase64Url").or_else(|| args.get("raw_base64_url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = ews::ews_create_draft_mime(token, anchor, raw_base64_url).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_send_draft" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = ews::ews_send_draft(token, anchor, message_id).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_create_folder" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let name = args["name"].as_str().unwrap_or("").to_string();
+            let res = ews::ews_create_folder(token, anchor, name).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_rename_folder" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let folder_id = args.get("folderId").or_else(|| args.get("folder_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = args["name"].as_str().unwrap_or("").to_string();
+            let res = ews::ews_rename_folder(token, anchor, folder_id, name).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "ews_delete_folder" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let anchor = args["anchor"].as_str().unwrap_or("").to_string();
+            let folder_id = args.get("folderId").or_else(|| args.get("folder_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            ews::ews_delete_folder(token, anchor, folder_id).await?;
+            Ok(Value::Null)
+        }
+        "msgraph_get_profile" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let res = msgraph::msgraph_get_profile(token).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_list_folders" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let res = msgraph::msgraph_list_folders(token).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_sync_page" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let link = args.get("link").and_then(|v| v.as_str()).map(String::from);
+            let received_after = args.get("receivedAfter").or_else(|| args.get("received_after")).and_then(|v| v.as_str()).map(String::from);
+            let limit = args.get("limit").and_then(|v| v.as_u64()).map(|n| n as u32);
+            let res = msgraph::msgraph_sync_page(token, link, received_after, limit).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_get_message" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = msgraph::msgraph_get_message(token, message_id).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_get_raw" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = msgraph::msgraph_get_raw(token, message_id).await?;
+            Ok(json!(res))
+        }
+        "msgraph_get_attachment" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let attachment_id = args.get("attachmentId").or_else(|| args.get("attachment_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = msgraph::msgraph_get_attachment(token, message_id, attachment_id).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_move_message" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let destination = args["destination"].as_str().unwrap_or("").to_string();
+            let res = msgraph::msgraph_move_message(token, message_id, destination).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_update_flags" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let is_read = args.get("isRead").or_else(|| args.get("is_read")).and_then(|v| v.as_bool());
+            let flagged = args.get("flagged").and_then(|v| v.as_bool());
+            msgraph::msgraph_update_flags(token, message_id, is_read, flagged).await?;
+            Ok(Value::Null)
+        }
+        "msgraph_delete_message" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            msgraph::msgraph_delete_message(token, message_id).await?;
+            Ok(Value::Null)
+        }
+        "msgraph_send_mime" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let raw_base64_url = args.get("rawBase64Url").or_else(|| args.get("raw_base64_url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = msgraph::msgraph_send_mime(token, raw_base64_url).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_create_draft_mime" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let raw_base64_url = args.get("rawBase64Url").or_else(|| args.get("raw_base64_url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = msgraph::msgraph_create_draft_mime(token, raw_base64_url).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_send_draft" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let res = msgraph::msgraph_send_draft(token, message_id).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_create_folder" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let name = args["name"].as_str().unwrap_or("").to_string();
+            let res = msgraph::msgraph_create_folder(token, name).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_rename_folder" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let folder_id = args.get("folderId").or_else(|| args.get("folder_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = args["name"].as_str().unwrap_or("").to_string();
+            let res = msgraph::msgraph_rename_folder(token, folder_id, name).await?;
+            serde_json::to_value(res).map_err(|e| e.to_string())
+        }
+        "msgraph_delete_folder" => {
+            let token = args["token"].as_str().unwrap_or("").to_string();
+            let folder_id = args.get("folderId").or_else(|| args.get("folder_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            msgraph::msgraph_delete_folder(token, folder_id).await?;
+            Ok(Value::Null)
         }
         "close_splashscreen" | "set_tray_tooltip" | "open_devtools" => {
             // Handled directly in Electron main process; safe no-op if invoked here

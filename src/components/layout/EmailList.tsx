@@ -9,7 +9,8 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadsForLabels, getThreadsForOtherInbox, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { gmailNavSpec, gmailViewLabelIds } from "@/constants/gmailSidebar";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -50,6 +51,8 @@ const LABEL_MAP: Record<string, string> = {
   trash: "TRASH",
   spam: "SPAM",
   snoozed: "SNOOZED",
+  focused: "FOCUSED",
+  other: "OTHER",
   all: "", // no filter
 };
 
@@ -77,14 +80,6 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
   const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
   const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
-
-  const prevLabelRef = useRef(activeLabel);
-  useEffect(() => {
-    if (prevLabelRef.current !== activeLabel) {
-      prevLabelRef.current = activeLabel;
-      setThreads([]);
-    }
-  }, [activeLabel, setThreads]);
 
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
@@ -356,6 +351,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     clearSearch();
   }, [activeAccountId, activeLabel, activeCategory, clearSearch]);
 
+  // Redirect to focused for EWS accounts if user lands on inbox
+  useEffect(() => {
+    const account = useAccountStore.getState().accounts.find((a) => a.id === activeAccountId);
+    if (account?.provider === "ews" && activeLabel === "inbox") {
+      navigateToLabel("focused");
+    }
+  }, [activeAccountId, activeLabel]);
+
   const loadThreads = useCallback(async () => {
     if (!activeAccountId) {
       setThreads([]);
@@ -379,9 +382,16 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         setHasMore(false); // Smart folders load all at once
       } else {
         let dbThreads;
+        const gmailLabels = gmailViewLabelIds(activeLabel);
         // Server-side category filtering for inbox
-        if (activeLabel === "inbox" && activeCategory !== "All") {
+        if (gmailLabels) {
+          dbThreads = await getThreadsForLabels(activeAccountId, gmailLabels, PAGE_SIZE, 0);
+        } else if (activeLabel === "inbox" && activeCategory !== "All") {
           dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
+        } else if (activeLabel === "focused") {
+          dbThreads = await getThreadsForLabels(activeAccountId, ["INBOX", "FOCUSED"], PAGE_SIZE, 0);
+        } else if (activeLabel === "other") {
+          dbThreads = await getThreadsForOtherInbox(activeAccountId, PAGE_SIZE, 0);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getThreadsForAccount(
@@ -410,8 +420,15 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     try {
       const offset = threads.length;
       let dbThreads;
-      if (activeLabel === "inbox" && activeCategory !== "All") {
+      const gmailLabels = gmailViewLabelIds(activeLabel);
+      if (gmailLabels) {
+        dbThreads = await getThreadsForLabels(activeAccountId, gmailLabels, PAGE_SIZE, offset);
+      } else if (activeLabel === "inbox" && activeCategory !== "All") {
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, offset);
+      } else if (activeLabel === "focused") {
+        dbThreads = await getThreadsForLabels(activeAccountId, ["INBOX", "FOCUSED"], PAGE_SIZE, offset);
+      } else if (activeLabel === "other") {
+        dbThreads = await getThreadsForOtherInbox(activeAccountId, PAGE_SIZE, offset);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
@@ -618,11 +635,16 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
             {isSmartFolder
               ? activeSmartFolder?.name ?? "Smart Folder"
-              : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
-                ? `Inbox — ${activeCategory}`
-                : LABEL_MAP[activeLabel] !== undefined
-                  ? activeLabel
-                  : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+              : gmailNavSpec(activeLabel)?.label
+                ?? (activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
+                  ? `Inbox — ${activeCategory}`
+                  : activeLabel === "focused"
+                    ? "Focused"
+                    : activeLabel === "other"
+                      ? "Other"
+                      : LABEL_MAP[activeLabel] !== undefined
+                        ? activeLabel
+                        : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel)}
           </h2>
           <span className="text-xs text-text-tertiary flex items-center gap-1.5 mt-0.5">
             {searchQuery.trim().length > 0 ? (
@@ -957,23 +979,23 @@ function EmptyStateForContext({
     return <EmptyState illustration={NoAccountIllustration} title="No account connected" subtitle="Add a Gmail account to get started" />;
   }
 
+  const refreshAction = onRefresh ? (
+    <button
+      type="button"
+      onClick={onRefresh}
+      disabled={isRefreshing}
+      className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 text-xs sm:text-sm font-medium text-text-primary bg-bg-secondary hover:bg-bg-hover active:bg-bg-tertiary active:scale-95 border border-border-primary/80 rounded-full shadow-xs transition-all touch-manipulation group disabled:opacity-50 cursor-pointer"
+    >
+      <RefreshCw
+        size={14}
+        className={`text-accent transition-transform group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`}
+      />
+      <span>{isRefreshing ? "Checking for mail..." : "Check for new mail"}</span>
+    </button>
+  ) : undefined;
+
   switch (activeLabel) {
     case "inbox": {
-      const refreshAction = onRefresh ? (
-        <button
-          type="button"
-          onClick={onRefresh}
-          disabled={isRefreshing}
-          className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 text-xs sm:text-sm font-medium text-text-primary bg-bg-secondary hover:bg-bg-hover active:bg-bg-tertiary active:scale-95 border border-border-primary/80 rounded-full shadow-xs transition-all touch-manipulation group disabled:opacity-50 cursor-pointer"
-        >
-          <RefreshCw
-            size={14}
-            className={`text-accent transition-transform group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`}
-          />
-          <span>{isRefreshing ? "Checking for mail..." : "Check for new mail"}</span>
-        </button>
-      ) : undefined;
-
       if (activeCategory !== "All") {
         const categoryMessages: Record<string, { title: string; subtitle: string }> = {
           Primary: { title: "Primary is clear", subtitle: "No important conversations — your inbox is clear" },
@@ -1005,6 +1027,26 @@ function EmptyStateForContext({
         />
       );
     }
+    case "focused":
+      return (
+        <EmptyState
+          illustration={InboxClearIllustration}
+          title="You're all caught up"
+          subtitle="No focused conversations — enjoy your day!"
+          badge="Inbox Zero"
+          action={refreshAction}
+        />
+      );
+    case "other":
+      return (
+        <EmptyState
+          illustration={InboxClearIllustration}
+          title="No other messages"
+          subtitle="All caught up in Other"
+          badge="Inbox Zero"
+          action={refreshAction}
+        />
+      );
     case "starred":
       return (
         <EmptyState
@@ -1047,6 +1089,18 @@ function EmptyStateForContext({
       return <EmptyState illustration={GenericEmptyIllustration} title="No spam" subtitle="Looking good!" />;
     case "all":
       return <EmptyState illustration={GenericEmptyIllustration} title="No emails yet" />;
+    case "important":
+      return <EmptyState illustration={GenericEmptyIllustration} title="No important mail" subtitle="Gmail marks priority conversations as important" />;
+    case "purchases":
+      return <EmptyState illustration={GenericEmptyIllustration} title="No purchases" subtitle="Order confirmations and delivery updates appear here" />;
+    case "social":
+      return <EmptyState illustration={GenericEmptyIllustration} title="No social mail" subtitle="Social network notifications appear here" />;
+    case "updates":
+      return <EmptyState illustration={GenericEmptyIllustration} title="No updates" subtitle="Receipts, bills, and notifications appear here" />;
+    case "forums":
+      return <EmptyState illustration={GenericEmptyIllustration} title="No forum mail" subtitle="Mailing lists and discussion groups appear here" />;
+    case "promotions":
+      return <EmptyState illustration={GenericEmptyIllustration} title="No promotions" subtitle="Deals and marketing emails appear here" />;
     default:
       if (activeLabel.startsWith("smart-folder:")) {
         return <EmptyState icon={FolderSearch} title="No matching emails" subtitle="Try adjusting the smart folder query" />;
