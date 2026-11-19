@@ -11,6 +11,14 @@ vi.mock("@tauri-apps/plugin-sql", () => ({
   },
 }));
 
+vi.mock("@/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform")>();
+  return {
+    ...actual,
+    isTauri: vi.fn(() => true),
+  };
+});
+
 // Use dynamic import so mocks are in place
 const { withTransaction, getDb } = await import("./connection");
 

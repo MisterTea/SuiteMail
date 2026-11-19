@@ -7,17 +7,13 @@ import {
   exportAccountToMbox,
   type ExportableMessage,
 } from "./mailboxExport";
+import { platformSaveFile } from "@/platform";
 
-const mockSave = vi.fn();
-const mockWriteTextFile = vi.fn();
-
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  save: (...args: unknown[]) => mockSave(...args),
+vi.mock("@/platform", () => ({
+  platformSaveFile: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeTextFile: (...args: unknown[]) => mockWriteTextFile(...args),
-}));
+const mockPlatformSaveFile = vi.mocked(platformSaveFile);
 
 const mockDb = {
   select: vi.fn(),
@@ -77,27 +73,25 @@ describe("mailboxExport", () => {
   it("returns false from exportThreadToFile if no messages exist", async () => {
     const res = await exportThreadToFile("Test", []);
     expect(res.success).toBe(false);
-    expect(mockSave).not.toHaveBeenCalled();
+    expect(mockPlatformSaveFile).not.toHaveBeenCalled();
   });
 
   it("exports thread to selected file", async () => {
-    mockSave.mockResolvedValue("/tmp/test.eml");
-    mockWriteTextFile.mockResolvedValue(undefined);
+    mockPlatformSaveFile.mockResolvedValue(undefined);
 
     const res = await exportThreadToFile("Test", [sampleMsg]);
     expect(res.success).toBe(true);
-    expect(res.filePath).toBe("/tmp/test.eml");
-    expect(mockWriteTextFile).toHaveBeenCalledWith("/tmp/test.eml", expect.stringContaining("From:"));
+    expect(res.filePath).toBe("Test.eml");
+    expect(mockPlatformSaveFile).toHaveBeenCalledWith("Test.eml", expect.anything());
   });
 
   it("exports account messages to MBOX", async () => {
-    mockSave.mockResolvedValue("/tmp/archive.mbox");
-    mockWriteTextFile.mockResolvedValue(undefined);
+    mockPlatformSaveFile.mockResolvedValue(undefined);
     mockDb.select.mockResolvedValue([sampleMsg]);
 
     const res = await exportAccountToMbox("acc-1", "alice@example.com");
     expect(res.count).toBe(1);
-    expect(res.filePath).toBe("/tmp/archive.mbox");
-    expect(mockWriteTextFile).toHaveBeenCalledWith("/tmp/archive.mbox", expect.stringContaining("From alice@example.com"));
+    expect(res.filePath).toBe("alice_example_com-archive.mbox");
+    expect(mockPlatformSaveFile).toHaveBeenCalledWith("alice_example_com-archive.mbox", expect.anything());
   });
 });

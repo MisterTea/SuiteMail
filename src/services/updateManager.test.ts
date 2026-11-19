@@ -12,6 +12,14 @@ vi.mock("@tauri-apps/plugin-process", () => ({
   relaunch: (...args: unknown[]) => mockRelaunch(...args),
 }));
 
+vi.mock("@/platform", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/platform")>();
+  return {
+    ...actual,
+    isTauri: () => true,
+  };
+});
+
 import {
   checkForUpdateNow,
   installUpdate,

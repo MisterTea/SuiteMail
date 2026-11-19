@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { invoke } from '@tauri-apps/api/core';
+import { platformInvoke } from '@/platform';
 
-// Mock @tauri-apps/api/core
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+// Mock @/platform
+vi.mock('@/platform', () => ({
+  platformInvoke: vi.fn(),
 }));
 
-const mockInvoke = vi.mocked(invoke);
+const mockInvoke = vi.mocked(platformInvoke);
 
 import {
   imapTestConnection,

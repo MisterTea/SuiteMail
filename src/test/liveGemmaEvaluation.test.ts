@@ -1,6 +1,18 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach } from "vitest";
 import { runPiEmailAgent } from "@/services/ai/piEmailAgent";
+import { checkLlamaServerStatus } from "@/services/ai/llamaServer";
 import { SYNTHETIC_ACCOUNT_ID, createSyntheticToolExecutor } from "./syntheticInbox";
+
+vi.mock("@/services/db/settings", () => ({
+  getSetting: vi.fn(async (key: string) => {
+    if (key === "pi_server_url") return "http://127.0.0.1:18420";
+    if (key === "pi_model") return "gemma-4-e4b";
+    return null;
+  }),
+  setSetting: vi.fn(async () => {}),
+  getSecureSetting: vi.fn(async () => null),
+  setSecureSetting: vi.fn(async () => {}),
+}));
 
 // Route tools to synthetic inbox
 const syntheticExecutor = createSyntheticToolExecutor();
@@ -17,6 +29,22 @@ vi.mock("@/services/ai/piEmailTools", async () => {
 describe("Live AI Evaluation: Gemma 4 E4B on Local Llama Server", () => {
   const serverUrl = "http://127.0.0.1:18420";
   const model = "gemma-4-e4b";
+  let serverRunning = false;
+
+  beforeAll(async () => {
+    try {
+      const status = await checkLlamaServerStatus(serverUrl);
+      serverRunning = status.running;
+    } catch {
+      serverRunning = false;
+    }
+  });
+
+  beforeEach((context) => {
+    if (!serverRunning) {
+      context.skip();
+    }
+  });
 
   it("Prompt 1 (Flight Itinerary): accurately extracts date, flight number, and confirmation code", async () => {
     const question = "When is my flight to San Francisco, what is the flight number, and what is the confirmation code?";
