@@ -10,17 +10,12 @@ vi.mock("@/services/db/attachments", () => ({
   getAttachmentsForMessage: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  save: vi.fn(),
-}));
-
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeFile: vi.fn(),
+vi.mock("@/platform", () => ({
+  platformSaveFile: vi.fn().mockResolvedValue(true),
 }));
 
 import { getEmailProvider } from "@/services/email/providerFactory";
-import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { platformSaveFile } from "@/platform";
 
 const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => ({
   id: "att-1",
@@ -172,8 +167,7 @@ describe("AttachmentList", () => {
       data: btoa("file-content"),
       size: 12,
     });
-    vi.mocked(save).mockResolvedValue("/downloads/photo.png");
-    vi.mocked(writeFile).mockResolvedValue(undefined as never);
+    vi.mocked(platformSaveFile).mockResolvedValue(true);
 
     render(
       <AttachmentList
@@ -194,8 +188,7 @@ describe("AttachmentList", () => {
     fireEvent.click(screen.getByText("Download"));
 
     await waitFor(() => {
-      expect(save).toHaveBeenCalled();
-      expect(writeFile).toHaveBeenCalled();
+      expect(platformSaveFile).toHaveBeenCalled();
     });
   });
 

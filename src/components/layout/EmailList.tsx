@@ -78,6 +78,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
   const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
 
+  const prevLabelRef = useRef(activeLabel);
+  useEffect(() => {
+    if (prevLabelRef.current !== activeLabel) {
+      prevLabelRef.current = activeLabel;
+      setThreads([]);
+    }
+  }, [activeLabel, setThreads]);
+
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
 

@@ -1,6 +1,6 @@
 /**
  * Platform abstraction layer for SuperMail.
- * Allows running across Tauri v2, Electron (SuiteLeaf desktop), and Web browser environments.
+ * Connects renderer to the desktop shell (Electron via window.supermail) or web browser fallbacks.
  */
 
 export interface SqlDatabase {
@@ -26,19 +26,27 @@ export interface PlatformDialog {
   open(options?: { defaultPath?: string; multiple?: boolean; directory?: boolean; filters?: { name: string; extensions: string[] }[] }): Promise<string | string[] | null>;
 }
 
+export interface PlatformWindow {
+  minimize: () => Promise<void>;
+  toggleMaximize: () => Promise<void>;
+  close: () => Promise<void>;
+  openThreadWindow?: (threadId: string, accountId: string) => Promise<void>;
+}
+
 export interface PlatformBridge {
   db?: SqlDatabase;
   invoke?: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   openUrl?: (url: string) => Promise<void>;
   fs?: PlatformFs;
   dialog?: PlatformDialog;
+  window?: PlatformWindow;
   isElectron?: boolean;
+  on?: (channel: string, callback: (...args: unknown[]) => void) => () => void;
 }
 
 declare global {
   interface Window {
     supermail?: PlatformBridge;
-    __TAURI_INTERNALS__?: unknown;
   }
 }
 
@@ -52,8 +60,7 @@ export function isElectron(): boolean {
 }
 
 export function isTauri(): boolean {
-  if (typeof window === "undefined") return false;
-  return Boolean(window.__TAURI_INTERNALS__);
+  return false;
 }
 
 export async function platformInvoke<T>(
@@ -64,17 +71,36 @@ export async function platformInvoke<T>(
     return window.supermail.invoke<T>(cmd, args);
   }
 
-  if (isTauri()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<T>(cmd, args);
-  }
-
   // Graceful fallback for non-native environments
   if (cmd === "close_splashscreen" || cmd === "open_devtools" || cmd === "set_tray_tooltip") {
     return undefined as unknown as T;
   }
 
   throw new Error(`Command "${cmd}" is not supported in this runtime environment.`);
+}
+
+export async function platformMinimize(): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.window?.minimize) {
+    return window.supermail.window.minimize();
+  }
+}
+
+export async function platformToggleMaximize(): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.window?.toggleMaximize) {
+    return window.supermail.window.toggleMaximize();
+  }
+}
+
+export async function platformClose(): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.window?.close) {
+    return window.supermail.window.close();
+  }
+}
+
+export async function platformOpenThreadWindow(threadId: string, accountId: string): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.window?.openThreadWindow) {
+    return window.supermail.window.openThreadWindow(threadId, accountId);
+  }
 }
 
 // The webview's Request constructor rejects these as unsafe. The OpenAI client
@@ -127,29 +153,12 @@ export async function platformFetch(
   init?: RequestInit,
 ): Promise<Response> {
   const safeInit = stripForbiddenRequestHeaders(init);
-  if (isTauri()) {
-    try {
-      const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
-      return await tauriFetch(input, safeInit);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Missing plugin or a header the webview refused. Loopback fetch can still proceed.
-      if (!/invoke|plugin:http|unsafe header|forbidden header|invalid header|undefined/i.test(message)) {
-        throw err;
-      }
-    }
-  }
   return fetch(input, safeInit);
 }
 
 export async function platformOpenUrl(url: string): Promise<void> {
   if (typeof window !== "undefined" && window.supermail?.openUrl) {
     return window.supermail.openUrl(url);
-  }
-
-  if (isTauri()) {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    return openUrl(url);
   }
 
   if (typeof window !== "undefined") {
@@ -162,16 +171,6 @@ export async function platformSaveFile(filename: string, bytes: Uint8Array): Pro
     const filePath = await window.supermail.dialog.save({ defaultPath: filename });
     if (filePath) {
       await window.supermail.fs.writeFile(filePath, bytes);
-      return;
-    }
-  }
-
-  if (isTauri()) {
-    const { save } = await import("@tauri-apps/plugin-dialog");
-    const { writeFile } = await import("@tauri-apps/plugin-fs");
-    const filePath = await save({ defaultPath: filename });
-    if (filePath) {
-      await writeFile(filePath, bytes);
       return;
     }
   }

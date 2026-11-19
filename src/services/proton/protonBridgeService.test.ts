@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { invoke } from "@tauri-apps/api/core";
+import { platformInvoke } from "@/platform";
 import {
   isProtonEmail,
   checkProtonBridgeStatus,
@@ -9,8 +9,8 @@ import {
   DEFAULT_PROTON_SMTP_PORT,
 } from "./protonBridgeService";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
+vi.mock("@/platform", () => ({
+  platformInvoke: vi.fn(),
 }));
 
 describe("protonBridgeService", () => {
@@ -70,7 +70,7 @@ describe("protonBridgeService", () => {
   });
 
   describe("checkProtonBridgeStatus", () => {
-    it("invokes Tauri check_proton_bridge_status and returns result", async () => {
+    it("invokes check_proton_bridge_status and returns result", async () => {
       const mockStatus = {
         is_installed: true,
         is_running: true,
@@ -83,10 +83,10 @@ describe("protonBridgeService", () => {
         banner: "* OK Proton Mail Bridge",
       };
 
-      vi.mocked(invoke).mockResolvedValueOnce(mockStatus);
+      vi.mocked(platformInvoke).mockResolvedValueOnce(mockStatus);
 
       const result = await checkProtonBridgeStatus(1143, 1025);
-      expect(invoke).toHaveBeenCalledWith("check_proton_bridge_status", {
+      expect(platformInvoke).toHaveBeenCalledWith("check_proton_bridge_status", {
         customImapPort: 1143,
         customSmtpPort: 1025,
       });
@@ -94,7 +94,7 @@ describe("protonBridgeService", () => {
     });
 
     it("gracefully falls back when invoke fails", async () => {
-      vi.mocked(invoke).mockRejectedValueOnce(new Error("Command failed"));
+      vi.mocked(platformInvoke).mockRejectedValueOnce(new Error("Command failed"));
 
       const result = await checkProtonBridgeStatus();
       expect(result.is_running).toBe(false);
@@ -106,15 +106,15 @@ describe("protonBridgeService", () => {
 
   describe("launchProtonBridge", () => {
     it("invokes launch_proton_bridge", async () => {
-      vi.mocked(invoke).mockResolvedValueOnce(true);
+      vi.mocked(platformInvoke).mockResolvedValueOnce(true);
 
       const res = await launchProtonBridge();
-      expect(invoke).toHaveBeenCalledWith("launch_proton_bridge");
+      expect(platformInvoke).toHaveBeenCalledWith("launch_proton_bridge");
       expect(res).toBe(true);
     });
 
     it("propagates error on launch failure", async () => {
-      vi.mocked(invoke).mockRejectedValueOnce(new Error("Executable not found"));
+      vi.mocked(platformInvoke).mockRejectedValueOnce(new Error("Executable not found"));
 
       await expect(launchProtonBridge()).rejects.toThrow("Executable not found");
     });

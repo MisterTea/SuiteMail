@@ -184,22 +184,13 @@ export function SettingsPage() {
       setSyncPeriodDays(syncDays ?? "365");
 
       // Load autostart state
-      try {
-        const { isEnabled } = await import("@tauri-apps/plugin-autostart");
-        setAutostartEnabled(await isEnabled());
-      } catch {
-        // autostart plugin may not be available in dev
-      }
+      setAutostartEnabled(false);
 
       // Load AI settings
-      let isAndroid = false;
-      try {
-        const { platform } = await import("@tauri-apps/plugin-os");
-        if (platform() === "android") {
-          isAndroid = true;
-          setIsAndroidPlatform(true);
-        }
-      } catch {}
+      let isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+      if (isAndroid) {
+        setIsAndroidPlatform(true);
+      }
 
       const provider = await getSetting("ai_provider");
       if (isAndroid && (provider === "pi" || provider === "ollama" || !provider)) {
@@ -342,18 +333,8 @@ export function SettingsPage() {
   }, [accounts]);
 
   const handleAutostartToggle = useCallback(async () => {
-    try {
-      const { enable, disable } = await import("@tauri-apps/plugin-autostart");
-      if (autostartEnabled) {
-        await disable();
-      } else {
-        await enable();
-      }
-      setAutostartEnabled(!autostartEnabled);
-    } catch (err) {
-      console.error("Failed to toggle autostart:", err);
-    }
-  }, [autostartEnabled]);
+    setAutostartEnabled((prev) => !prev);
+  }, []);
 
   const handleRemoveAccount = useCallback(
     async (accountId: string) => {
@@ -1248,8 +1229,8 @@ export function SettingsPage() {
                             size="md"
                             onClick={async () => {
                               try {
-                                const { invoke } = await import("@tauri-apps/api/core");
-                                await invoke("start_llama_server", {
+                                const { platformInvoke } = await import("@/platform");
+                                await platformInvoke("start_llama_server", {
                                   modelId: piModel,
                                   port: piServerPort(piServerUrl),
                                 });
@@ -1870,31 +1851,19 @@ function DeveloperTab() {
 
   useEffect(() => {
     async function load() {
-      const { getVersion, getTauriVersion } = await import("@tauri-apps/api/app");
-      setAppVersion(await getVersion());
-      setTauriVersion(await getTauriVersion());
+      setAppVersion("0.4.21");
+      setTauriVersion("Electron");
 
       // Extract WebView version from user agent
       const ua = navigator.userAgent;
-      const edgMatch = /Edg\/(\S+)/.exec(ua);
       const chromeMatch = /Chrome\/(\S+)/.exec(ua);
-      const webkitMatch = /AppleWebKit\/(\S+)/.exec(ua);
-      setWebviewVersion(edgMatch?.[1] ?? chromeMatch?.[1] ?? webkitMatch?.[1] ?? "Unknown");
+      setWebviewVersion(chromeMatch?.[1] ?? "Chromium");
 
-      // Detect platform via Tauri OS plugin (reliable native arch detection)
-      const { platform, arch } = await import("@tauri-apps/plugin-os");
-      const p = platform();
-      const a = arch();
-      const archLabel = a === "aarch64" || a === "arm" ? "ARM" : a === "x86_64" ? "x64" : a;
-      if (p === "macos") {
-        setPlatformLabel(a === "aarch64" ? "macOS (Apple Silicon)" : `macOS (${archLabel})`);
-      } else if (p === "windows") {
-        setPlatformLabel(`Windows (${archLabel})`);
-      } else if (p === "linux") {
-        setPlatformLabel(`Linux (${archLabel})`);
-      } else {
-        setPlatformLabel(`${p} (${archLabel})`);
-      }
+      // Detect platform
+      const isMac = /macintosh|mac os x/i.test(ua);
+      const isWin = /windows/i.test(ua);
+      const isLinux = /linux/i.test(ua);
+      setPlatformLabel(isMac ? "macOS" : isWin ? "Windows" : isLinux ? "Linux" : "Desktop");
 
       // Check if there's already a known update
       const { getAvailableUpdate } = await import("@/services/updateManager");
@@ -1996,8 +1965,8 @@ function DeveloperTab() {
             variant="secondary"
             size="md"
             onClick={async () => {
-              const { invoke } = await import("@tauri-apps/api/core");
-              await invoke("open_devtools");
+              const { platformInvoke } = await import("@/platform");
+              await platformInvoke("open_devtools");
             }}
             className="bg-bg-tertiary text-text-primary border border-border-primary"
           >
@@ -2013,14 +1982,12 @@ function AboutTab() {
   const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {
-    import("@tauri-apps/api/app").then(({ getVersion }) =>
-      getVersion().then(setAppVersion),
-    );
+    setAppVersion("0.4.21");
   }, []);
 
   const openExternal = async (url: string) => {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
-    await openUrl(url);
+    const { platformOpenUrl } = await import("@/platform");
+    await platformOpenUrl(url);
   };
 
   return (

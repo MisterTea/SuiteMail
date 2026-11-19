@@ -1,22 +1,17 @@
-import { isTauri } from "@/platform";
 import { getSetting } from "../db/settings";
 import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
 import { normalizeEmail } from "@/utils/emailUtils";
 
 async function notifyPlatform(title: string, body: string): Promise<void> {
-  if (isTauri()) {
-    try {
-      const { sendNotification } = await import("@tauri-apps/plugin-notification");
-      sendNotification({ title, body, actionTypeId: "email" });
-      return;
-    } catch {
-      // Fall through to web Notification
+  if (typeof Notification !== "undefined") {
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") new Notification(title, { body });
+      });
     }
-  }
-
-  if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-    new Notification(title, { body });
   }
 }
 
@@ -33,17 +28,8 @@ interface NotificationContext {
 let lastNotificationContext: NotificationContext | null = null;
 const recentContexts = new Map<string, NotificationContext>();
 
-async function showAndFocusMainWindow(): Promise<void> {
-  if (isTauri()) {
-    try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-      const mainWindow = await WebviewWindow.getByLabel("main");
-      if (mainWindow) {
-        await mainWindow.show();
-        await mainWindow.setFocus();
-      }
-    } catch {}
-  } else if (typeof window !== "undefined") {
+export async function showAndFocusMainWindow(): Promise<void> {
+  if (typeof window !== "undefined") {
     window.focus();
   }
 }
@@ -57,68 +43,33 @@ export async function initNotifications(): Promise<void> {
 
   const setting = await getSetting("notifications_enabled");
   notificationsEnabled = setting !== "false";
-
   if (!notificationsEnabled) return;
 
-  if (isTauri()) {
-    try {
-      const { isPermissionGranted, requestPermission, registerActionTypes, onAction } = await import(
-        "@tauri-apps/plugin-notification"
-      );
-      let granted = await isPermissionGranted();
-      if (!granted) {
-        const permission = await requestPermission();
-        granted = permission === "granted";
+  if (typeof Notification !== "undefined" && Notification.permission !== "granted" && Notification.permission !== "denied") {
+    await Notification.requestPermission();
+  }
+}
+
+export async function sendEmailNotification(
+  title: string,
+  body: string,
+  context?: NotificationContext,
+): Promise<void> {
+  if (!notificationsEnabled) return;
+
+  if (context) {
+    lastNotificationContext = context;
+    if (context.threadId) {
+      recentContexts.set(context.threadId, context);
+      // Keep only last 20 contexts
+      if (recentContexts.size > 20) {
+        const firstKey = recentContexts.keys().next().value;
+        if (firstKey) recentContexts.delete(firstKey);
       }
-
-      if (!granted) {
-        notificationsEnabled = false;
-        return;
-      }
-
-      await registerActionTypes([
-        { id: "default", actions: [] },
-        {
-          id: "email",
-          actions: [
-            { id: "reply", title: "Reply" },
-            { id: "archive", title: "Archive" },
-          ],
-        },
-      ]);
-
-      await onAction(async (event) => {
-        const actionId = event.actionTypeId;
-        const ctx = lastNotificationContext;
-
-        if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
-          await showAndFocusMainWindow();
-          useComposerStore.getState().openComposer({
-            mode: "reply",
-            threadId: ctx.threadId,
-            to: ctx.fromAddress ? [ctx.fromAddress] : [],
-            subject: ctx.subject ? `Re: ${ctx.subject.replace(/^Re:\s*/i, "")}` : "",
-          });
-        } else if (actionId === "archive" && ctx?.threadId && ctx?.accountId) {
-          const { archiveThread } = await import("../emailActions");
-          await archiveThread(ctx.accountId, ctx.threadId, []);
-        } else if (ctx?.threadId) {
-          await showAndFocusMainWindow();
-          navigateToLabel("inbox", { threadId: ctx.threadId });
-        }
-      });
-      return;
-    } catch {}
+    }
   }
 
-  if (typeof Notification !== "undefined" && Notification.permission !== "granted") {
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        notificationsEnabled = false;
-      }
-    } catch {}
-  }
+  await notifyPlatform(title, body);
 }
 
 /**
@@ -168,7 +119,7 @@ export function shouldNotifyForMessage(
   threadCategory: string | null,
   fromAddress?: string,
 ): boolean {
-  if (!smartEnabled) return true; // Smart notifications off → notify everything
+  if (!smartEnabled) return true; // Smart notifications off -> notify everything
   if (fromAddress && vipSenders.has(normalizeEmail(fromAddress))) return true; // VIP always notifies
   const category = threadCategory ?? "Primary"; // uncategorized defaults to Primary
   return allowedCategories.has(category);
@@ -195,4 +146,39 @@ export function notifyFollowUpDue(
 export function notifySnoozeReturn(subject: string): void {
   if (!notificationsEnabled) return;
   notifyPlatform("Snoozed email returned", subject || "(No subject)");
+}
+
+export function handleNotificationAction(actionId: string, threadId?: string): void {
+  const ctx = (threadId ? recentContexts.get(threadId) : null) ?? lastNotificationContext;
+
+  switch (actionId) {
+    case "reply":
+      if (ctx?.threadId && ctx.accountId) {
+        showAndFocusMainWindow();
+        useComposerStore.getState().openComposer({
+          mode: "reply",
+          threadId: ctx.threadId,
+          to: ctx.fromAddress ? [ctx.fromAddress] : [],
+          subject: ctx.subject?.startsWith("Re:") ? ctx.subject : `Re: ${ctx.subject ?? ""}`,
+        });
+      }
+      break;
+    case "archive":
+      // Archive action handled via emailActions if desired
+      break;
+    default:
+      if (ctx?.threadId) {
+        showAndFocusMainWindow();
+        navigateToLabel("inbox", { threadId: ctx.threadId });
+      }
+      break;
+  }
+}
+
+export function isNotificationsEnabled(): boolean {
+  return notificationsEnabled;
+}
+
+export function setNotificationsEnabled(enabled: boolean): void {
+  notificationsEnabled = enabled;
 }

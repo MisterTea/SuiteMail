@@ -23,14 +23,6 @@ vi.mock("@/components/email/AttachmentList", () => ({
   AttachmentPreview: vi.fn(() => null),
 }));
 
-vi.mock("@tauri-apps/plugin-dialog", () => ({
-  save: vi.fn(),
-}));
-
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeFile: vi.fn(),
-}));
-
 vi.mock("@/router/navigate", () => ({
   navigateToLabel: vi.fn(),
 }));

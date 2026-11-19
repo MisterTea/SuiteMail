@@ -1,19 +1,7 @@
 import { getDb } from "../db/connection";
-import { platformOpenUrl as openUrl, isTauri } from "@/platform";
+import { platformOpenUrl as openUrl, platformFetch as appFetch } from "@/platform";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { normalizeEmail } from "@/utils/emailUtils";
-
-async function appFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  if (isTauri()) {
-    try {
-      const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
-      return await tauriFetch(input, init);
-    } catch {
-      // Fallback to standard web fetch in browser / test environments
-    }
-  }
-  return fetch(input, init);
-}
 
 export interface ParsedUnsubscribe {
   httpUrl: string | null;

@@ -29,18 +29,6 @@ export async function cacheAttachment(
         await window.supermail.fs.mkdir(CACHE_DIR, { recursive: true });
       } catch {}
       await window.supermail.fs.writeFile(relPath, data);
-    } else {
-      const { mkdir, writeFile: fsWriteFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-      const baseDir = BaseDirectory.AppData;
-
-      // Ensure cache directory exists
-      try {
-        await mkdir(CACHE_DIR, { baseDir, recursive: true });
-      } catch {
-        // directory may already exist
-      }
-
-      await fsWriteFile(relPath, data, { baseDir });
     }
 
     // Update DB — store relative path under AppData
@@ -64,8 +52,7 @@ export async function loadCachedAttachment(
     if (typeof window !== "undefined" && window.supermail?.fs) {
       return await window.supermail.fs.readFile(localPath);
     }
-    const { readFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-    return await readFile(localPath, { baseDir: BaseDirectory.AppData });
+    return null;
   } catch {
     return null;
   }
@@ -101,9 +88,6 @@ export async function evictOldestCached(): Promise<void> {
     try {
       if (typeof window !== "undefined" && window.supermail?.fs) {
         await window.supermail.fs.remove(row.local_path);
-      } else {
-        const { remove, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-        await remove(row.local_path, { baseDir: BaseDirectory.AppData });
       }
     } catch {
       // file may not exist
@@ -124,13 +108,6 @@ export async function clearAllCache(): Promise<void> {
       try {
         await window.supermail.fs.remove(CACHE_DIR, { recursive: true });
       } catch {}
-    } else {
-      const { remove, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-      try {
-        await remove(CACHE_DIR, { baseDir: BaseDirectory.AppData, recursive: true });
-      } catch {
-        // directory may not exist
-      }
     }
   } catch {
     // ignore

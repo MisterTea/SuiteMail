@@ -191,7 +191,27 @@ export async function getOrInitPersonalMetadataDoc(
     }
   }
 
-  const newDoc = createPersonalMetadataDoc({ conversationId: threadId, ...initial });
+  let isFiltered = initial?.isFiltered;
+  if (isFiltered === undefined) {
+    try {
+      const db = await getDb();
+      const rows = await db.select<{ is_filtered: number }[]>(
+        "SELECT is_filtered FROM threads WHERE account_id = $1 AND id = $2 LIMIT 1",
+        [accountId, threadId],
+      );
+      if (rows.length > 0 && rows[0]?.is_filtered !== undefined && rows[0]?.is_filtered !== null) {
+        isFiltered = rows[0].is_filtered === 1;
+      }
+    } catch {
+      // Ignored in environments without active DB
+    }
+  }
+
+  const newDoc = createPersonalMetadataDoc({
+    conversationId: threadId,
+    ...initial,
+    ...(isFiltered !== undefined ? { isFiltered } : {}),
+  });
   await savePersonalMetadataDoc(accountId, threadId, newDoc);
   return newDoc;
 }
@@ -486,7 +506,7 @@ export async function markEmailFiltered(
     conversationId: threadId,
     isFiltered,
   });
-  const previous = doc.isFiltered ?? false;
+  const previous = doc.isFiltered ?? true;
   const updated = updatePersonalMetadataDoc(doc, { isFiltered });
   await savePersonalMetadataDoc(accountId, threadId, updated);
   try {

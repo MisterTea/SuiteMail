@@ -144,11 +144,60 @@ export function getTauriBridgeScript(fakeServerPort = 3333): string {
         }
       };
 
-      // Ensure global __TAURI__ is available
+      // Ensure global __TAURI__ and window.supermail are available
       window.__TAURI__ = {
         core: {
           invoke: window.__TAURI_INTERNALS__.invoke
         }
+      };
+
+      window.supermail = {
+        isElectron: true,
+        invoke: window.__TAURI_INTERNALS__.invoke,
+        db: {
+          select: async (query, params = []) => {
+            const res = await window.fetch(SERVER_URL + '/api/sql', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cmd: 'plugin:sql|select', args: { query, values: params } })
+            });
+            return await res.json();
+          },
+          execute: async (query, params = []) => {
+            const res = await window.fetch(SERVER_URL + '/api/sql', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ cmd: 'plugin:sql|execute', args: { query, values: params } })
+            });
+            return await res.json();
+          },
+        },
+        fs: {
+          readFile: async () => new Uint8Array(),
+          writeFile: async () => {},
+          readTextFile: async () => '',
+          writeTextFile: async () => {},
+          exists: async () => true,
+          mkdir: async () => {},
+          remove: async () => {},
+        },
+        dialog: {
+          save: async () => null,
+          open: async () => null,
+        },
+        openUrl: async () => {},
+        window: {
+          minimize: async () => {},
+          toggleMaximize: async () => {},
+          isMaximized: async () => false,
+          close: async () => {},
+          createThreadWindow: async () => {},
+          closeSplashscreen: async () => {},
+          setBadgeCount: async () => {},
+          setTrayTooltip: async () => {},
+          setTrayIcon: async () => {},
+        },
+        on: () => () => {},
       };
     })();
   `;

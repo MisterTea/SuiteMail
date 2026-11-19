@@ -53,7 +53,7 @@ jobs:
         run: dnf install -y rpm-build spectool rpmdevtools jq gh
 
       - name: Get version
-        run: echo "APP_VERSION=$(jq -r .version src-tauri/tauri.conf.json)" >> $GITHUB_ENV
+        run: echo "APP_VERSION=$(jq -r .version package.json)" >> $GITHUB_ENV
 
       - name: Create source tarball
         run: |

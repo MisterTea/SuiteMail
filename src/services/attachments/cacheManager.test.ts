@@ -4,8 +4,11 @@ import { createMockTauriFs, createMockTauriPath } from "@/test/mocks";
 const tauriFs = createMockTauriFs();
 const tauriPath = createMockTauriPath();
 
-vi.mock("@tauri-apps/plugin-fs", () => tauriFs.mock);
-vi.mock("@tauri-apps/api/path", () => tauriPath);
+(globalThis as unknown as { window?: { supermail?: unknown } }).window = {
+  supermail: {
+    fs: tauriFs.mock,
+  },
+};
 
 const mockExecute = vi.fn();
 const mockSelect = vi.fn();
@@ -36,24 +39,22 @@ describe("cacheManager", () => {
   });
 
   describe("cacheAttachment", () => {
-    it("creates cache dir with baseDir option", async () => {
+    it("creates cache dir", async () => {
       const data = new Uint8Array([10, 20, 30]);
       await cacheAttachment("att-1", data);
 
       expect(tauriFs.mock.mkdir).toHaveBeenCalledWith("attachment_cache", {
-        baseDir: 26,
         recursive: true,
       });
     });
 
-    it("writes file with baseDir option", async () => {
+    it("writes file", async () => {
       const data = new Uint8Array([10, 20, 30]);
       await cacheAttachment("att-1", data);
 
       expect(tauriFs.mock.writeFile).toHaveBeenCalledWith(
         expect.stringContaining("attachment_cache/"),
         data,
-        { baseDir: 26 },
       );
     });
 
@@ -74,10 +75,10 @@ describe("cacheManager", () => {
   });
 
   describe("loadCachedAttachment", () => {
-    it("reads file with baseDir option", async () => {
+    it("reads file", async () => {
       const result = await loadCachedAttachment("attachment_cache/abc");
 
-      expect(tauriFs.mock.readFile).toHaveBeenCalledWith("attachment_cache/abc", { baseDir: 26 });
+      expect(tauriFs.mock.readFile).toHaveBeenCalledWith("attachment_cache/abc");
       expect(result).toEqual(new Uint8Array([1, 2, 3]));
     });
 
@@ -103,7 +104,7 @@ describe("cacheManager", () => {
   });
 
   describe("evictOldestCached", () => {
-    it("removes files with baseDir option when over limit", async () => {
+    it("removes files when over limit", async () => {
       const maxBytes = 500 * 1024 * 1024;
       mockSelect
         .mockResolvedValueOnce([{ total: maxBytes + 1000 }])
@@ -113,7 +114,7 @@ describe("cacheManager", () => {
 
       await evictOldestCached();
 
-      expect(tauriFs.mock.remove).toHaveBeenCalledWith("attachment_cache/old", { baseDir: 26 });
+      expect(tauriFs.mock.remove).toHaveBeenCalledWith("attachment_cache/old");
       expect(mockExecute).toHaveBeenCalledWith(
         expect.stringContaining("UPDATE attachments SET local_path = NULL"),
         ["att-old"],
@@ -130,11 +131,10 @@ describe("cacheManager", () => {
   });
 
   describe("clearAllCache", () => {
-    it("removes cache dir with baseDir option", async () => {
+    it("removes cache dir", async () => {
       await clearAllCache();
 
       expect(tauriFs.mock.remove).toHaveBeenCalledWith("attachment_cache", {
-        baseDir: 26,
         recursive: true,
       });
     });

@@ -240,6 +240,9 @@ async function main() {
 
       // Extract keyframe snapshots (1 frame per second) for visual UX analysis
       const framesDir = path.resolve(outputDir, "frames", `storyboard-${numPrefix}`);
+      if (fs.existsSync(framesDir)) {
+        fs.rmSync(framesDir, { recursive: true, force: true });
+      }
       fs.mkdirSync(framesDir, { recursive: true });
       try {
         execSync(`ffmpeg -y -i "${targetMp4Path}" -vf "fps=1" "${path.resolve(framesDir, "frame_%03d.png")}"`, {

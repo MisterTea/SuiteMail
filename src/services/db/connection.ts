@@ -1,22 +1,18 @@
-import type Database from "@tauri-apps/plugin-sql";
-import { type SqlDatabase, isTauri } from "@/platform";
+import { type SqlDatabase } from "@/platform";
 
-let db: SqlDatabase | Database | null = null;
+let db: SqlDatabase | null = null;
 
 export async function getDb(): Promise<SqlDatabase> {
   if (!db) {
     if (typeof window !== "undefined" && window.supermail?.db) {
       db = window.supermail.db;
-    } else if (isTauri()) {
-      const { default: TauriDatabase } = await import("@tauri-apps/plugin-sql");
-      db = await TauriDatabase.load("sqlite:suitemail.db");
     } else {
       throw new Error(
-        "No database provider available. Initialize window.supermail.db or run in Tauri.",
+        "No database provider available. Initialize window.supermail.db.",
       );
     }
   }
-  return db as SqlDatabase;
+  return db;
 }
 
 /**

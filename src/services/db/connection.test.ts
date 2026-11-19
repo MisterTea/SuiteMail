@@ -5,19 +5,12 @@ const mockExecute = vi.fn();
 const mockSelect = vi.fn();
 const mockDb = { execute: mockExecute, select: mockSelect };
 
-vi.mock("@tauri-apps/plugin-sql", () => ({
-  default: {
-    load: vi.fn(() => Promise.resolve(mockDb)),
+// Provide mock window.supermail.db
+(globalThis as unknown as { window?: { supermail?: unknown } }).window = {
+  supermail: {
+    db: mockDb,
   },
-}));
-
-vi.mock("@/platform", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/platform")>();
-  return {
-    ...actual,
-    isTauri: vi.fn(() => true),
-  };
-});
+};
 
 // Use dynamic import so mocks are in place
 const { withTransaction, getDb } = await import("./connection");

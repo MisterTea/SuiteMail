@@ -36,29 +36,13 @@ interface ThreadViewProps {
 
 async function handlePopOut(thread: Thread) {
   try {
-    const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
-    const windowLabel = `thread-${thread.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-    const url = `index.html?thread=${encodeURIComponent(thread.id)}&account=${encodeURIComponent(thread.accountId)}`;
-
-    // Check if window already exists
-    const existing = await WebviewWindow.getByLabel(windowLabel);
-    if (existing) {
-      await existing.setFocus();
+    if (typeof window !== "undefined" && window.supermail?.window?.openThreadWindow) {
+      await window.supermail.window.openThreadWindow(thread.id, thread.accountId);
       return;
     }
-
-    const win = new WebviewWindow(windowLabel, {
-      url,
-      title: thread.subject ?? "Thread",
-      width: 800,
-      height: 700,
-      center: true,
-      dragDropEnabled: false,
-    });
-
-    win.once("tauri://error", (e) => {
-      console.error("Failed to create pop-out window:", e);
-    });
+    const windowLabel = `thread-${thread.id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
+    const url = `index.html?thread=${encodeURIComponent(thread.id)}&account=${encodeURIComponent(thread.accountId)}`;
+    window.open(url, windowLabel, "width=800,height=700");
   } catch (err) {
     console.error("Failed to open pop-out window:", err);
   }

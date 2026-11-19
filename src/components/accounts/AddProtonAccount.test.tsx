@@ -1,17 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AddProtonAccount } from "./AddProtonAccount";
-import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { platformInvoke, platformOpenUrl } from "@/platform";
 import { insertImapAccount } from "@/services/db/accounts";
 import { useAccountStore } from "@/stores/accountStore";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/platform", () => ({
+  platformInvoke: vi.fn(),
+  platformOpenUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/services/db/accounts", () => ({
@@ -25,7 +21,7 @@ describe("AddProtonAccount", () => {
   });
 
   it("renders Proton Mail setup modal and checks bridge status on mount", async () => {
-    vi.mocked(invoke).mockImplementation((cmd) => {
+    vi.mocked(platformInvoke).mockImplementation((cmd) => {
       if (cmd === "check_proton_bridge_status") {
         return Promise.resolve({
           is_installed: true,
@@ -54,7 +50,7 @@ describe("AddProtonAccount", () => {
   });
 
   it("shows start bridge button when installed but not running", async () => {
-    vi.mocked(invoke).mockImplementation((cmd) => {
+    vi.mocked(platformInvoke).mockImplementation((cmd) => {
       if (cmd === "check_proton_bridge_status") {
         return Promise.resolve({
           is_installed: true,
@@ -88,12 +84,12 @@ describe("AddProtonAccount", () => {
     fireEvent.click(screen.getByRole("button", { name: /Start Proton Mail Bridge/i }));
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("launch_proton_bridge");
+      expect(platformInvoke).toHaveBeenCalledWith("launch_proton_bridge");
     });
   });
 
   it("shows download button when Bridge is not detected", async () => {
-    vi.mocked(invoke).mockImplementation((cmd) => {
+    vi.mocked(platformInvoke).mockImplementation((cmd) => {
       if (cmd === "check_proton_bridge_status") {
         return Promise.resolve({
           is_installed: false,
@@ -118,11 +114,11 @@ describe("AddProtonAccount", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /Download Bridge/i }));
-    expect(openUrl).toHaveBeenCalledWith("https://proton.me/mail/bridge");
+    expect(platformOpenUrl).toHaveBeenCalledWith("https://proton.me/mail/bridge");
   });
 
   it("toggles bridge password guide accordion", async () => {
-    vi.mocked(invoke).mockResolvedValue({
+    vi.mocked(platformInvoke).mockResolvedValue({
       is_installed: false,
       is_running: false,
       executable_path: null,
@@ -147,7 +143,7 @@ describe("AddProtonAccount", () => {
   it("successfully connects, verifies, and saves Proton account", async () => {
     const onSuccess = vi.fn();
 
-    vi.mocked(invoke).mockImplementation((cmd) => {
+    vi.mocked(platformInvoke).mockImplementation((cmd) => {
       if (cmd === "check_proton_bridge_status") {
         return Promise.resolve({
           is_installed: true,
@@ -182,7 +178,7 @@ describe("AddProtonAccount", () => {
     fireEvent.click(submitBtn);
 
     await waitFor(() => {
-      expect(invoke).toHaveBeenCalledWith("imap_test_connection", {
+      expect(platformInvoke).toHaveBeenCalledWith("imap_test_connection", {
         config: {
           host: "127.0.0.1",
           port: 1143,
@@ -193,7 +189,7 @@ describe("AddProtonAccount", () => {
           accept_invalid_certs: true,
         },
       });
-      expect(invoke).toHaveBeenCalledWith("smtp_test_connection", {
+      expect(platformInvoke).toHaveBeenCalledWith("smtp_test_connection", {
         config: {
           host: "127.0.0.1",
           port: 1025,
@@ -210,7 +206,7 @@ describe("AddProtonAccount", () => {
   });
 
   it("handles IMAP connection failure with helpful error message", async () => {
-    vi.mocked(invoke).mockImplementation((cmd) => {
+    vi.mocked(platformInvoke).mockImplementation((cmd) => {
       if (cmd === "check_proton_bridge_status") {
         return Promise.resolve({
           is_installed: true,

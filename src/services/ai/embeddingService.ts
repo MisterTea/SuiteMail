@@ -2,7 +2,7 @@ import { getDb } from "@/services/db/connection";
 import { getEmbeddingsForAccount, upsertEmbedding } from "@/services/db/embeddings";
 import { getSetting } from "@/services/db/settings";
 import { loadPiServerUrl } from "./llamaServer";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { platformFetch as safeFetch } from "@/platform";
 
 export interface SemanticSearchResult {
   messageId: string;
@@ -15,20 +15,6 @@ export interface SemanticSearchResult {
   similarityScore: number;
   textChunk: string;
 }
-
-const safeFetch: typeof fetch = async (input, init) => {
-  try {
-    return await tauriFetch(input, init);
-  } catch (err) {
-    if (
-      err instanceof TypeError &&
-      (err.message.includes("invoke") || err.message.includes("undefined"))
-    ) {
-      return await globalThis.fetch(input, init);
-    }
-    throw err;
-  }
-};
 
 /**
  * Compute cosine similarity between two numeric vectors.

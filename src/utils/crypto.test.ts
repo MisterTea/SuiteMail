@@ -3,11 +3,9 @@ import { createMockTauriFs } from "@/test/mocks";
 
 const tauriFs = createMockTauriFs();
 
-vi.mock("@tauri-apps/plugin-fs", () => tauriFs.mock);
-
 describe("crypto", () => {
   beforeEach(() => {
-    window.__TAURI_INTERNALS__ = {};
+    (window as any).supermail = { fs: tauriFs.mock };
     vi.resetModules();
     tauriFs.store.clear();
   });
@@ -65,23 +63,19 @@ describe("crypto", () => {
     expect(decrypted).toBe(plaintext);
   });
 
-  it("uses baseDir option for FS operations", async () => {
+  it("uses FS operations for key storage", async () => {
     const { encryptValue } = await import("./crypto");
 
     await encryptValue("test");
 
-    expect(tauriFs.mock.exists).toHaveBeenCalledWith(
-      "suitemail.key",
-      expect.objectContaining({ baseDir: 26 }),
-    );
+    expect(tauriFs.mock.exists).toHaveBeenCalledWith("suitemail.key");
     expect(tauriFs.mock.writeTextFile).toHaveBeenCalledWith(
       "suitemail.key",
       expect.any(String),
-      expect.objectContaining({ baseDir: 26 }),
     );
   });
 
-  it("reads existing key from file using baseDir", async () => {
+  it("reads existing key from file", async () => {
     // Pre-seed a key in the mock store
     const mockKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(42)));
     tauriFs.store.set("suitemail.key", mockKey);
@@ -89,10 +83,7 @@ describe("crypto", () => {
     const { encryptValue, decryptValue } = await import("./crypto");
     const encrypted = await encryptValue("round-trip-test");
 
-    expect(tauriFs.mock.readTextFile).toHaveBeenCalledWith(
-      "suitemail.key",
-      expect.objectContaining({ baseDir: 26 }),
-    );
+    expect(tauriFs.mock.readTextFile).toHaveBeenCalledWith("suitemail.key");
 
     const decrypted = await decryptValue(encrypted);
     expect(decrypted).toBe("round-trip-test");

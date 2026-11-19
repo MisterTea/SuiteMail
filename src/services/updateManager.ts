@@ -1,6 +1,5 @@
 import { createBackgroundChecker } from "./backgroundCheckers";
 import type { BackgroundChecker } from "./backgroundCheckers";
-import { isTauri } from "@/platform";
 
 interface UpdateInfo {
   version: string;
@@ -14,15 +13,17 @@ let availableUpdate: { info: UpdateInfo; raw: unknown } | null = null;
 let callback: UpdateCallback | null = null;
 
 async function performCheck(): Promise<void> {
-  if (!isTauri()) return;
-  const { check } = await import("@tauri-apps/plugin-updater");
-  const update = await check();
-  if (update) {
-    availableUpdate = {
-      info: { version: update.version, body: update.body ?? null },
-      raw: update,
-    };
-    callback?.(availableUpdate.info);
+  if (typeof window !== "undefined" && window.supermail?.invoke) {
+    try {
+      const update = await window.supermail.invoke<{ version: string; body: string | null } | null>("check_for_updates");
+      if (update) {
+        availableUpdate = {
+          info: { version: update.version, body: update.body ?? null },
+          raw: update,
+        };
+        callback?.(availableUpdate.info);
+      }
+    } catch {}
   }
 }
 
@@ -46,12 +47,9 @@ export async function checkForUpdateNow(): Promise<UpdateInfo | null> {
 
 export async function installUpdate(): Promise<void> {
   if (!availableUpdate) throw new Error("No update available");
-  const update = availableUpdate.raw as {
-    downloadAndInstall: () => Promise<void>;
-  };
-  await update.downloadAndInstall();
-  const { relaunch } = await import("@tauri-apps/plugin-process");
-  await relaunch();
+  if (typeof window !== "undefined" && window.supermail?.invoke) {
+    await window.supermail.invoke("install_update");
+  }
 }
 
 export function getAvailableUpdate(): UpdateInfo | null {

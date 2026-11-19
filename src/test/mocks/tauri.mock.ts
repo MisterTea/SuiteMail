@@ -1,8 +1,8 @@
 import { vi } from "vitest";
 
 /**
- * Creates a mock for @tauri-apps/plugin-fs that simulates file operations
- * using an in-memory Map store. All operations use baseDir option (not absolute paths).
+ * Creates a mock for platform fs that simulates file operations
+ * using an in-memory Map store.
  */
 export function createMockTauriFs() {
   const store = new Map<string, string>();
@@ -25,7 +25,7 @@ export function createMockTauriFs() {
 }
 
 /**
- * Creates a mock for @tauri-apps/api/path with simple join behavior.
+ * Creates a mock for platform path with simple join behavior.
  */
 export function createMockTauriPath() {
   return {

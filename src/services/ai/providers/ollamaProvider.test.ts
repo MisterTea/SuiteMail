@@ -9,8 +9,8 @@ vi.mock("openai", () => {
   return { default: MockOpenAI };
 });
 
-vi.mock("@tauri-apps/plugin-http", () => ({
-  fetch: vi.fn(),
+vi.mock("@/platform", () => ({
+  platformFetch: vi.fn(),
 }));
 
 import OpenAI from "openai";

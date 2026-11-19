@@ -66,7 +66,7 @@ import {
 } from "./services/updateManager";
 import { fetchSendAsAliases } from "./services/gmail/sendAs";
 import { getGmailClient } from "./services/gmail/tokenManager";
-import { platformInvoke as invoke, isTauri } from "./platform";
+import { platformInvoke as invoke } from "./platform";
 import { DndProvider } from "./components/dnd/DndProvider";
 import { TitleBar } from "./components/layout/TitleBar";
 import { MobileNavBar } from "./components/layout/MobileNavBar";
@@ -205,16 +205,14 @@ export default function App() {
   // Listen for tray "Check for Mail" button
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    if (isTauri()) {
-      import("@tauri-apps/api/event").then(({ listen }) => {
-        listen("tray-check-mail", () => {
-          const accounts = useAccountStore.getState().accounts;
-          const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-          if (activeIds.length > 0) {
-            triggerSync(activeIds);
-          }
-        }).then((fn) => { unlisten = fn; });
-      }).catch(() => {});
+    if (typeof window !== "undefined" && window.supermail?.on) {
+      unlisten = window.supermail.on("tray-check-mail", () => {
+        const accounts = useAccountStore.getState().accounts;
+        const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
+        if (activeIds.length > 0) {
+          triggerSync(activeIds);
+        }
+      });
     }
     return () => { unlisten?.(); };
   }, []);

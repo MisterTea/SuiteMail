@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { platformInvoke as invoke } from "@/platform";
 import type { SecurityType } from "@/services/imap/autoDiscovery";
 
 export interface ProtonBridgeStatus {

@@ -2,9 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { PackageTrackingCard } from "./PackageTrackingCard";
 import type { PackageTrackingItem } from "@/utils/trackingDetector";
+import { platformOpenUrl } from "@/platform";
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
+vi.mock("@/platform", () => ({
+  platformOpenUrl: vi.fn(),
 }));
 
 describe("PackageTrackingCard", () => {
@@ -30,7 +31,6 @@ describe("PackageTrackingCard", () => {
   });
 
   it("calls openUrl when track button is clicked", async () => {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
     const items: PackageTrackingItem[] = [
       {
         carrier: "Flight",
@@ -44,6 +44,6 @@ describe("PackageTrackingCard", () => {
     const trackBtn = screen.getByText("Track Flight");
     fireEvent.click(trackBtn);
 
-    expect(openUrl).toHaveBeenCalledWith("https://google.com/search?q=flight+XYZ123");
+    expect(platformOpenUrl).toHaveBeenCalledWith("https://google.com/search?q=flight+XYZ123");
   });
 });

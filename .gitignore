@@ -3,11 +3,16 @@ node_modules/
 
 # Build outputs
 dist/
+dist-electron/
 build/
 test-buildroot/
 .flatpak-builder/
 
-# Tauri
+# Rust
+target/
+*.node
+
+# Tauri (legacy)
 src-tauri/target/
 src-tauri/gen/schemas
 
@@ -67,6 +72,7 @@ coverage/
 test-results/
 playwright-report/
 recordings/
+recordings-tauri/
 
 # Temporary files
 *.tmp

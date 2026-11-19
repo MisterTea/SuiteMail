@@ -73,6 +73,24 @@ export function Composer() {
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.id === activeAccountId);
   const sendingRef = useRef(false);
+
+  // Cache display values during exit animation to prevent 1-frame visual flash on close
+  const cachedDisplayRef = useRef({
+    mode,
+    to,
+    cc,
+    bcc,
+    subject,
+  });
+
+  if (isOpen) {
+    cachedDisplayRef.current = { mode, to, cc, bcc, subject };
+  }
+
+  const displayMode = isOpen ? mode : cachedDisplayRef.current.mode;
+  const displayTo = isOpen ? to : cachedDisplayRef.current.to;
+  const displayCc = isOpen ? cc : cachedDisplayRef.current.cc;
+  const displayBcc = isOpen ? bcc : cachedDisplayRef.current.bcc;
   const [showSchedule, setShowSchedule] = useState(false);
   const [showAiAssist, setShowAiAssist] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -518,7 +536,6 @@ export function Composer() {
 
   const handlePopOutComposer = useCallback(async () => {
     try {
-      const { WebviewWindow } = await import("@tauri-apps/api/webviewWindow");
       const state = useComposerStore.getState();
       const params = new URLSearchParams();
       params.set("compose", "true");
@@ -536,19 +553,7 @@ export function Composer() {
       if (bodyHtml) params.set("body", btoa(unescape(encodeURIComponent(bodyHtml))));
 
       const windowLabel = `compose-${Date.now()}`;
-      const existing = await WebviewWindow.getByLabel(windowLabel);
-      if (existing) {
-        await existing.setFocus();
-        return;
-      }
-
-      new WebviewWindow(windowLabel, {
-        url: `index.html?${params.toString()}`,
-        title: state.subject || "New Message",
-        width: 700,
-        height: 650,
-        center: true,
-      });
+      window.open(`index.html?${params.toString()}`, windowLabel, "width=700,height=650");
 
       stopAutoSave();
       closeComposer();
@@ -593,7 +598,7 @@ export function Composer() {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md">
           <div className="flex items-center gap-2">
-            {mode === "replyAll" ? (
+            {displayMode === "replyAll" ? (
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
                   <ReplyAll size={16} className="text-accent shrink-0" />
@@ -607,7 +612,7 @@ export function Composer() {
                   aria-expanded={isRecipientsExpanded}
                 >
                   <Users size={12} className="shrink-0" />
-                  <span>{to.length + cc.length + bcc.length} {to.length + cc.length + bcc.length === 1 ? "recipient" : "recipients"}</span>
+                  <span>{displayTo.length + displayCc.length + displayBcc.length} {displayTo.length + displayCc.length + displayBcc.length === 1 ? "recipient" : "recipients"}</span>
                   <ChevronDown size={12} className={`transition-transform duration-200 ${isRecipientsExpanded ? "rotate-180" : ""}`} />
                 </button>
                 <button
@@ -623,7 +628,7 @@ export function Composer() {
                   (Switch to single reply)
                 </button>
               </div>
-            ) : mode === "reply" ? (
+            ) : displayMode === "reply" ? (
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
                   <Reply size={16} className="text-accent shrink-0" />
@@ -633,7 +638,7 @@ export function Composer() {
                   to sender
                 </span>
               </div>
-            ) : mode === "forward" ? (
+            ) : displayMode === "forward" ? (
               <div className="flex items-center gap-2">
                 <span className="flex items-center gap-1.5 text-sm font-semibold text-text-primary">
                   <Forward size={16} className="text-accent shrink-0" />

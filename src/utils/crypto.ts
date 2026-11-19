@@ -4,7 +4,6 @@
  * via Tauri's filesystem in the app data directory.
  */
 
-import { isTauri } from "@/platform";
 
 const KEY_FILE_NAME = "suitemail.key";
 const LEGACY_KEY_FILE_NAME = "velo.key";
@@ -41,16 +40,6 @@ async function readKeyFile(): Promise<string | null> {
     }
     return null;
   }
-  if (isTauri()) {
-    const { exists, readTextFile, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-    if (await exists(KEY_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
-      return await readTextFile(KEY_FILE_NAME, { baseDir: BaseDirectory.AppData });
-    }
-    if (await exists(LEGACY_KEY_FILE_NAME, { baseDir: BaseDirectory.AppData })) {
-      return await readTextFile(LEGACY_KEY_FILE_NAME, { baseDir: BaseDirectory.AppData });
-    }
-    return null;
-  }
   if (typeof localStorage !== "undefined") {
     return localStorage.getItem(KEY_FILE_NAME) || localStorage.getItem(LEGACY_KEY_FILE_NAME);
   }
@@ -60,14 +49,6 @@ async function readKeyFile(): Promise<string | null> {
 async function writeKeyFile(rawKeyB64: string): Promise<void> {
   if (typeof window !== "undefined" && window.supermail?.fs) {
     await window.supermail.fs.writeTextFile(KEY_FILE_NAME, rawKeyB64);
-    return;
-  }
-  if (isTauri()) {
-    const { writeTextFile, mkdir, BaseDirectory } = await import("@tauri-apps/plugin-fs");
-    try {
-      await mkdir("", { baseDir: BaseDirectory.AppData, recursive: true });
-    } catch {}
-    await writeTextFile(KEY_FILE_NAME, rawKeyB64, { baseDir: BaseDirectory.AppData });
     return;
   }
   if (typeof localStorage !== "undefined") {

@@ -56,7 +56,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const emailDensity = useUIStore((s) => s.emailDensity);
   const searchQuery = useThreadStore((s) => s.searchQuery);
   const isSpam = thread.labelIds.includes("SPAM");
-  const isDraft = thread.labelIds.includes("DRAFT") || activeLabel === "drafts";
+  const isDraft = thread.labelIds.includes("DRAFT");
 
   // Read selectedThreadIds lazily for drag — avoids subscribing all cards to the Set reference
   const dragData: DragData = useMemo(() => ({

@@ -1,0 +1,36 @@
+{
+  "appId": "com.suitemail.app",
+  "productName": "SuperMail",
+  "directories": {
+    "output": "dist-electron"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "crates/supermail-core/index.*.node",
+    "package.json"
+  ],
+  "win": {
+    "target": [
+      "nsis",
+      "portable"
+    ],
+    "icon": "electron/icons/icon.ico"
+  },
+  "mac": {
+    "target": [
+      "dmg",
+      "zip"
+    ],
+    "icon": "electron/icons/icon.icns",
+    "category": "public.app-category.productivity"
+  },
+  "linux": {
+    "target": [
+      "AppImage",
+      "deb"
+    ],
+    "icon": "electron/icons/icon.png",
+    "category": "Network"
+  }
+}

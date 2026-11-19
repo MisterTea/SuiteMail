@@ -2,12 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AddImapAccount } from "./AddImapAccount";
 
-vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn(),
-}));
-
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
+vi.mock("@/platform", () => ({
+  platformInvoke: vi.fn(),
+  platformOpenUrl: vi.fn(),
 }));
 
 vi.mock("@/services/db/settings", () => ({

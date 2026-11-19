@@ -1,0 +1,200 @@
+use rusqlite::{params_from_iter, types::ValueRef, Connection, OpenFlags, Row, ToSql};
+use serde_json::{json, Value};
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+static DB_CONN: Mutex<Option<Connection>> = Mutex::new(None);
+
+pub fn init_db(db_path: PathBuf) -> Result<(), String> {
+    if let Some(parent) = db_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let conn = Connection::open_with_flags(
+        &db_path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| format!("Failed to open database at {:?}: {}", db_path, e))?;
+
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA foreign_keys = ON;
+         PRAGMA busy_timeout = 5000;",
+    )
+    .map_err(|e| format!("Failed to configure PRAGMAs: {}", e))?;
+
+    let mut guard = DB_CONN.lock().map_err(|e| e.to_string())?;
+    *guard = Some(conn);
+    log::info!("SQLite database initialized successfully at {:?}", db_path);
+    Ok(())
+}
+
+fn row_value_to_json(row: &Row, i: usize) -> Result<Value, rusqlite::Error> {
+    match row.get_ref(i)? {
+        ValueRef::Null => Ok(Value::Null),
+        ValueRef::Integer(n) => Ok(json!(n)),
+        ValueRef::Real(f) => {
+            if let Some(num) = serde_json::Number::from_f64(f) {
+                Ok(Value::Number(num))
+            } else {
+                Ok(Value::Null)
+            }
+        }
+        ValueRef::Text(bytes) => {
+            let s = std::str::from_utf8(bytes).map_err(|e| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    i,
+                    rusqlite::types::Type::Text,
+                    Box::new(e),
+                )
+            })?;
+            Ok(Value::String(s.to_string()))
+        }
+        ValueRef::Blob(bytes) => {
+            Ok(Value::Array(bytes.iter().map(|b| json!(*b)).collect()))
+        }
+    }
+}
+
+enum DynamicSqlParam {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+}
+
+impl ToSql for DynamicSqlParam {
+    fn to_sql(&self) -> rusqlite::Result<rusqlite::types::ToSqlOutput<'_>> {
+        match self {
+            DynamicSqlParam::Null => Ok(rusqlite::types::ToSqlOutput::from(rusqlite::types::Null)),
+            DynamicSqlParam::Integer(i) => Ok(rusqlite::types::ToSqlOutput::from(*i)),
+            DynamicSqlParam::Real(f) => Ok(rusqlite::types::ToSqlOutput::from(*f)),
+            DynamicSqlParam::Text(s) => Ok(rusqlite::types::ToSqlOutput::from(s.as_str())),
+        }
+    }
+}
+
+fn json_value_to_param(val: Value) -> DynamicSqlParam {
+    match val {
+        Value::Null => DynamicSqlParam::Null,
+        Value::Bool(b) => DynamicSqlParam::Integer(if b { 1 } else { 0 }),
+        Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                DynamicSqlParam::Integer(i)
+            } else if let Some(f) = n.as_f64() {
+                DynamicSqlParam::Real(f)
+            } else {
+                DynamicSqlParam::Null
+            }
+        }
+        Value::String(s) => DynamicSqlParam::Text(s),
+        Value::Array(_) | Value::Object(_) => DynamicSqlParam::Text(val.to_string()),
+    }
+}
+
+pub fn db_select(query: &str, params: Vec<Value>) -> Result<Value, String> {
+    let guard = DB_CONN.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("Database not initialized")?;
+
+    let mut stmt = conn
+        .prepare(query)
+        .map_err(|e| format!("Query prepare error: {e} in {query}"))?;
+    let col_names: Vec<String> = stmt.column_names().into_iter().map(String::from).collect();
+
+    let sql_params: Vec<DynamicSqlParam> = params.into_iter().map(json_value_to_param).collect();
+    let rows = stmt
+        .query_map(params_from_iter(sql_params.iter()), |row| {
+            let mut obj = serde_json::Map::new();
+            for (i, name) in col_names.iter().enumerate() {
+                let val = row_value_to_json(row, i)?;
+                obj.insert(name.clone(), val);
+            }
+            Ok(Value::Object(obj))
+        })
+        .map_err(|e| format!("Query map error: {e} in {query}"))?;
+
+    let mut results = Vec::new();
+    for r in rows {
+        results.push(r.map_err(|e| format!("Row parse error: {e}"))?);
+    }
+    Ok(Value::Array(results))
+}
+
+pub fn db_execute(query: &str, params: Vec<Value>) -> Result<Value, String> {
+    let guard = DB_CONN.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("Database not initialized")?;
+
+    let sql_params: Vec<DynamicSqlParam> = params.into_iter().map(json_value_to_param).collect();
+    let rows_affected = conn
+        .execute(query, params_from_iter(sql_params.iter()))
+        .map_err(|e| format!("Execute error: {e} in {query}"))?;
+
+    let last_insert_id = conn.last_insert_rowid();
+
+    Ok(json!({
+        "rowsAffected": rows_affected,
+        "lastInsertId": last_insert_id
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_db_lifecycle_and_fts() {
+        let temp_dir = std::env::temp_dir().join(format!("test_sm_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let db_path = temp_dir.join("test.db");
+        init_db(db_path.clone()).unwrap();
+
+        // Test positional parameter binding with $1, $2
+        db_execute(
+            "CREATE TABLE items (id TEXT PRIMARY KEY, count INTEGER, title TEXT);",
+            vec![],
+        )
+        .unwrap();
+
+        let insert_res = db_execute(
+            "INSERT INTO items (id, count, title) VALUES ($1, $2, $3);",
+            vec![json!("item-1"), json!(42), json!("Test Item")],
+        )
+        .unwrap();
+        assert_eq!(insert_res["rowsAffected"], 1);
+
+        let select_res = db_select(
+            "SELECT * FROM items WHERE id = $1;",
+            vec![json!("item-1")],
+        )
+        .unwrap();
+        let rows = select_res.as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["id"], "item-1");
+        assert_eq!(rows[0]["count"], 42);
+        assert_eq!(rows[0]["title"], "Test Item");
+
+        // Test FTS5 table creation and querying
+        db_execute(
+            "CREATE VIRTUAL TABLE items_fts USING fts5(title, content='items', content_rowid='rowid');",
+            vec![],
+        )
+        .unwrap();
+
+        db_execute(
+            "INSERT INTO items_fts(rowid, title) VALUES (1, 'Test Item');",
+            vec![],
+        )
+        .unwrap();
+
+        let fts_res = db_select(
+            "SELECT * FROM items_fts WHERE items_fts MATCH 'Test*';",
+            vec![],
+        )
+        .unwrap();
+        assert_eq!(fts_res.as_array().unwrap().len(), 1);
+
+        let _ = std::fs::remove_dir_all(temp_dir);
+    }
+}

@@ -3,8 +3,8 @@ import { EmailRenderer } from "./EmailRenderer";
 import type { DbAttachment } from "@/services/db/attachments";
 
 // Mock dependencies
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: vi.fn(),
+vi.mock("@/platform", () => ({
+  platformOpenUrl: vi.fn(),
 }));
 
 vi.mock("@/utils/sanitize", () => ({

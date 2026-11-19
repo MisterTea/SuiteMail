@@ -147,8 +147,7 @@ export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentR
   // For desktop, continue to use local Llama server.
   let isAndroid = false;
   try {
-    const { platform } = await import("@tauri-apps/plugin-os");
-    isAndroid = platform() === "android";
+    isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
   } catch {}
 
   if (isAndroid) {
@@ -495,8 +494,7 @@ export async function suggestFilterWithPiAgent(
   // For desktop, continue to use local Llama server.
   let isAndroid = false;
   try {
-    const { platform } = await import("@tauri-apps/plugin-os");
-    isAndroid = platform() === "android";
+    isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
   } catch {}
 
   if (isAndroid) {

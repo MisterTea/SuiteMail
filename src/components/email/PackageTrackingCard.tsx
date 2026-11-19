@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Package, Truck, Plane, ExternalLink, Copy, Check } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { platformOpenUrl as openUrl } from "@/platform";
 import type { PackageTrackingItem } from "@/utils/trackingDetector";
 
 interface PackageTrackingCardProps {
