@@ -256,6 +256,14 @@ ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
     return undefined;
   }
 
+  if (cmd === 'check_for_updates') {
+    return null;
+  }
+
+  if (cmd === 'install_update') {
+    return undefined;
+  }
+
   if (!rustCore) throw new Error('Rust core not loaded');
   const res = await rustCore.invoke(cmd, JSON.stringify(args ?? {}));
   return JSON.parse(res);

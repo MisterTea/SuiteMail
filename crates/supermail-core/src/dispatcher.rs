@@ -482,7 +482,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             msgraph::msgraph_delete_folder(token, folder_id).await?;
             Ok(Value::Null)
         }
-        "close_splashscreen" | "set_tray_tooltip" | "open_devtools" => {
+        "close_splashscreen" | "set_tray_tooltip" | "open_devtools" | "check_for_updates" | "install_update" => {
             // Handled directly in Electron main process; safe no-op if invoked here
             Ok(Value::Null)
         }
