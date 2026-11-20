@@ -44,5 +44,11 @@
   "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
   "asarUnpack": [
     "**/*.node"
-  ]
+  ],
+  "nsis": {
+    "artifactName": "${productName}-${version}-windows-${arch}-setup.${ext}"
+  },
+  "portable": {
+    "artifactName": "${productName}-${version}-windows-${arch}-portable.${ext}"
+  }
 }
