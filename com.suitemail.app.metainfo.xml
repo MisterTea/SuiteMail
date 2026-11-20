@@ -12,7 +12,7 @@
   <url type="bugtracker">https://github.com/MisterTea/SuiteMail/issues</url>
   <launchable type="desktop-id">com.suitemail.app.desktop</launchable>
   <releases>
-    <release version="0.4.21" date="2026-02-20" /> <!-- x-release-please-version -->
+    <release version="0.1.0" date="2026-02-20" /> <!-- x-release-please-version -->
   </releases>
   <developer id="app.suitemail">
     <name>SuiteMail Team</name>

@@ -1850,7 +1850,7 @@ function DeveloperTab() {
 
   useEffect(() => {
     async function load() {
-      setAppVersion("0.4.21");
+      setAppVersion("0.1.0");
 
       // Extract WebView version from user agent
       const ua = navigator.userAgent;
@@ -1980,7 +1980,7 @@ function AboutTab() {
   const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {
-    setAppVersion("0.4.21");
+    setAppVersion("0.1.0");
   }, []);
 
   const openExternal = async (url: string) => {

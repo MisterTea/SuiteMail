@@ -40,5 +40,9 @@
     ],
     "icon": "electron/icons/icon.png",
     "category": "Network"
-  }
+  },
+  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+  "asarUnpack": [
+    "**/*.node"
+  ]
 }
