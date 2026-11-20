@@ -14,9 +14,9 @@ import {
   type SidecarPayload,
   type MetadataLedgerEntry,
 } from "./metadataSidecarSync";
-import type { ImapConfig, ImapFolder, ImapFetchResult } from "./tauriCommands";
+import type { ImapConfig, ImapFolder, ImapFetchResult } from "./electronCommands";
 
-const mockTauri = {
+const mockCommands = {
   imapListFolders: vi.fn(),
   imapCreateFolder: vi.fn(),
   imapAppendMessage: vi.fn(),
@@ -25,15 +25,15 @@ const mockTauri = {
   imapGetFolderStatus: vi.fn(),
 };
 
-vi.mock("./tauriCommands", () => ({
-  imapListFolders: vi.fn((config) => mockTauri.imapListFolders(config)),
-  imapCreateFolder: vi.fn((config, folder) => mockTauri.imapCreateFolder(config, folder)),
+vi.mock("./electronCommands", () => ({
+  imapListFolders: vi.fn((config) => mockCommands.imapListFolders(config)),
+  imapCreateFolder: vi.fn((config, folder) => mockCommands.imapCreateFolder(config, folder)),
   imapAppendMessage: vi.fn((config, folder, raw, flags) =>
-    mockTauri.imapAppendMessage(config, folder, raw, flags)
+    mockCommands.imapAppendMessage(config, folder, raw, flags)
   ),
-  imapSearchAllUids: vi.fn((config, folder) => mockTauri.imapSearchAllUids(config, folder)),
-  imapFetchMessages: vi.fn((config, folder, uids) => mockTauri.imapFetchMessages(config, folder, uids)),
-  imapGetFolderStatus: vi.fn((config, folder) => mockTauri.imapGetFolderStatus(config, folder)),
+  imapSearchAllUids: vi.fn((config, folder) => mockCommands.imapSearchAllUids(config, folder)),
+  imapFetchMessages: vi.fn((config, folder, uids) => mockCommands.imapFetchMessages(config, folder, uids)),
+  imapGetFolderStatus: vi.fn((config, folder) => mockCommands.imapGetFolderStatus(config, folder)),
 }));
 
 const mockFolderSyncState: Record<string, any> = {};
@@ -122,31 +122,31 @@ describe("metadataSidecarSync", () => {
 
   it("ensures the sidecar folder exists or creates it", async () => {
     // 1. When folder already exists
-    mockTauri.imapListFolders.mockResolvedValueOnce([
+    mockCommands.imapListFolders.mockResolvedValueOnce([
       { path: "INBOX", name: "INBOX", raw_path: "INBOX" },
       { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
     ]);
 
     const folder1 = await ensureSidecarFolder(testConfig);
     expect(folder1).toBe(".metadata");
-    expect(mockTauri.imapCreateFolder).not.toHaveBeenCalled();
+    expect(mockCommands.imapCreateFolder).not.toHaveBeenCalled();
 
     // 2. When folder does not exist
-    mockTauri.imapListFolders.mockResolvedValueOnce([
+    mockCommands.imapListFolders.mockResolvedValueOnce([
       { path: "INBOX", name: "INBOX", raw_path: "INBOX" },
     ]);
-    mockTauri.imapCreateFolder.mockResolvedValueOnce(undefined);
+    mockCommands.imapCreateFolder.mockResolvedValueOnce(undefined);
 
     const folder2 = await ensureSidecarFolder(testConfig);
     expect(folder2).toBe(".metadata");
-    expect(mockTauri.imapCreateFolder).toHaveBeenCalledWith(testConfig, ".metadata");
+    expect(mockCommands.imapCreateFolder).toHaveBeenCalledWith(testConfig, ".metadata");
   });
 
   it("builds and pushes a sidecar metadata RFC 822 email to IMAP", async () => {
-    mockTauri.imapListFolders.mockResolvedValueOnce([
+    mockCommands.imapListFolders.mockResolvedValueOnce([
       { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
     ]);
-    mockTauri.imapAppendMessage.mockResolvedValueOnce(undefined);
+    mockCommands.imapAppendMessage.mockResolvedValueOnce(undefined);
 
     const payload: SidecarPayload = {
       conversationId: "thread-456",
@@ -158,8 +158,8 @@ describe("metadataSidecarSync", () => {
 
     await pushSidecarMetadata(testConfig, "user@example.com", payload);
 
-    expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(1);
-    const [configArg, folderArg, rawB64Arg, flagsArg] = mockTauri.imapAppendMessage.mock.calls[0];
+    expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(1);
+    const [configArg, folderArg, rawB64Arg, flagsArg] = mockCommands.imapAppendMessage.mock.calls[0];
     expect(configArg).toEqual(testConfig);
     expect(folderArg).toBe(".metadata");
     expect(flagsArg).toBe("(\\Seen)");
@@ -174,17 +174,17 @@ describe("metadataSidecarSync", () => {
   });
 
   it("syncs sidecar metadata from server and reconciles into local database", async () => {
-    mockTauri.imapListFolders.mockResolvedValueOnce([
+    mockCommands.imapListFolders.mockResolvedValueOnce([
       { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
     ]);
-    mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+    mockCommands.imapGetFolderStatus.mockResolvedValueOnce({
       uidvalidity: 1,
       uidnext: 10,
       exists: 1,
       unseen: 0,
       highest_modseq: null,
     });
-    mockTauri.imapSearchAllUids.mockResolvedValueOnce([1]);
+    mockCommands.imapSearchAllUids.mockResolvedValueOnce([1]);
 
     const sidecarPayload: SidecarPayload = {
       conversationId: "thread-789",
@@ -194,7 +194,7 @@ describe("metadataSidecarSync", () => {
       followUpAt: 1725000000,
     };
 
-    mockTauri.imapFetchMessages.mockResolvedValueOnce({
+    mockCommands.imapFetchMessages.mockResolvedValueOnce({
       messages: [
         {
           uid: 1,
@@ -226,17 +226,17 @@ describe("metadataSidecarSync", () => {
   });
 
   it("syncs sidecar metadata with isFiltered field and updates personal doc", async () => {
-    mockTauri.imapListFolders.mockResolvedValueOnce([
+    mockCommands.imapListFolders.mockResolvedValueOnce([
       { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
     ]);
-    mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+    mockCommands.imapGetFolderStatus.mockResolvedValueOnce({
       uidvalidity: 1,
       uidnext: 10,
       exists: 1,
       unseen: 0,
       highest_modseq: null,
     });
-    mockTauri.imapSearchAllUids.mockResolvedValueOnce([105]);
+    mockCommands.imapSearchAllUids.mockResolvedValueOnce([105]);
 
     const sidecarPayload: SidecarPayload = {
       conversationId: "thread-filter-1",
@@ -245,7 +245,7 @@ describe("metadataSidecarSync", () => {
       isFiltered: true,
     };
 
-    mockTauri.imapFetchMessages.mockResolvedValueOnce({
+    mockCommands.imapFetchMessages.mockResolvedValueOnce({
       messages: [
         {
           uid: 105,
@@ -278,7 +278,7 @@ describe("metadataSidecarSync", () => {
 
   describe("hasPendingMetadata & ensureMetadataDownloadedForEmail", () => {
     it("returns false if sidecar folder does not exist", async () => {
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: "INBOX", name: "INBOX" },
       ]);
       const pending = await hasPendingMetadata("acc-1", testConfig);
@@ -286,22 +286,22 @@ describe("metadataSidecarSync", () => {
     });
 
     it("returns true if there are UIDs higher than last_uid", async () => {
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
       mockFolderSyncState["acc-1:.metadata"] = { last_uid: 5 };
-      mockTauri.imapSearchAllUids.mockResolvedValueOnce([1, 2, 3, 4, 5, 6]);
+      mockCommands.imapSearchAllUids.mockResolvedValueOnce([1, 2, 3, 4, 5, 6]);
 
       const pending = await hasPendingMetadata("acc-1", testConfig);
       expect(pending).toBe(true);
     });
 
     it("returns false if all UIDs are <= last_uid", async () => {
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
       mockFolderSyncState["acc-1:.metadata"] = { last_uid: 6 };
-      mockTauri.imapSearchAllUids.mockResolvedValueOnce([1, 2, 3, 4, 5, 6]);
+      mockCommands.imapSearchAllUids.mockResolvedValueOnce([1, 2, 3, 4, 5, 6]);
 
       const pending = await hasPendingMetadata("acc-1", testConfig);
       expect(pending).toBe(false);
@@ -309,25 +309,25 @@ describe("metadataSidecarSync", () => {
 
     it("ensureMetadataDownloadedForEmail syncs when pending exists", async () => {
       // 1st listFolders for hasPendingMetadata
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
       mockFolderSyncState["acc-1:.metadata"] = { last_uid: 10 };
-      mockTauri.imapSearchAllUids.mockResolvedValueOnce([11]);
+      mockCommands.imapSearchAllUids.mockResolvedValueOnce([11]);
 
       // syncSidecarMetadata calls:
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
-      mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+      mockCommands.imapGetFolderStatus.mockResolvedValueOnce({
         uidvalidity: 1,
         uidnext: 12,
         exists: 1,
         unseen: 0,
         highest_modseq: null,
       });
-      mockTauri.imapSearchAllUids.mockResolvedValueOnce([11]);
-      mockTauri.imapFetchMessages.mockResolvedValueOnce({
+      mockCommands.imapSearchAllUids.mockResolvedValueOnce([11]);
+      mockCommands.imapFetchMessages.mockResolvedValueOnce({
         messages: [
           {
             uid: 11,
@@ -360,11 +360,11 @@ describe("metadataSidecarSync", () => {
     });
 
     it("ensureMetadataDownloadedForEmail returns 0 when no pending metadata", async () => {
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
       mockFolderSyncState["acc-1:.metadata"] = { last_uid: 20 };
-      mockTauri.imapSearchAllUids.mockResolvedValueOnce([15, 20]);
+      mockCommands.imapSearchAllUids.mockResolvedValueOnce([15, 20]);
 
       const count = await ensureMetadataDownloadedForEmail("acc-1", testConfig, "thread-dl-check");
       expect(count).toBe(0);
@@ -373,10 +373,10 @@ describe("metadataSidecarSync", () => {
 
   describe("syncBatchConversationLabelsToRemote", () => {
     it("updates local metadata and checks outgoing confirmation before pushing to remote", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
       vi.mocked(checkOutgoingSyncAllowed).mockResolvedValueOnce(true);
 
       const updates = [
@@ -403,11 +403,11 @@ describe("metadataSidecarSync", () => {
       );
       expect(result.confirmed).toBe(true);
       expect(result.synced).toBe(2);
-      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(2);
+      expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(2);
     });
 
     it("cancels remote push when user declines confirmation popover", async () => {
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
       vi.mocked(checkOutgoingSyncAllowed).mockResolvedValueOnce(false);
 
       const updates = [
@@ -424,7 +424,7 @@ describe("metadataSidecarSync", () => {
       // But remote push was NOT performed
       expect(result.confirmed).toBe(false);
       expect(result.synced).toBe(0);
-      expect(mockTauri.imapAppendMessage).not.toHaveBeenCalled();
+      expect(mockCommands.imapAppendMessage).not.toHaveBeenCalled();
     });
   });
 
@@ -467,10 +467,10 @@ describe("metadataSidecarSync", () => {
     });
 
     it("appends discrete JSONL ledger entries to IMAP without mutating in-place", async () => {
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
-      mockTauri.imapAppendMessage.mockResolvedValueOnce(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValueOnce(undefined);
 
       const entries: MetadataLedgerEntry[] = [
         {
@@ -485,8 +485,8 @@ describe("metadataSidecarSync", () => {
 
       await appendLedgerEntriesToRemote(testConfig, "user@example.com", "thread-append", entries);
 
-      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(1);
-      const [configArg, folderArg, rawB64Arg] = mockTauri.imapAppendMessage.mock.calls[0];
+      expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(1);
+      const [configArg, folderArg, rawB64Arg] = mockCommands.imapAppendMessage.mock.calls[0];
       expect(configArg).toEqual(testConfig);
       expect(folderArg).toBe(".metadata");
       expect(typeof rawB64Arg).toBe("string");
@@ -506,17 +506,17 @@ describe("metadataSidecarSync", () => {
     });
 
     it("syncs JSONL ledger messages from server and applies changes into local database", async () => {
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
-      mockTauri.imapGetFolderStatus.mockResolvedValueOnce({
+      mockCommands.imapGetFolderStatus.mockResolvedValueOnce({
         uidvalidity: 1,
         uidnext: 20,
         exists: 1,
         unseen: 0,
         highest_modseq: null,
       });
-      mockTauri.imapSearchAllUids.mockResolvedValueOnce([50]);
+      mockCommands.imapSearchAllUids.mockResolvedValueOnce([50]);
 
       const jsonlEntries: MetadataLedgerEntry[] = [
         {
@@ -540,7 +540,7 @@ describe("metadataSidecarSync", () => {
       ];
       const jsonlBody = jsonlEntries.map((e) => JSON.stringify(e)).join("\n");
 
-      mockTauri.imapFetchMessages.mockResolvedValueOnce({
+      mockCommands.imapFetchMessages.mockResolvedValueOnce({
         messages: [
           {
             uid: 50,

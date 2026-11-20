@@ -8,7 +8,7 @@ import {
   pushSidecarMetadata,
 } from "../imap/metadataSidecarSync";
 import { buildImapConfig } from "../imap/imapConfigBuilder";
-import type { ImapConfig } from "../imap/tauriCommands";
+import type { ImapConfig } from "../imap/electronCommands";
 import { getAccount } from "../db/accounts";
 import { getThreadCrdtDoc } from "../db/threadCrdtDocs";
 import { getDb } from "../db/connection";

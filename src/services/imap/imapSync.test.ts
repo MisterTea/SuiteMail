@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // vi.mock() calls are hoisted — must use inline factories, not external references
-vi.mock("./tauriCommands", () => ({
+vi.mock("./electronCommands", () => ({
   imapListFolders: vi.fn(),
   imapGetFolderStatus: vi.fn(),
   imapFetchMessages: vi.fn(),
@@ -96,7 +96,7 @@ import {
   createMockImapFolderStatus,
   createMockImapFetchResult,
 } from "@/test/mocks";
-import { imapListFolders, imapSearchFolder, imapFetchMessages, imapDeltaCheck } from "./tauriCommands";
+import { imapListFolders, imapSearchFolder, imapFetchMessages, imapDeltaCheck } from "./electronCommands";
 import { getAccount } from "../db/accounts";
 import { withTransaction } from "../db/connection";
 import { upsertMessage, updateMessageThreadIds, getMessagesForThread } from "../db/messages";

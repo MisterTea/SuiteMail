@@ -5,7 +5,7 @@ import wasm from "vite-plugin-wasm";
 import topLevelAwait from "vite-plugin-top-level-await";
 import path from "path";
 
-const host = process.env.TAURI_DEV_HOST;
+const host = process.env.VITE_DEV_HOST;
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
           }
         : undefined,
       watch: {
-        ignored: ["**/src-tauri/**"],
+        ignored: ["**/crates/**"],
       },
     },
   };

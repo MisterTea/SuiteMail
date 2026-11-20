@@ -52,7 +52,7 @@ export async function checkProtonBridgeStatus(
       customSmtpPort: smtpPort ?? null,
     });
   } catch (err) {
-    console.warn("Failed to check Proton Bridge status via Tauri command:", err);
+    console.warn("Failed to check Proton Bridge status via Electron command:", err);
     return {
       is_installed: false,
       is_running: false,

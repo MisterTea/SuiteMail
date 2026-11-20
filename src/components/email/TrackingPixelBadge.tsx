@@ -49,7 +49,7 @@ export function TrackingPixelBadge({ trackers }: TrackingPixelBadgeProps) {
             <span>Email Tracking Blocked</span>
           </div>
           <p className="text-text-secondary text-[11px] mb-2 leading-relaxed">
-            Velo prevented the sender from seeing when, where, or how many times you opened this email.
+            SuiteMail prevented the sender from seeing when, where, or how many times you opened this email.
           </p>
           <div className="border-t border-border-secondary pt-1.5 space-y-1">
             {trackers.map((t, idx) => (

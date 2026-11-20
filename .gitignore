@@ -12,10 +12,6 @@ test-buildroot/
 target/
 *.node
 
-# Tauri (legacy)
-src-tauri/target/
-src-tauri/gen/schemas
-
 # Environment variables & secrets
 .env
 .env.*
@@ -59,7 +55,7 @@ nul
 # Debug files
 debug-*.mjs
 
-# Tauri signing keys
+# Signing keys
 *.key
 *.pem
 *.p12
@@ -72,7 +68,6 @@ coverage/
 test-results/
 playwright-report/
 recordings/
-recordings-tauri/
 
 # Temporary files
 *.tmp
@@ -83,7 +78,6 @@ recordings-tauri/
 build-dir/
 repo/
 suitemail-*.tar.gz
-velo-*.tar.gz
 *.flatpak
 *.rpm
 *.src.rpm

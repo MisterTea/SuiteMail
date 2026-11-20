@@ -13,7 +13,7 @@ SuiteMail follows a **three-layer architecture** with clear separation of concer
 |  Calendar / Bundles /     |
 |  Filters / Notifications  |
 +--------------------------+
-|     Tauri v2 + Rust       |   Native Layer
+|     Electron + Rust       |   Native Layer
 |  System Tray / OAuth /    |   (Rust)
 |  SQLite / Notifications / |
 |  Deep Links / Autostart   |
@@ -24,12 +24,12 @@ SuiteMail follows a **three-layer architecture** with clear separation of concer
 
 | Layer | Technology |
 |-------|-----------|
-| **Framework** | [Tauri v2](https://v2.tauri.app/) |
+| **Framework** | Electron + Rust (N-API) |
 | **Frontend** | React 19, TypeScript, Zustand 5 |
 | **Styling** | Tailwind CSS v4 |
 | **Editor** | TipTap v3 |
 | **Backend** | Rust |
-| **Database** | SQLite (via tauri-plugin-sql) |
+| **Database** | SQLite (Rust core via Electron IPC) |
 | **Search** | FTS5 with trigram tokenizer |
 | **AI** | Anthropic Claude, OpenAI GPT, Google Gemini (user-selectable models per provider) |
 | **Icons** | Lucide React |
@@ -48,7 +48,7 @@ SuiteMail follows a **three-layer architecture** with clear separation of concer
 ## Project Structure
 
 ```
-velo/
+suitemail/
 ├── src/
 │   ├── components/           # React components (14 groups, ~94 files)
 │   │   ├── layout/           # Sidebar, EmailList, ReadingPane, TitleBar
@@ -80,7 +80,7 @@ velo/
 │   │   │                     # gmailProvider, imapSmtpProvider
 │   │   ├── gmail/            # GmailClient, tokenManager, syncManager
 │   │   ├── imap/             # IMAP sync, folder mapper, auto-discovery,
-│   │   │                     # config builder, Tauri command wrappers
+│   │   │                     # config builder, Electron command wrappers
 │   │   ├── proton/           # Proton Mail Bridge detection, status probe, launch automation
 │   │   ├── threading/        # JWZ threading engine for IMAP conversations
 │   │   ├── ai/               # AI service, 3 providers, categorization, Ask Inbox,
@@ -111,36 +111,19 @@ velo/
 │   │                         # mailtoParser, fileUtils, templateVariables, noReply
 │   ├── constants/            # Keyboard shortcuts, color themes, help content
 │   └── styles/               # Tailwind CSS v4 globals
-├── src-tauri/
-│   ├── src/                  # Rust backend (tray, OAuth, splash, single-instance,
-│   │   │                     # IMAP client, SMTP client, Tauri commands)
-│   ├── capabilities/         # Tauri v2 permissions
-│   └── icons/                # App icons (all platforms)
+├── electron/                # Desktop shell, preload bridge, icons
+├── crates/supermail-core/    # Rust N-API module: SQLite, OAuth, IMAP/SMTP
 ├── docs/                     # Documentation
 ├── package.json
 ├── CLAUDE.md                 # AI coding assistant context
 └── README.md
 ```
 
-## Rust Backend
+## Desktop and Rust Backend
 
-The Rust layer (`src-tauri/src/`) handles system integration and performance-critical email protocol operations. It provides:
+`electron/main.js` handles windows, system tray, single-instance enforcement, deep links, notifications and desktop IPC. `electron/preload.cjs` exposes the `window.supermail` bridge consumed through `src/platform/`.
 
-- **System tray** -- Show/hide, check mail, quit menu
-- **OAuth server** -- Localhost PKCE server on port 17248
-- **IMAP client** (`imap/`) -- Full IMAP protocol via `async-imap` + `mail-parser`. Supports TLS/STARTTLS/plain, XOAuth2 auth. Operations: FETCH, STORE, MOVE, DELETE, APPEND, LIST, STATUS
-- **SMTP client** (`smtp/`) -- Email sending via `lettre`. Supports TLS/STARTTLS/plain. Parses RFC 2822 envelopes
-- **Splash screen** -- Shown during initialization, closed when ready
-- **Single instance** -- Prevents duplicate app windows, forwards deep link args
-- **Minimize to tray** -- Hides on close instead of quitting
-- **Custom titlebar** -- Overlay on macOS, frameless on Windows/Linux
-- **Windows AUMID** -- Set for proper notification identity
-
-**Tauri commands:** `start_oauth_server`, `close_splashscreen`, `set_tray_tooltip`, `open_devtools`, `check_proton_bridge_status`, `launch_proton_bridge`, 11 IMAP commands (`imap_test_connection`, `imap_list_folders`, `imap_fetch_messages`, etc.), 2 SMTP commands (`smtp_send_email`, `smtp_test_connection`)
-
-**Plugins (13):** sql, notification, opener, log, dialog, fs, http, single-instance, autostart, deep-link, global-shortcut
-
-**Rust dependencies (IMAP/SMTP):** `async-imap`, `tokio-native-tls`, `mail-parser`, `lettre`
+The Rust N-API module in `crates/supermail-core/` handles SQLite, OAuth, IMAP (`async-imap` and `mail-parser`), SMTP (`lettre`), Proton Bridge discovery and local AI operations. Native commands are routed through `src/dispatcher.rs` in that crate.
 
 ## Service Layer
 
@@ -151,7 +134,7 @@ All business logic lives in `src/services/` as plain async functions (except `Gm
 | `db/` | SQLite queries (29 files), migrations, FTS5 search |
 | `email/` | EmailProvider abstraction, provider factory, Gmail/IMAP adapters |
 | `gmail/` | Gmail client, token management, sync engine |
-| `imap/` | IMAP sync, folder-to-label mapping, auto-discovery, Tauri command wrappers |
+| `imap/` | IMAP sync, folder-to-label mapping, auto-discovery, Electron command wrappers |
 | `threading/` | JWZ threading algorithm for IMAP message grouping |
 | `ai/` | AI service with 3 providers (selectable models), categorization, Ask Inbox, writing style analysis, auto-drafts, task extraction |
 | `google/` | Google Calendar API |
@@ -192,7 +175,7 @@ Nine Zustand stores manage ephemeral UI state:
 
 ## Database
 
-SQLite via Tauri SQL plugin. 28 migrations, 35 tables total. `contract_key_sightings` stores each email address and public key seen on a signed contract.
+SQLite via the Electron preload bridge and Rust core. 28 migrations, 35 tables total. `contract_key_sightings` stores each email address and public key seen on a signed contract.
 
 Key tables: `accounts` (with `provider`, IMAP/SMTP fields), `messages` (with FTS5 index, `auth_results`, IMAP headers, `imap_uid`, `imap_folder`), `threads` (with `is_pinned`, `is_muted`), `thread_labels`, `labels` (with `imap_folder_path`, `imap_special_use`), `contacts`, `attachments` (with `imap_part_id`), `filter_rules`, `scheduled_emails`, `templates`, `signatures`, `image_allowlist`, `settings`, `ai_cache`, `thread_categories`, `calendar_events`, `follow_up_reminders`, `notification_vips`, `unsubscribe_actions`, `bundle_rules`, `bundled_threads`, `send_as_aliases`, `smart_folders`, `link_scan_results`, `phishing_allowlist`, `quick_steps`, `folder_sync_state` (IMAP sync tracking), `pending_operations` (offline action queue), `local_drafts` (offline draft persistence), `writing_style_profiles` (AI writing style per account), `tasks` (full task management with priorities, subtasks, recurrence), `task_tags` (custom task tag colors), `smart_label_rules` (AI-powered auto-labeling rules).
 
@@ -213,7 +196,4 @@ Key tables: `accounts` (with `provider`, IMAP/SMTP fields), `messages` (with FTS
 
 ## Packaging & Distribution
 
-SuiteMail supports standard Linux distribution formats via automated and local build processes:
-
-- **RPM & COPR**: Native RPM generation is integrated via Tauri's bundler (`tauri build -b rpm`), making it trivial to build and test RPMs locally or publish SRPMs to Fedora COPR.
-- **Flatpak**: A Flatpak manifest (`com.velomail.app.yml`) defines the sandbox environment, leveraging the GNOME 46 runtime and Rust/Node.js SDK extensions. Local builds are streamlined via an npm script (`npm run flatpak`) which uses `flatpak-builder` while excluding host-specific artifacts to ensure reproducible sandboxed builds.
+`npm run package` builds the Rust N-API module and frontend, then runs Electron Builder using `electron-builder.json`. Installers are written to `dist-electron/`: NSIS and portable executables for Windows, DMG and ZIP for macOS, and AppImage and DEB for Linux.

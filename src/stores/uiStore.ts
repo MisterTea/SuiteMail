@@ -35,6 +35,7 @@ interface UIState {
   reduceMotion: boolean;
   isOnline: boolean;
   pendingOpsCount: number;
+  syncingAccountIds: string[];
   isSyncingFolder: string | null;
   mobileSidebarOpen: boolean;
   setTheme: (theme: Theme) => void;
@@ -61,6 +62,7 @@ interface UIState {
   setReduceMotion: (reduce: boolean) => void;
   setOnline: (online: boolean) => void;
   setPendingOpsCount: (count: number) => void;
+  setAccountSyncing: (accountId: string, syncing: boolean) => void;
   setSyncingFolder: (folder: string | null) => void;
 }
 
@@ -83,6 +85,7 @@ export const useUIStore = create<UIState>((set) => ({
   reduceMotion: false,
   isOnline: true,
   pendingOpsCount: 0,
+  syncingAccountIds: [],
   isSyncingFolder: null,
   mobileSidebarOpen: false,
 
@@ -161,5 +164,12 @@ export const useUIStore = create<UIState>((set) => ({
   },
   setOnline: (isOnline) => set({ isOnline }),
   setPendingOpsCount: (pendingOpsCount) => set({ pendingOpsCount }),
+  setAccountSyncing: (accountId, syncing) => set((state) => ({
+    syncingAccountIds: syncing
+      ? state.syncingAccountIds.includes(accountId)
+        ? state.syncingAccountIds
+        : [...state.syncingAccountIds, accountId]
+      : state.syncingAccountIds.filter((id) => id !== accountId),
+  })),
   setSyncingFolder: (isSyncingFolder) => set({ isSyncingFolder }),
 }));

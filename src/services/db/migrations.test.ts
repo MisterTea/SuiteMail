@@ -104,3 +104,15 @@ describe("splitStatements", () => {
     expect(result).toHaveLength(2);
   });
 });
+
+// Versions 29 and 30 were shipped for Microsoft Graph and Unread changes.
+// Databases with those versions must still receive the metadata tables.
+describe("metadata migration compatibility", () => {
+  it("creates metadata tables under a new version for existing databases", async () => {
+    const { MIGRATIONS, splitStatements: split } = await import("./migrations");
+    const pending = MIGRATIONS.filter((migration) => migration.version > 30);
+    const statements = pending.flatMap((migration) => split(migration.sql));
+    expect(statements.some((sql) => sql.includes("CREATE TABLE IF NOT EXISTS metadata_history"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("CREATE TABLE IF NOT EXISTS metadata_ledger"))).toBe(true);
+  });
+});

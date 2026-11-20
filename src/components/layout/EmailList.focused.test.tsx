@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { navigateToLabel } from "@/router/navigate";
 import { EmailList } from "./EmailList";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore } from "@/stores/threadStore";
@@ -75,5 +76,26 @@ describe("EmailList focused and other empty states", () => {
       expect(screen.getByText("No other messages")).toBeInTheDocument();
       expect(screen.getByText("All caught up in Other")).toBeInTheDocument();
     });
+  });
+
+  it.each(["focused", "other"])("opens Inbox when switching from EWS %s to Gmail", async (label) => {
+    vi.mocked(useActiveLabel).mockReturnValue(label);
+    render(<EmailList />);
+    expect(navigateToLabel).not.toHaveBeenCalled();
+
+    act(() => {
+      useAccountStore.setState({
+        accounts: [{ id: "gmail", email: "user@gmail.com", displayName: "User", avatarUrl: null, isActive: true, provider: "gmail" }],
+        activeAccountId: "gmail",
+      });
+    });
+
+    await waitFor(() => expect(navigateToLabel).toHaveBeenCalledWith("inbox"));
+  });
+
+  it("opens Focused for an EWS account on Inbox", async () => {
+    vi.mocked(useActiveLabel).mockReturnValue("inbox");
+    render(<EmailList />);
+    await waitFor(() => expect(navigateToLabel).toHaveBeenCalledWith("focused"));
   });
 });

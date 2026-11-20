@@ -158,7 +158,7 @@ export class FakeServer {
       VALUES ('t-welcome-1', 'acc-test-1', 'Team Welcome & Onboarding Guide', 'Welcome to SuperMail! Enjoy your fast email client.', 1700000400, 1, 0, 1);
 
       INSERT OR REPLACE INTO messages (id, account_id, thread_id, from_address, from_name, to_addresses, subject, snippet, body_html, body_text, date, is_read)
-      VALUES ('m-welcome-1', 'acc-test-1', 't-welcome-1', 'team@velomail.app', 'SuperMail Team', 'user@test.com', 'Team Welcome & Onboarding Guide', 'Welcome to SuperMail! Enjoy your fast email client.', '<p>Welcome to SuperMail! Enjoy your fast email client.</p>', 'Welcome to SuperMail! Enjoy your fast email client.', 1700000400, 0);
+      VALUES ('m-welcome-1', 'acc-test-1', 't-welcome-1', 'team@suitemail.app', 'SuperMail Team', 'user@test.com', 'Team Welcome & Onboarding Guide', 'Welcome to SuperMail! Enjoy your fast email client.', '<p>Welcome to SuperMail! Enjoy your fast email client.</p>', 'Welcome to SuperMail! Enjoy your fast email client.', 1700000400, 0);
 
       INSERT OR REPLACE INTO thread_labels (thread_id, account_id, label_id) VALUES ('t-welcome-1', 'acc-test-1', 'INBOX');
     `);
@@ -404,6 +404,12 @@ export class FakeServer {
           }
         }
 
+        if (url === "/v1/models" && req.method === "GET") {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ data: [{ id: "gemma-4-e4b" }] }));
+          return;
+        }
+
         // 1. AI completions endpoint: POST /v1/chat/completions
         if (url.startsWith("/v1/chat/completions") && req.method === "POST") {
           this.state.aiRequests.push({
@@ -452,6 +458,15 @@ export class FakeServer {
               },
             ],
           };
+
+          // Discover inbox evidence before proposing; later turns review validation feedback.
+          const messages = parsedBody?.messages ?? [];
+          if (!messages.some((message: { role: string }) => message.role === "tool")) {
+            responsePayload.choices[0].message.tool_calls = [{
+              id: "call_search_newsletters", type: "function",
+              function: { name: "search_emails", arguments: JSON.stringify({ from: "newsletter@techweekly.com" }) },
+            }];
+          }
 
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(JSON.stringify(responsePayload));

@@ -7,7 +7,7 @@ import {
   imapDeleteMessages,
   imapGetFolderStatus,
   type ImapConfig,
-} from "./tauriCommands";
+} from "./electronCommands";
 import {
   SETTINGS_SIDECAR_FOLDER,
   SETTINGS_GENERAL_FOLDER,

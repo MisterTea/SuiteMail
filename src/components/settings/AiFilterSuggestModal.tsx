@@ -62,6 +62,7 @@ export function AiFilterSuggestModal({
   const [mode, setMode] = useState<"ai" | "manual">(initialMode);
   const [prompt, setPrompt] = useState(initialPrompt);
   const [loading, setLoading] = useState(false);
+  const [agentProgress, setAgentProgress] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // Suggested / Configured Filter Result
@@ -86,6 +87,7 @@ export function AiFilterSuggestModal({
   const [manualMarkRead, setManualMarkRead] = useState(false);
   const [manualTrash, setManualTrash] = useState(false);
 
+  const requestVersion = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Sync initialMode and initialPrompt when modal opens
@@ -103,6 +105,7 @@ export function AiFilterSuggestModal({
 
   // Reset state on open/close
   const handleReset = useCallback(() => {
+    requestVersion.current += 1;
     setPrompt("");
     setLoading(false);
     setError(null);
@@ -138,6 +141,8 @@ export function AiFilterSuggestModal({
       const q = textPrompt.trim();
       if (!q || !accountId || loading) return;
 
+      const version = ++requestVersion.current;
+      setAgentProgress("Starting Pi agent…");
       setLoading(true);
       setError(null);
       setSuggestedFilter(null);
@@ -147,8 +152,12 @@ export function AiFilterSuggestModal({
         const agentResult = await suggestFilterWithPiAgent({
           prompt: q,
           accountId,
+          onProgress: (message) => {
+            if (version === requestVersion.current) setAgentProgress(message);
+          },
         });
 
+        if (version !== requestVersion.current) return;
         const filter = agentResult.filter;
         setSuggestedFilter(filter);
         setFilterName(filter.name);
@@ -160,8 +169,10 @@ export function AiFilterSuggestModal({
           filter.actions,
           50,
         );
+        if (version !== requestVersion.current) return;
         setAffectedEmails(affected);
       } catch (err) {
+        if (version !== requestVersion.current) return;
         console.error("Failed to suggest filter with Pi Agent:", err);
         setError(
           err instanceof Error
@@ -169,7 +180,7 @@ export function AiFilterSuggestModal({
             : "Pi Agent was unable to suggest a filter. Please check your AI connection and try again.",
         );
       } finally {
-        setLoading(false);
+        if (version === requestVersion.current) setLoading(false);
       }
     },
     [accountId, loading],
@@ -207,6 +218,7 @@ export function AiFilterSuggestModal({
       return;
     }
 
+    const version = ++requestVersion.current;
     setLoading(true);
     setError(null);
 
@@ -228,11 +240,13 @@ export function AiFilterSuggestModal({
         actions,
         50,
       );
+      if (version !== requestVersion.current) return;
       setAffectedEmails(affected);
     } catch (err) {
+      if (version !== requestVersion.current) return;
       setError(err instanceof Error ? err.message : "Failed to calculate affected emails");
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   }, [
     accountId,
@@ -414,6 +428,9 @@ export function AiFilterSuggestModal({
             </div>
           )}
 
+          {loading && agentProgress && mode === "ai" && (
+            <p role="status" className="text-xs text-text-secondary">{agentProgress}</p>
+          )}
           {!suggestedFilter ? (
             mode === "ai" ? (
               /* AI Mode: Prompt Input View */
@@ -647,7 +664,13 @@ export function AiFilterSuggestModal({
                     Filter Rule Summary
                   </span>
                   <button
-                    onClick={() => setSuggestedFilter(null)}
+                    onClick={() => {
+                      requestVersion.current += 1;
+                      setLoading(false);
+                      setSuggestedFilter(null);
+                      setAffectedEmails([]);
+                      setError(null);
+                    }}
                     className="text-xs text-text-tertiary hover:text-text-primary flex items-center gap-1 transition-colors"
                   >
                     <RotateCcw size={12} />

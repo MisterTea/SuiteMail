@@ -1,4 +1,4 @@
-import type { ImapConfig, ImapMessage, DeltaCheckRequest, DeltaCheckResult } from "./tauriCommands";
+import type { ImapConfig, ImapMessage, DeltaCheckRequest, DeltaCheckResult } from "./electronCommands";
 import {
   imapListFolders,
   imapGetFolderStatus,
@@ -6,7 +6,7 @@ import {
   imapFetchNewUids,
   imapSearchFolder,
   imapDeltaCheck,
-} from "./tauriCommands";
+} from "./electronCommands";
 import { buildImapConfig } from "./imapConfigBuilder";
 import {
   mapFolderToLabel,
@@ -132,7 +132,7 @@ function syntheticMessageId(accountId: string, folder: string, uid: number): str
 }
 
 /**
- * Convert an ImapMessage (from Tauri backend) to the ParsedMessage format
+ * Convert an ImapMessage (from Electron backend) to the ParsedMessage format
  * used throughout the app.
  */
 export function imapMessageToParsedMessage(

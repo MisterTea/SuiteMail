@@ -355,6 +355,11 @@ ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
 });
 
 // Window controls
+ipcMain.handle('feedback:captureScreenshot', async (event) => {
+  const image = await event.sender.capturePage();
+  return image.toDataURL();
+});
+
 ipcMain.handle('window:minimize', () => mainWindow?.minimize());
 ipcMain.handle('window:toggleMaximize', () => {
   if (!mainWindow) return;

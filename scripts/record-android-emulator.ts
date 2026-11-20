@@ -4,7 +4,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { chromium } from "playwright";
 import { FakeServer } from "../e2e/fakeServer";
-import { getTauriBridgeScript } from "../e2e/tauriBridge";
+import { getElectronBridgeScript } from "../e2e/electronBridge";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -53,7 +53,7 @@ async function main() {
     cwd: ROOT_DIR,
     shell: true,
     stdio: "pipe",
-    env: { ...process.env, TAURI_DEV_HOST: "0.0.0.0" },
+    env: { ...process.env, VITE_DEV_HOST: "0.0.0.0" },
   });
 
   viteProcess.stderr?.on("data", (data) => {
@@ -114,8 +114,8 @@ async function main() {
     const pages = context.pages();
     const page = pages[0] || (await context.newPage());
 
-    // Inject Tauri Bridge
-    await page.addInitScript(getTauriBridgeScript(FAKE_SERVER_PORT));
+    // Inject Electron Bridge
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
 
     console.log("▶ Navigating Android Chrome to SuiteMail inbox...");
     await page.goto(`http://localhost:${DEV_SERVER_PORT}/#/mail/inbox`, { waitUntil: "networkidle" });

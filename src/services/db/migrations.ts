@@ -855,7 +855,7 @@ export const MIGRATIONS = [
     `,
   },
   {
-    version: 29,
+    version: 31,
     description: "Add metadata_history and metadata_ledger tables for reversible and auditable metadata",
     sql: `
       CREATE TABLE IF NOT EXISTS metadata_history (

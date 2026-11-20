@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  A blazing-fast, keyboard-first desktop email client built with Tauri, React, and Rust.<br />
+  A blazing-fast, keyboard-first desktop email client built with Electron, React, and Rust.<br />
   Local-first. Privacy-focused. AI-powered.
 </p>
 
@@ -37,7 +37,7 @@ Most email clients are slow, bloated, or send your data to someone else's server
 - **Local-first** -- Your emails live in a local SQLite database. No middleman servers. Read your mail offline.
 - **Keyboard-driven** -- Superhuman-inspired shortcuts let you fly through your inbox without touching the mouse.
 - **AI-enhanced** -- Summarize threads, generate replies, and search your inbox in natural language -- with your choice of AI provider.
-- **Native performance** -- Rust backend via Tauri v2. Small binary, low memory, instant startup.
+- **Native performance** -- Electron desktop shell with a Rust backend for email protocols and local storage.
 - **Private by default** -- Remote images blocked, HTML sanitized, emails rendered in sandboxed iframes. Your data stays on your machine.
 
 ---
@@ -141,10 +141,10 @@ For developers who want to build SuiteMail themselves or contribute:
 git clone https://github.com/MisterTea/SuiteMail.git
 cd SuiteMail
 npm install
-npm run tauri dev
+npm run dev:desktop
 ```
 
-**Prerequisites:** [Node.js](https://nodejs.org/) v18+, [Rust](https://www.rust-lang.org/tools/install), [Tauri v2 deps](https://v2.tauri.app/start/prerequisites/)
+**Prerequisites:** [Node.js](https://nodejs.org/) v22.12+, [Rust](https://www.rust-lang.org/tools/install)
 
 See [Development Guide](docs/development.md) for all commands, testing, and build instructions.
 
@@ -154,7 +154,7 @@ See [Development Guide](docs/development.md) for all commands, testing, and buil
 
 | | |
 |--|--|
-| **Framework** | Tauri v2 (Rust) + React 19 + TypeScript |
+| **Framework** | Electron + Rust (N-API) + React 19 + TypeScript |
 | **Styling** | Tailwind CSS v4 |
 | **State** | Zustand 5 (8 stores) |
 | **Editor** | TipTap v3 |
@@ -170,7 +170,7 @@ See [Architecture](docs/architecture.md) for detailed design, data flow, and pro
 ## Building
 
 ```bash
-npm run tauri build
+npm run package
 ```
 
 **Windows** `.msi` / `.exe` &nbsp;&bull;&nbsp; **macOS** `.dmg` / `.app` &nbsp;&bull;&nbsp; **Linux** `.deb` / `.AppImage`

@@ -1,4 +1,4 @@
-import type { ImapFolder } from "./tauriCommands";
+import type { ImapFolder } from "./electronCommands";
 import { upsertLabel } from "../db/labels";
 
 /**

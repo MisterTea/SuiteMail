@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { createMockTauriFs } from "@/test/mocks";
+import { createMockPlatformFs } from "@/test/mocks";
 
-const tauriFs = createMockTauriFs();
+const platformFs = createMockPlatformFs();
 
 describe("crypto", () => {
   beforeEach(() => {
-    (window as any).supermail = { fs: tauriFs.mock };
+    (window as any).supermail = { fs: platformFs.mock };
     vi.resetModules();
-    tauriFs.store.clear();
+    platformFs.store.clear();
   });
 
   it("encrypts and decrypts a value roundtrip", async () => {
@@ -68,8 +68,8 @@ describe("crypto", () => {
 
     await encryptValue("test");
 
-    expect(tauriFs.mock.exists).toHaveBeenCalledWith("suitemail.key");
-    expect(tauriFs.mock.writeTextFile).toHaveBeenCalledWith(
+    expect(platformFs.mock.exists).toHaveBeenCalledWith("suitemail.key");
+    expect(platformFs.mock.writeTextFile).toHaveBeenCalledWith(
       "suitemail.key",
       expect.any(String),
     );
@@ -78,14 +78,42 @@ describe("crypto", () => {
   it("reads existing key from file", async () => {
     // Pre-seed a key in the mock store
     const mockKey = btoa(String.fromCharCode(...new Uint8Array(32).fill(42)));
-    tauriFs.store.set("suitemail.key", mockKey);
+    platformFs.store.set("suitemail.key", mockKey);
 
     const { encryptValue, decryptValue } = await import("./crypto");
     const encrypted = await encryptValue("round-trip-test");
 
-    expect(tauriFs.mock.readTextFile).toHaveBeenCalledWith("suitemail.key");
+    expect(platformFs.mock.readTextFile).toHaveBeenCalledWith("suitemail.key");
 
     const decrypted = await decryptValue(encrypted);
     expect(decrypted).toBe("round-trip-test");
+  });
+
+  it.each(["filesystem", "localStorage"])("decrypts saved data using the legacy key in %s", async (storage) => {
+    const storedKeys = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (name: string) => storedKeys.get(name) ?? null,
+      setItem: (name: string, value: string) => storedKeys.set(name, value),
+      removeItem: (name: string) => storedKeys.delete(name),
+    });
+    try {
+      if (storage === "localStorage") {
+        (window as any).supermail = undefined;
+      }
+      const { encryptValue } = await import("./crypto");
+      const encrypted = await encryptValue("saved-before-the-rename");
+      if (storage === "filesystem") {
+        platformFs.store.set("velo.key", platformFs.store.get("suitemail.key")!);
+        platformFs.store.delete("suitemail.key");
+      } else {
+        localStorage.setItem("velo.key", localStorage.getItem("suitemail.key")!);
+        localStorage.removeItem("suitemail.key");
+      }
+      vi.resetModules();
+      const { decryptValue } = await import("./crypto");
+      expect(await decryptValue(encrypted)).toBe("saved-before-the-rename");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

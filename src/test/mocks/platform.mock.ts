@@ -4,7 +4,7 @@ import { vi } from "vitest";
  * Creates a mock for platform fs that simulates file operations
  * using an in-memory Map store.
  */
-export function createMockTauriFs() {
+export function createMockPlatformFs() {
   const store = new Map<string, string>();
 
   return {
@@ -27,7 +27,7 @@ export function createMockTauriFs() {
 /**
  * Creates a mock for platform path with simple join behavior.
  */
-export function createMockTauriPath() {
+export function createMockPlatformPath() {
   return {
     join: vi.fn(async (...parts: string[]) => parts.join("/")),
     appDataDir: vi.fn(async () => "/mock/app/data/"),

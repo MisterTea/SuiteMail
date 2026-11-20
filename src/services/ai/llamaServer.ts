@@ -24,7 +24,7 @@ const PI_PORT_MIGRATION_KEY = "pi_server_port_migrated_off_3000";
 
 /**
  * `localhost` resolves to IPv6 (::1) first. llama-server listens on 127.0.0.1,
- * and Tauri's HTTP client does not fall back, so the call fails closed.
+ * so use an explicit IPv4 address to match the listening interface.
  */
 export function ipv4LoopbackUrl(url: string): string {
   const trimmed = url.trim();

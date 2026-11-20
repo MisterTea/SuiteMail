@@ -69,7 +69,6 @@ vi.mock("@/services/gmail/draftDeletion", () => ({ deleteDraftsForThread: vi.fn(
 vi.mock("@/services/gmail/tokenManager", () => ({ getGmailClient: vi.fn() }));
 vi.mock("@/services/db/messages", () => ({ getMessagesForThread: vi.fn() }));
 vi.mock("@/components/email/MessageItem", () => ({ parseUnsubscribeUrl: vi.fn() }));
-vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@/services/gmail/syncManager", () => ({ triggerSync: vi.fn() }));
 
 import { renderHook } from "@testing-library/react";
@@ -109,11 +108,11 @@ describe("useKeyboardShortcuts", () => {
     input.remove();
   });
 
-  it("dispatches velo-toggle-ask-inbox when 'i' is pressed", () => {
+  it("dispatches suitemail-toggle-ask-inbox when 'i' is pressed", () => {
     renderHook(() => useKeyboardShortcuts());
 
     const listener = vi.fn();
-    window.addEventListener("velo-toggle-ask-inbox", listener);
+    window.addEventListener("suitemail-toggle-ask-inbox", listener);
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "i", bubbles: true }),
@@ -121,14 +120,14 @@ describe("useKeyboardShortcuts", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
 
-    window.removeEventListener("velo-toggle-ask-inbox", listener);
+    window.removeEventListener("suitemail-toggle-ask-inbox", listener);
   });
 
-  it("dispatches velo-toggle-command-palette when '/' is pressed", () => {
+  it("dispatches suitemail-toggle-command-palette when '/' is pressed", () => {
     renderHook(() => useKeyboardShortcuts());
 
     const listener = vi.fn();
-    window.addEventListener("velo-toggle-command-palette", listener);
+    window.addEventListener("suitemail-toggle-command-palette", listener);
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "/", bubbles: true }),
@@ -136,14 +135,14 @@ describe("useKeyboardShortcuts", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
 
-    window.removeEventListener("velo-toggle-command-palette", listener);
+    window.removeEventListener("suitemail-toggle-command-palette", listener);
   });
 
-  it("dispatches velo-toggle-shortcuts-help when '?' is pressed", () => {
+  it("dispatches suitemail-toggle-shortcuts-help when '?' is pressed", () => {
     renderHook(() => useKeyboardShortcuts());
 
     const listener = vi.fn();
-    window.addEventListener("velo-toggle-shortcuts-help", listener);
+    window.addEventListener("suitemail-toggle-shortcuts-help", listener);
 
     window.dispatchEvent(
       new KeyboardEvent("keydown", { key: "?", shiftKey: true, bubbles: true }),
@@ -151,6 +150,6 @@ describe("useKeyboardShortcuts", () => {
 
     expect(listener).toHaveBeenCalledTimes(1);
 
-    window.removeEventListener("velo-toggle-shortcuts-help", listener);
+    window.removeEventListener("suitemail-toggle-shortcuts-help", listener);
   });
 });

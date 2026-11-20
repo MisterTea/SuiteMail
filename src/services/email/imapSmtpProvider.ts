@@ -16,7 +16,7 @@ import {
   smtpTestConnection,
   type ImapConfig,
   type SmtpConfig,
-} from "../imap/tauriCommands";
+} from "../imap/electronCommands";
 import { getAccount, type DbAccount } from "../db/accounts";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
@@ -102,7 +102,7 @@ function extractSnippet(raw: string, maxLen = 200): string {
 
 /**
  * EmailProvider adapter for IMAP/SMTP accounts.
- * Delegates to Tauri IMAP/SMTP commands via the imapSync engine.
+ * Delegates to Electron IMAP/SMTP commands via the imapSync engine.
  */
 export class ImapSmtpProvider implements EmailProvider {
   readonly accountId: string;

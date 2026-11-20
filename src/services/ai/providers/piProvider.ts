@@ -1,11 +1,11 @@
 import OpenAI from "openai";
-import { platformFetch as tauriFetch } from "@/platform";
+import { platformFetch } from "@/platform";
 import type { AiProviderClient, AiCompletionRequest } from "../types";
 import { ipv4LoopbackUrl } from "../llamaServer";
 
 const safeFetch: typeof fetch = async (input, init) => {
   try {
-    return await tauriFetch(input, init);
+    return await platformFetch(input, init);
   } catch (err) {
     if (
       err instanceof TypeError &&

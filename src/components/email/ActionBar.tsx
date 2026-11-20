@@ -508,7 +508,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
           icon={<FolderInput size={16} />}
           onClick={() => {
             if (!activeAccountId) return;
-            window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [thread.id] } }));
+            window.dispatchEvent(new CustomEvent("suitemail-move-to-folder", { detail: { threadIds: [thread.id] } }));
           }}
           title="Move to folder (v)"
           aria-label="Move to folder"

@@ -1,5 +1,5 @@
 import type { DbAccount } from "../db/accounts";
-import type { ImapConfig, SmtpConfig } from "./tauriCommands";
+import type { ImapConfig, SmtpConfig } from "./electronCommands";
 
 /**
  * Map the DB-stored security value to the config type.

@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { runPiEmailAgent, suggestFilterWithPiAgent } from "./piEmailAgent";
 
+import { getAffectedEmailsForFilter, type AffectedEmail } from "@/services/filters/filterEngine";
+vi.mock("@/services/filters/filterEngine", () => ({ getAffectedEmailsForFilter: vi.fn() }));
+
+const mockAiCoreComplete = vi.fn();
+vi.mock("./providers/aicoreProvider", () => ({
+  createAiCoreProvider: () => ({ complete: mockAiCoreComplete }),
+}));
+
 // Mock executePiEmailTool
 vi.mock("./piEmailTools", async () => {
   const actual = await vi.importActual<typeof import("./piEmailTools")>("./piEmailTools");
@@ -178,169 +186,140 @@ describe("piEmailAgent", () => {
   });
 
   describe("suggestFilterWithPiAgent", () => {
-    it("suggests filter via OpenAI tool call", async () => {
-      mockCreateChatCompletion.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: null,
-              tool_calls: [
-                {
-                  id: "call_suggest_1",
-                  type: "function",
-                  function: {
-                    name: "suggest_filter",
-                    arguments: JSON.stringify({
-                      name: "GitHub Notifications",
-                      criteria: { from: "notifications@github.com" },
-                      actions: { markRead: true, archive: true },
-                      explanation: "Archives all GitHub notifications and marks them as read.",
-                    }),
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      });
+    const filter = { name: "Automated GitHub", criteria: { from: "notifications@github.com", subject: "workflow run" }, actions: { markRead: true } };
+    const tool = (name: string, args: unknown) => ({ choices: [{ message: {
+      role: "assistant", content: null, tool_calls: [{ id: `call_${name}`, type: "function",
+        function: { name, arguments: JSON.stringify(args) } }],
+    } }] });
+    const search = () => mockCreateChatCompletion.mockResolvedValueOnce(tool("search_emails", { query: "GitHub" }));
+    const propose = (value = filter) => mockCreateChatCompletion.mockResolvedValueOnce(tool("suggest_filter", value));
 
-      const res = await suggestFilterWithPiAgent({
-        prompt: "Archive all emails from GitHub notifications and mark as read",
-        accountId: "acc-1",
-      });
-
-      expect(res.filter.name).toBe("GitHub Notifications");
-      expect(res.filter.criteria.from).toBe("notifications@github.com");
-      expect(res.filter.actions.markRead).toBe(true);
-      expect(res.filter.actions.archive).toBe(true);
-      expect(res.filter.explanation).toContain("GitHub");
-      expect(res.toolCallsExecuted).toHaveLength(1);
-      expect(res.toolCallsExecuted[0]?.tool).toBe("suggest_filter");
+    beforeEach(() => {
+      mockCreateChatCompletion.mockReset();
+      vi.mocked(executePiEmailTool).mockResolvedValue({ text: "Found automated workflow notifications and human comments", sourceMessages: [] });
+      vi.mocked(getAffectedEmailsForFilter).mockReset().mockResolvedValue([
+        { id: "message-1", threadId: "thread-1", fromAddress: "notifications@github.com", subject: "workflow run completed", snippet: "Automated CI", actionChanges: ["Mark as read"] } as AffectedEmail,
+      ]);
     });
 
-    it("searches emails to discover sender then suggests filter", async () => {
-      // Turn 1: agent calls search_emails
-      mockCreateChatCompletion.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: null,
-              tool_calls: [
-                {
-                  id: "call_search_uber",
-                  type: "function",
-                  function: {
-                    name: "search_emails",
-                    arguments: JSON.stringify({ query: "Uber receipt" }),
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      });
-
-      vi.mocked(executePiEmailTool).mockResolvedValueOnce({
-        text: "Found message from receipts@uber.com with subject 'Your trip with Uber'",
-        sourceMessages: [],
-      });
-
-      // Turn 2: agent calls suggest_filter
-      mockCreateChatCompletion.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content: null,
-              tool_calls: [
-                {
-                  id: "call_suggest_uber",
-                  type: "function",
-                  function: {
-                    name: "suggest_filter",
-                    arguments: JSON.stringify({
-                      name: "Uber Receipts",
-                      criteria: { from: "receipts@uber.com", subject: "receipt" },
-                      actions: { applyLabel: "Receipts", star: true },
-                      explanation: "Labels Uber receipts and stars them.",
-                    }),
-                  },
-                },
-              ],
-            },
-          },
-        ],
-      });
-
-      const res = await suggestFilterWithPiAgent({
-        prompt: "Label all my Uber receipts with Receipts and star them",
-        accountId: "acc-1",
-      });
-
-      expect(res.filter.name).toBe("Uber Receipts");
-      expect(res.filter.criteria.from).toBe("receipts@uber.com");
-      expect(res.filter.actions.applyLabel).toBe("Receipts");
-      expect(res.filter.actions.star).toBe(true);
-      expect(res.toolCallsExecuted.map((t) => t.tool)).toEqual(["search_emails", "suggest_filter"]);
+    it("uses Pi to inspect, validate and review samples over multiple model calls", async () => {
+      search(); propose(); propose();
+      const onProgress = vi.fn();
+      const res = await suggestFilterWithPiAgent({ prompt: "Mark only automated GitHub notifications read, not comments. At least one must match.", accountId: "acc-1", onProgress });
+      expect(res.filter).toEqual(filter);
+      expect(mockCreateChatCompletion).toHaveBeenCalledTimes(3);
+      expect(getAffectedEmailsForFilter).toHaveBeenCalledWith("acc-1", filter.criteria, filter.actions, 50);
+      const finalRequest = mockCreateChatCompletion.mock.calls[2][0];
+      expect(JSON.stringify(finalRequest.messages)).toContain("workflow run completed");
+      expect(res.toolCallsExecuted.map((t) => t.tool)).toEqual(["search_emails", "suggest_filter", "suggest_filter"]);
+      expect(onProgress).toHaveBeenCalledWith(expect.stringContaining("Step 3"));
+      expect(finalRequest.tools.map((t: { function: { name: string } }) => t.function.name)).not.toContain("send_email");
     });
 
-    it("handles text-based JSON tool call from compact model", async () => {
-      mockCreateChatCompletion.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content:
-                '```json\n{"tool": "suggest_filter", "parameters": {"name": "Trash Spam", "criteria": {"subject": "Free money"}, "actions": {"trash": true}}}\n```',
-            },
-          },
-        ],
+    it("keeps a valid conversation when the model replies with prose on consecutive turns", async () => {
+      const windowsFilter = {
+        name: "Windows Insider", criteria: { from: "Windows Insider" },
+        actions: { markRead: true, archive: true },
+      };
+      const responses = [
+        { choices: [{ message: { role: "assistant", content: "I will look for Windows Insider emails." } }] },
+        { choices: [{ message: { role: "assistant", content: "Let me inspect the sender first." } }] },
+        tool("search_emails", { query: "Windows Insider" }),
+        tool("suggest_filter", windowsFilter),
+        { choices: [{ message: { role: "assistant", content: "The matching samples look correct; I will confirm the rule." } }] },
+        tool("suggest_filter", windowsFilter),
+      ];
+      mockCreateChatCompletion.mockImplementation(async ({ messages }) => {
+        if (messages.at(-1)?.role === "assistant") {
+          throw new Error("400 Cannot have 2 or more assistant messages at the end of the list.");
+        }
+        for (let index = 1; index < messages.length; index++) {
+          expect([messages[index - 1].role, messages[index].role]).not.toEqual(["assistant", "assistant"]);
+        }
+        const response = responses.shift();
+        if (!response) throw new Error("Unexpected extra model call");
+        return response;
       });
-
-      const res = await suggestFilterWithPiAgent({
-        prompt: "Trash any email saying Free money in the subject",
-        accountId: "acc-1",
+      const result = await suggestFilterWithPiAgent({
+        prompt: "Mark as read and archive Windows Insider emails", accountId: "acc-1",
       });
-
-      expect(res.filter.name).toBe("Trash Spam");
-      expect(res.filter.criteria.subject).toBe("Free money");
-      expect(res.filter.actions.trash).toBe(true);
+      expect(result.filter).toEqual(windowsFilter);
+      expect(mockCreateChatCompletion).toHaveBeenCalledTimes(6);
+      expect(mockCreateChatCompletion.mock.calls[2][0].messages.at(-1)).toEqual({
+        role: "user", content: expect.stringContaining("Continue using the available tools"),
+      });
     });
 
-    it("extracts filter directly from JSON in message content", async () => {
-      mockCreateChatCompletion.mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              role: "assistant",
-              content:
-                'Here is the suggested filter:\n```json\n{\n  "name": "Substack Newsletters",\n  "criteria": { "from": "substack.com" },\n  "actions": { "archive": true, "markRead": true }\n}\n```',
-            },
-          },
-        ],
-      });
+    it("rejects zero matches and feeds the failure back so the agent revises", async () => {
+      const wrong = { ...filter, criteria: { from: "notifications@github.com", subject: "nonexistent" } };
+      search(); propose(wrong); propose(); propose();
+      vi.mocked(getAffectedEmailsForFilter).mockResolvedValueOnce([]);
+      const res = await suggestFilterWithPiAgent({ prompt: "Only automated notifications, at least one match", accountId: "acc-1" });
+      expect(res.filter.criteria.subject).toBe("workflow run");
+      expect(mockCreateChatCompletion).toHaveBeenCalledTimes(4);
+      expect(JSON.stringify(mockCreateChatCompletion.mock.calls[2][0].messages)).toContain("ZERO emails");
+    });
 
-      const res = await suggestFilterWithPiAgent({
-        prompt: "Archive all substack newsletters",
-        accountId: "acc-1",
-      });
+    it.each(["native", "text", "direct"])("rejects a one-shot %s proposal until the inbox is inspected", async (format) => {
+      if (format === "native") propose();
+      else mockCreateChatCompletion.mockResolvedValueOnce({ choices: [{ message: { role: "assistant", content: JSON.stringify(format === "text" ? { tool: "suggest_filter", parameters: filter } : filter) } }] });
+      search(); propose(); propose();
+      await suggestFilterWithPiAgent({ prompt: "Mark automated notifications read", accountId: "acc-1" });
+      expect(mockCreateChatCompletion).toHaveBeenCalledTimes(4);
+      expect(JSON.stringify(mockCreateChatCompletion.mock.calls[1][0].messages)).toContain("inspect real emails");
+    });
 
-      expect(res.filter.name).toBe("Substack Newsletters");
-      expect(res.filter.criteria.from).toBe("substack.com");
-      expect(res.filter.actions.archive).toBe(true);
+    it("fails explicitly when no matching rule can be verified within the budget", async () => {
+      search(); propose(); propose();
+      vi.mocked(getAffectedEmailsForFilter).mockResolvedValue([]);
+      await expect(suggestFilterWithPiAgent({ prompt: "Match something", accountId: "acc-1", maxSteps: 3 })).rejects.toThrow(/iteration limit/);
+      expect(mockCreateChatCompletion).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not accept two identical proposals in the same model turn", async () => {
+      search();
+      const batch = tool("suggest_filter", filter);
+      batch.choices[0].message.tool_calls.push({ ...batch.choices[0].message.tool_calls[0], id: "second_proposal" });
+      mockCreateChatCompletion.mockResolvedValueOnce(batch);
+      propose();
+      await suggestFilterWithPiAgent({ prompt: "Automated notifications", accountId: "acc-1" });
+      expect(mockCreateChatCompletion).toHaveBeenCalledTimes(3);
+    });
+
+    it("uses the same iterative Pi runtime on Android", async () => {
+      const userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android");
+      mockAiCoreComplete.mockReset()
+        .mockResolvedValueOnce(JSON.stringify({ tool: "search_emails", parameters: { query: "GitHub" } }))
+        .mockResolvedValueOnce(JSON.stringify({ tool: "suggest_filter", parameters: filter }))
+        .mockResolvedValueOnce(JSON.stringify({ tool: "suggest_filter", parameters: filter }));
+      try {
+        const result = await suggestFilterWithPiAgent({ prompt: "Only automated notifications", accountId: "acc-1" });
+        expect(result.filter).toEqual(filter);
+        expect(mockAiCoreComplete).toHaveBeenCalledTimes(3);
+        expect(mockCreateChatCompletion).not.toHaveBeenCalled();
+        expect(mockAiCoreComplete.mock.calls[2][0].userContent).toContain("workflow run completed");
+      } finally { userAgent.mockRestore(); }
+    });
+
+    it("reports an unexpressible request rather than inventing a successful filter", async () => {
+      search();
+      mockCreateChatCompletion.mockResolvedValueOnce(tool("cannot_create_filter", { reason: "Human comments cannot be excluded reliably by these substring criteria." }));
+      await expect(suggestFilterWithPiAgent({ prompt: "Exclude all human comments", accountId: "acc-1" })).rejects.toThrow(/cannot be excluded reliably/);
+      expect(getAffectedEmailsForFilter).not.toHaveBeenCalled();
+    });
+
+    it("rejects unsupported exclusion criteria instead of silently dropping them", async () => {
+      search();
+      mockCreateChatCompletion.mockResolvedValueOnce(tool("suggest_filter", { ...filter, criteria: { from: "github.com", notBody: "commented" } }));
+      propose(); propose();
+      await suggestFilterWithPiAgent({ prompt: "Exclude comments", accountId: "acc-1" });
+      expect(JSON.stringify(mockCreateChatCompletion.mock.calls[2][0].messages)).toContain("unsupported criteria notBody");
+      expect(getAffectedEmailsForFilter).toHaveBeenCalledTimes(2);
     });
 
     it("replaces the SDK connection error with the server address", async () => {
       mockCreateChatCompletion.mockRejectedValueOnce(new Error("Connection error."));
-
-      await expect(
-        suggestFilterWithPiAgent({
-          prompt: "Archive newsletters",
-          accountId: "acc-1",
-        }),
-      ).rejects.toThrow(/127\.0\.0\.1:3000/);
+      await expect(suggestFilterWithPiAgent({ prompt: "Archive newsletters", accountId: "acc-1" })).rejects.toThrow(/127\.0\.0\.1:3000/);
     });
   });
 });

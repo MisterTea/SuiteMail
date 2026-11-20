@@ -60,5 +60,3 @@ export function WhySuiteMail() {
     </section>
   )
 }
-
-export const WhyVelo = WhySuiteMail

@@ -351,11 +351,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     clearSearch();
   }, [activeAccountId, activeLabel, activeCategory, clearSearch]);
 
-  // Redirect to focused for EWS accounts if user lands on inbox
+  // Keep the inbox route compatible with the selected account's provider.
   useEffect(() => {
     const account = useAccountStore.getState().accounts.find((a) => a.id === activeAccountId);
     if (account?.provider === "ews" && activeLabel === "inbox") {
       navigateToLabel("focused");
+    } else if (account && account.provider !== "ews" && (activeLabel === "focused" || activeLabel === "other")) {
+      navigateToLabel("inbox");
     }
   }, [activeAccountId, activeLabel]);
 
@@ -573,9 +575,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => loadThreads(), 500);
     };
-    window.addEventListener("velo-sync-done", handler);
+    window.addEventListener("suitemail-sync-done", handler);
     return () => {
-      window.removeEventListener("velo-sync-done", handler);
+      window.removeEventListener("suitemail-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
   }, [loadThreads, activeAccountId, activeLabel]);

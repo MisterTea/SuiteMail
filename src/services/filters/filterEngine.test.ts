@@ -10,7 +10,7 @@ import {
 } from "./filterEngine";
 import type { FilterCriteria, FilterActions } from "../db/filters";
 import { createMockParsedMessage } from "@/test/mocks";
-import type { ImapConfig } from "../imap/tauriCommands";
+import type { ImapConfig } from "../imap/electronCommands";
 
 const mockFilters = vi.fn();
 const mockEmailActions = {

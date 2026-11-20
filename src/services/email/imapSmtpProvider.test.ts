@@ -22,7 +22,7 @@ vi.mock("../imap/folderMapper", () => ({
   getSyncableFolders: vi.fn(),
 }));
 
-vi.mock("../imap/tauriCommands", () => ({
+vi.mock("../imap/electronCommands", () => ({
   imapListFolders: vi.fn(),
   imapSetFlags: vi.fn(),
   imapMoveMessages: vi.fn(),
@@ -66,7 +66,7 @@ import {
   imapAppendMessage,
   smtpSendEmail,
   smtpTestConnection,
-} from "../imap/tauriCommands";
+} from "../imap/electronCommands";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, getThreadLabelIds } from "../db/threads";
@@ -200,7 +200,7 @@ describe("ImapSmtpProvider", () => {
 
   describe("fetchRawMessage", () => {
     it("parses IMAP message ID and calls imapFetchRawMessage", async () => {
-      const { imapFetchRawMessage } = await import("../imap/tauriCommands");
+      const { imapFetchRawMessage } = await import("../imap/electronCommands");
       vi.mocked(imapFetchRawMessage).mockResolvedValue("From: test@example.com\r\nSubject: Hello\r\n\r\nBody");
 
       const result = await provider.fetchRawMessage("imap-acc-1-INBOX-42");

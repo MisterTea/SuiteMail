@@ -18,7 +18,7 @@ import {
 import { appendLedgerEntriesToRemote, type MetadataLedgerEntry } from "../imap/metadataSidecarSync";
 import { getAccount, getAllAccounts } from "../db/accounts";
 import { buildImapConfig } from "../imap/imapConfigBuilder";
-import type { ImapConfig } from "../imap/tauriCommands";
+import type { ImapConfig } from "../imap/electronCommands";
 
 export interface ReversalDetail {
   originalChangeId: string;

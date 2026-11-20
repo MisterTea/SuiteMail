@@ -152,10 +152,29 @@ fn urlencoding_decode(s: &str) -> String {
 pub struct TokenExchangeResult {
     pub access_token: String,
     pub refresh_token: Option<String>,
+    #[serde(deserialize_with = "deserialize_expires_in")]
     pub expires_in: u64,
     pub token_type: String,
     pub scope: Option<String>,
     pub id_token: Option<String>,
+}
+
+// Azure AD v1 (EWS) returns expires_in as a string; v2 and other
+// providers return a JSON number. Keep the IPC response numeric.
+fn deserialize_expires_in<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ExpiresIn {
+        Number(u64),
+        Text(String),
+    }
+    match ExpiresIn::deserialize(deserializer)? {
+        ExpiresIn::Number(value) => Ok(value),
+        ExpiresIn::Text(value) => value.parse().map_err(serde::de::Error::custom),
+    }
 }
 
 /// Exchange an OAuth authorization code for tokens via Rust HTTP client (avoids CORS).
@@ -167,6 +186,7 @@ pub async fn oauth_exchange_token(
     code_verifier: Option<String>,
     client_secret: Option<String>,
     scope: Option<String>,
+    resource: Option<String>,
 ) -> Result<TokenExchangeResult, String> {
     let mut params = vec![
         ("code", code),
@@ -184,6 +204,10 @@ pub async fn oauth_exchange_token(
     }
     if let Some(s) = scope {
         params.push(("scope", s));
+    }
+
+    if let Some(resource) = resource {
+        params.push(("resource", resource));
     }
 
     let client = reqwest::Client::new();
@@ -215,6 +239,7 @@ pub async fn oauth_refresh_token(
     client_id: String,
     client_secret: Option<String>,
     scope: Option<String>,
+    resource: Option<String>,
 ) -> Result<TokenExchangeResult, String> {
     let mut params = vec![
         ("refresh_token", refresh_token),
@@ -228,6 +253,10 @@ pub async fn oauth_refresh_token(
     }
     if let Some(s) = scope {
         params.push(("scope", s));
+    }
+
+    if let Some(resource) = resource {
+        params.push(("resource", resource));
     }
 
     let client = reqwest::Client::new();

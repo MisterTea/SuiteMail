@@ -530,7 +530,7 @@ export function Composer() {
       icon: <Trash2 size={15} className="text-red-500 shrink-0" aria-hidden="true" />,
     });
 
-    window.dispatchEvent(new CustomEvent("velo-sync-done"));
+    window.dispatchEvent(new CustomEvent("suitemail-sync-done"));
     window.dispatchEvent(new CustomEvent("draft-count-changed"));
   }, [activeAccountId, closeComposer]);
 

@@ -237,7 +237,7 @@ export function EmailRenderer({
     resizeObserver.observe(doc.body);
     observerRef.current = resizeObserver;
 
-    // Open links in external browser via Tauri opener
+    // Open links in external browser via Electron opener
     const handleClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       const anchor = target.closest("a");

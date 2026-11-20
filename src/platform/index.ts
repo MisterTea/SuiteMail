@@ -34,6 +34,7 @@ export interface PlatformWindow {
 }
 
 export interface PlatformBridge {
+  captureScreenshot?: () => Promise<string>;
   db?: SqlDatabase;
   invoke?: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   openUrl?: (url: string) => Promise<void>;
@@ -57,10 +58,6 @@ export function isElectron(): boolean {
     (window as unknown as { suiteleaf?: unknown }).suiteleaf ||
     (window as unknown as { process?: { versions?: { electron?: string } } }).process?.versions?.electron,
   );
-}
-
-export function isTauri(): boolean {
-  return false;
 }
 
 export async function platformInvoke<T>(
@@ -103,8 +100,8 @@ export async function platformOpenThreadWindow(threadId: string, accountId: stri
   }
 }
 
-// The webview's Request constructor rejects these as unsafe. The OpenAI client
-// sets User-Agent, and Tauri's HTTP plugin builds a Request from the init.
+// Keep SDK-supplied headers compatible with the renderer's browser fetch API.
+// The OpenAI client can set User-Agent, which browsers treat as unsafe.
 const FORBIDDEN_REQUEST_HEADERS = new Set([
   "accept-charset",
   "accept-encoding",

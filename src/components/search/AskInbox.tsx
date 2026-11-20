@@ -162,7 +162,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
                   type="button"
                   onClick={() => {
                     onClose();
-                    window.dispatchEvent(new Event("velo-suggest-filter"));
+                    window.dispatchEvent(new Event("suitemail-suggest-filter"));
                   }}
                   className="inline-flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover font-medium px-3 py-1.5 rounded-full bg-accent/10 border border-accent/20 transition-colors"
                 >

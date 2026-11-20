@@ -105,6 +105,7 @@ describe("AiFilterSuggestModal", () => {
       expect(suggestFilterWithPiAgent).toHaveBeenCalledWith({
         prompt: "Archive emails from github notifications and mark as read",
         accountId: "test-acc-1",
+        onProgress: expect.any(Function),
       });
     });
 
@@ -312,6 +313,40 @@ describe("AiFilterSuggestModal", () => {
     expect(insertFilter).not.toHaveBeenCalled();
     expect(onFilterAdded).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("restarts after editing while the previous email preview is still pending", async () => {
+    let finishOldPreview!: (emails: never[]) => void;
+    const oldPreview = new Promise<never[]>((resolve) => { finishOldPreview = resolve; });
+    vi.mocked(suggestFilterWithPiAgent)
+      .mockResolvedValueOnce({
+        filter: { name: "Original", criteria: { from: "old@example.com" }, actions: { archive: true } },
+        toolCallsExecuted: [],
+      })
+      .mockResolvedValueOnce({
+        filter: { name: "Revised", criteria: { from: "new@example.com" }, actions: { star: true } },
+        toolCallsExecuted: [],
+      });
+    vi.mocked(getAffectedEmailsForFilter)
+      .mockReturnValueOnce(oldPreview)
+      .mockResolvedValueOnce([]);
+
+    render(<AiFilterSuggestModal isOpen onClose={onClose} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Archive old mail" } });
+    fireEvent.click(screen.getByRole("button", { name: /Generate Filter/i }));
+    expect(await screen.findByDisplayValue("Original")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Back to edit/i }));
+    expect(screen.getByRole("textbox")).toHaveValue("Archive old mail");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Star new mail" } });
+    expect(screen.getByRole("button", { name: /Generate Filter/i })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /Generate Filter/i }));
+    expect(await screen.findByDisplayValue("Revised")).toBeInTheDocument();
+    expect(suggestFilterWithPiAgent).toHaveBeenLastCalledWith({
+      prompt: "Star new mail", accountId: "test-acc-1", onProgress: expect.any(Function),
+    });
+    finishOldPreview([]);
+    await waitFor(() => expect(screen.getByDisplayValue("Revised")).toBeInTheDocument());
+    expect(insertFilter).not.toHaveBeenCalled();
   });
 
   it("supports manual filter creation UX and presents the same accept/reject pane", async () => {

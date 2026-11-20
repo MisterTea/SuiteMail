@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { createMockTauriFs, createMockTauriPath } from "@/test/mocks";
+import { createMockPlatformFs, createMockPlatformPath } from "@/test/mocks";
 
-const tauriFs = createMockTauriFs();
-const tauriPath = createMockTauriPath();
+const platformFs = createMockPlatformFs();
+const platformPath = createMockPlatformPath();
 
 (globalThis as unknown as { window?: { supermail?: unknown } }).window = {
   supermail: {
-    fs: tauriFs.mock,
+    fs: platformFs.mock,
   },
 };
 
@@ -31,10 +31,10 @@ import {
 describe("cacheManager", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    tauriFs.mock.mkdir.mockResolvedValue(undefined);
-    tauriFs.mock.writeFile.mockResolvedValue(undefined);
-    tauriFs.mock.readFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
-    tauriFs.mock.remove.mockResolvedValue(undefined);
+    platformFs.mock.mkdir.mockResolvedValue(undefined);
+    platformFs.mock.writeFile.mockResolvedValue(undefined);
+    platformFs.mock.readFile.mockResolvedValue(new Uint8Array([1, 2, 3]));
+    platformFs.mock.remove.mockResolvedValue(undefined);
     mockExecute.mockResolvedValue(undefined);
   });
 
@@ -43,7 +43,7 @@ describe("cacheManager", () => {
       const data = new Uint8Array([10, 20, 30]);
       await cacheAttachment("att-1", data);
 
-      expect(tauriFs.mock.mkdir).toHaveBeenCalledWith("attachment_cache", {
+      expect(platformFs.mock.mkdir).toHaveBeenCalledWith("attachment_cache", {
         recursive: true,
       });
     });
@@ -52,7 +52,7 @@ describe("cacheManager", () => {
       const data = new Uint8Array([10, 20, 30]);
       await cacheAttachment("att-1", data);
 
-      expect(tauriFs.mock.writeFile).toHaveBeenCalledWith(
+      expect(platformFs.mock.writeFile).toHaveBeenCalledWith(
         expect.stringContaining("attachment_cache/"),
         data,
       );
@@ -78,12 +78,12 @@ describe("cacheManager", () => {
     it("reads file", async () => {
       const result = await loadCachedAttachment("attachment_cache/abc");
 
-      expect(tauriFs.mock.readFile).toHaveBeenCalledWith("attachment_cache/abc");
+      expect(platformFs.mock.readFile).toHaveBeenCalledWith("attachment_cache/abc");
       expect(result).toEqual(new Uint8Array([1, 2, 3]));
     });
 
     it("returns null on read error", async () => {
-      tauriFs.mock.readFile.mockRejectedValueOnce(new Error("not found"));
+      platformFs.mock.readFile.mockRejectedValueOnce(new Error("not found"));
       const result = await loadCachedAttachment("attachment_cache/missing");
       expect(result).toBeNull();
     });
@@ -114,7 +114,7 @@ describe("cacheManager", () => {
 
       await evictOldestCached();
 
-      expect(tauriFs.mock.remove).toHaveBeenCalledWith("attachment_cache/old");
+      expect(platformFs.mock.remove).toHaveBeenCalledWith("attachment_cache/old");
       expect(mockExecute).toHaveBeenCalledWith(
         expect.stringContaining("UPDATE attachments SET local_path = NULL"),
         ["att-old"],
@@ -126,7 +126,7 @@ describe("cacheManager", () => {
 
       await evictOldestCached();
 
-      expect(tauriFs.mock.remove).not.toHaveBeenCalled();
+      expect(platformFs.mock.remove).not.toHaveBeenCalled();
     });
   });
 
@@ -134,7 +134,7 @@ describe("cacheManager", () => {
     it("removes cache dir", async () => {
       await clearAllCache();
 
-      expect(tauriFs.mock.remove).toHaveBeenCalledWith("attachment_cache", {
+      expect(platformFs.mock.remove).toHaveBeenCalledWith("attachment_cache", {
         recursive: true,
       });
     });

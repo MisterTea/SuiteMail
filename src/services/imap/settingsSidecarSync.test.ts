@@ -24,9 +24,9 @@ import {
   type GeneralSettingsPayload,
   type FiltersSettingsPayload,
 } from "./settingsSidecarSync";
-import type { ImapConfig } from "./tauriCommands";
+import type { ImapConfig } from "./electronCommands";
 
-const mockTauri = {
+const mockCommands = {
   imapListFolders: vi.fn(),
   imapCreateFolder: vi.fn(),
   imapAppendMessage: vi.fn(),
@@ -36,16 +36,16 @@ const mockTauri = {
   imapGetFolderStatus: vi.fn(),
 };
 
-vi.mock("./tauriCommands", () => ({
-  imapListFolders: vi.fn((config) => mockTauri.imapListFolders(config)),
-  imapCreateFolder: vi.fn((config, folder) => mockTauri.imapCreateFolder(config, folder)),
+vi.mock("./electronCommands", () => ({
+  imapListFolders: vi.fn((config) => mockCommands.imapListFolders(config)),
+  imapCreateFolder: vi.fn((config, folder) => mockCommands.imapCreateFolder(config, folder)),
   imapAppendMessage: vi.fn((config, folder, raw, flags) =>
-    mockTauri.imapAppendMessage(config, folder, raw, flags)
+    mockCommands.imapAppendMessage(config, folder, raw, flags)
   ),
-  imapSearchAllUids: vi.fn((config, folder) => mockTauri.imapSearchAllUids(config, folder)),
-  imapFetchMessages: vi.fn((config, folder, uids) => mockTauri.imapFetchMessages(config, folder, uids)),
-  imapDeleteMessages: vi.fn((config, folder, uids) => mockTauri.imapDeleteMessages(config, folder, uids)),
-  imapGetFolderStatus: vi.fn((config, folder) => mockTauri.imapGetFolderStatus(config, folder)),
+  imapSearchAllUids: vi.fn((config, folder) => mockCommands.imapSearchAllUids(config, folder)),
+  imapFetchMessages: vi.fn((config, folder, uids) => mockCommands.imapFetchMessages(config, folder, uids)),
+  imapDeleteMessages: vi.fn((config, folder, uids) => mockCommands.imapDeleteMessages(config, folder, uids)),
+  imapGetFolderStatus: vi.fn((config, folder) => mockCommands.imapGetFolderStatus(config, folder)),
 }));
 
 const mockDb = {
@@ -137,7 +137,7 @@ describe("settingsSidecarSync", () => {
 
     it("ensures .settings folder and subfolders exist on the server", async () => {
       // 1. Folders already exist
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: "INBOX", name: "INBOX", raw_path: "INBOX" },
         { path: ".settings", name: ".settings", raw_path: ".settings" },
         { path: ".settings/general", name: "general", raw_path: ".settings/general" },
@@ -145,18 +145,18 @@ describe("settingsSidecarSync", () => {
 
       const generalFolder = await ensureSettingsFolder(testConfig, "general");
       expect(generalFolder).toBe(".settings/general");
-      expect(mockTauri.imapCreateFolder).not.toHaveBeenCalled();
+      expect(mockCommands.imapCreateFolder).not.toHaveBeenCalled();
 
       // 2. Folders don't exist: creates parent and subfolder
-      mockTauri.imapListFolders.mockResolvedValueOnce([
+      mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: "INBOX", name: "INBOX", raw_path: "INBOX", delimiter: "/" },
       ]);
-      mockTauri.imapCreateFolder.mockResolvedValue(undefined);
+      mockCommands.imapCreateFolder.mockResolvedValue(undefined);
 
       const filtersFolder = await ensureSettingsFolder(testConfig, "filters");
       expect(filtersFolder).toBe(".settings/filters");
-      expect(mockTauri.imapCreateFolder).toHaveBeenCalledWith(testConfig, ".settings");
-      expect(mockTauri.imapCreateFolder).toHaveBeenCalledWith(testConfig, ".settings/filters");
+      expect(mockCommands.imapCreateFolder).toHaveBeenCalledWith(testConfig, ".settings");
+      expect(mockCommands.imapCreateFolder).toHaveBeenCalledWith(testConfig, ".settings/filters");
     });
   });
 
@@ -201,12 +201,12 @@ describe("settingsSidecarSync", () => {
 
   describe("uploadSettingsReplacement", () => {
     it("appends the new message and deletes old UIDs from the folder", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/general", name: "general", raw_path: ".settings/general" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([101, 102]);
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
-      mockTauri.imapDeleteMessages.mockResolvedValue(undefined);
+      mockCommands.imapSearchAllUids.mockResolvedValue([101, 102]);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapDeleteMessages.mockResolvedValue(undefined);
 
       const payload: GeneralSettingsPayload = {
         version: 1,
@@ -216,13 +216,13 @@ describe("settingsSidecarSync", () => {
 
       await uploadSettingsReplacement(testConfig, "user@example.com", "general", payload);
 
-      expect(mockTauri.imapAppendMessage).toHaveBeenCalledWith(
+      expect(mockCommands.imapAppendMessage).toHaveBeenCalledWith(
         testConfig,
         ".settings/general",
         expect.any(String),
         "(\\Seen)"
       );
-      expect(mockTauri.imapDeleteMessages).toHaveBeenCalledWith(
+      expect(mockCommands.imapDeleteMessages).toHaveBeenCalledWith(
         testConfig,
         ".settings/general",
         [101, 102]
@@ -232,11 +232,11 @@ describe("settingsSidecarSync", () => {
 
   describe("applyFilterChangeAndUpload", () => {
     it("adds a new filter to the existing settings message and uploads replacement", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/filters", name: "filters", raw_path: ".settings/filters" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([200]);
-      mockTauri.imapFetchMessages.mockResolvedValue({
+      mockCommands.imapSearchAllUids.mockResolvedValue([200]);
+      mockCommands.imapFetchMessages.mockResolvedValue({
         messages: [
           {
             uid: 200,
@@ -256,8 +256,8 @@ describe("settingsSidecarSync", () => {
           },
         ],
       });
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
-      mockTauri.imapDeleteMessages.mockResolvedValue(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapDeleteMessages.mockResolvedValue(undefined);
       mockDb.select.mockResolvedValue([]);
 
       const newFilter: FilterRulePayload = {
@@ -277,8 +277,8 @@ describe("settingsSidecarSync", () => {
 
       expect(result.filters).toHaveLength(2);
       expect(result.filters.map((f) => f.id)).toEqual(["existing-1", "filter-2"]);
-      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(1);
-      expect(mockTauri.imapDeleteMessages).toHaveBeenCalledWith(
+      expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(1);
+      expect(mockCommands.imapDeleteMessages).toHaveBeenCalledWith(
         testConfig,
         ".settings/filters",
         [200]
@@ -286,11 +286,11 @@ describe("settingsSidecarSync", () => {
     });
 
     it("updates an existing filter and uploads replacement", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/filters", name: "filters", raw_path: ".settings/filters" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([201]);
-      mockTauri.imapFetchMessages.mockResolvedValue({
+      mockCommands.imapSearchAllUids.mockResolvedValue([201]);
+      mockCommands.imapFetchMessages.mockResolvedValue({
         messages: [
           {
             uid: 201,
@@ -310,8 +310,8 @@ describe("settingsSidecarSync", () => {
           },
         ],
       });
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
-      mockTauri.imapDeleteMessages.mockResolvedValue(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapDeleteMessages.mockResolvedValue(undefined);
       mockDb.select.mockResolvedValue([]);
 
       const updatedFilter: FilterRulePayload = {
@@ -332,7 +332,7 @@ describe("settingsSidecarSync", () => {
       expect(result.filters).toHaveLength(1);
       expect(result.filters[0].name).toBe("New Name");
       expect(result.filters[0].isEnabled).toBe(false);
-      expect(mockTauri.imapDeleteMessages).toHaveBeenCalledWith(
+      expect(mockCommands.imapDeleteMessages).toHaveBeenCalledWith(
         testConfig,
         ".settings/filters",
         [201]
@@ -340,11 +340,11 @@ describe("settingsSidecarSync", () => {
     });
 
     it("deletes a filter and uploads replacement", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/filters", name: "filters", raw_path: ".settings/filters" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([202]);
-      mockTauri.imapFetchMessages.mockResolvedValue({
+      mockCommands.imapSearchAllUids.mockResolvedValue([202]);
+      mockCommands.imapFetchMessages.mockResolvedValue({
         messages: [
           {
             uid: 202,
@@ -371,8 +371,8 @@ describe("settingsSidecarSync", () => {
           },
         ],
       });
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
-      mockTauri.imapDeleteMessages.mockResolvedValue(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapDeleteMessages.mockResolvedValue(undefined);
       mockDb.select.mockResolvedValue([]);
 
       const result = await applyFilterChangeAndUpload(
@@ -384,7 +384,7 @@ describe("settingsSidecarSync", () => {
 
       expect(result.filters).toHaveLength(1);
       expect(result.filters[0].id).toBe("to-keep");
-      expect(mockTauri.imapDeleteMessages).toHaveBeenCalledWith(
+      expect(mockCommands.imapDeleteMessages).toHaveBeenCalledWith(
         testConfig,
         ".settings/filters",
         [202]
@@ -394,11 +394,11 @@ describe("settingsSidecarSync", () => {
 
   describe("applyGeneralSettingChangeAndUpload", () => {
     it("updates general setting and uploads replacement to .settings/general", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/general", name: "general", raw_path: ".settings/general" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([300]);
-      mockTauri.imapFetchMessages.mockResolvedValue({
+      mockCommands.imapSearchAllUids.mockResolvedValue([300]);
+      mockCommands.imapFetchMessages.mockResolvedValue({
         messages: [
           {
             uid: 300,
@@ -410,8 +410,8 @@ describe("settingsSidecarSync", () => {
           },
         ],
       });
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
-      mockTauri.imapDeleteMessages.mockResolvedValue(undefined);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapDeleteMessages.mockResolvedValue(undefined);
 
       const result = await applyGeneralSettingChangeAndUpload(
         testConfig,
@@ -422,8 +422,8 @@ describe("settingsSidecarSync", () => {
 
       expect(result.settings.theme).toBe("dark");
       expect(mockSettingsStore.theme).toBe("dark");
-      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(1);
-      expect(mockTauri.imapDeleteMessages).toHaveBeenCalledWith(
+      expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(1);
+      expect(mockCommands.imapDeleteMessages).toHaveBeenCalledWith(
         testConfig,
         ".settings/general",
         [300]
@@ -433,11 +433,11 @@ describe("settingsSidecarSync", () => {
 
   describe("syncGeneralSettings and syncFilterSettings", () => {
     it("syncs general settings from IMAP into local database", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/general", name: "general", raw_path: ".settings/general" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([1, 2]); // 2 is latest, 1 is duplicate/old
-      mockTauri.imapFetchMessages.mockResolvedValue({
+      mockCommands.imapSearchAllUids.mockResolvedValue([1, 2]); // 2 is latest, 1 is duplicate/old
+      mockCommands.imapFetchMessages.mockResolvedValue({
         messages: [
           {
             uid: 2,
@@ -452,7 +452,7 @@ describe("settingsSidecarSync", () => {
           },
         ],
       });
-      mockTauri.imapGetFolderStatus.mockResolvedValue({
+      mockCommands.imapGetFolderStatus.mockResolvedValue({
         uidvalidity: 10,
         highest_modseq: 100,
       });
@@ -465,7 +465,7 @@ describe("settingsSidecarSync", () => {
       expect(mockSettingsStore.theme).toBe("rose");
       expect(mockSettingsStore.reading_pane_position).toBe("bottom");
       // Old UID 1 was deleted
-      expect(mockTauri.imapDeleteMessages).toHaveBeenCalledWith(
+      expect(mockCommands.imapDeleteMessages).toHaveBeenCalledWith(
         testConfig,
         ".settings/general",
         [1]
@@ -473,11 +473,11 @@ describe("settingsSidecarSync", () => {
     });
 
     it("syncs filters from IMAP into local database", async () => {
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/filters", name: "filters", raw_path: ".settings/filters" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([5]);
-      mockTauri.imapFetchMessages.mockResolvedValue({
+      mockCommands.imapSearchAllUids.mockResolvedValue([5]);
+      mockCommands.imapFetchMessages.mockResolvedValue({
         messages: [
           {
             uid: 5,
@@ -497,7 +497,7 @@ describe("settingsSidecarSync", () => {
           },
         ],
       });
-      mockTauri.imapGetFolderStatus.mockResolvedValue({
+      mockCommands.imapGetFolderStatus.mockResolvedValue({
         uidvalidity: 20,
         highest_modseq: 200,
       });
@@ -529,14 +529,14 @@ describe("settingsSidecarSync", () => {
           created_at: 1000,
         },
       ];
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/filters", name: "filters", raw_path: ".settings/filters" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([]);
-      mockTauri.imapAppendMessage.mockResolvedValue(undefined);
+      mockCommands.imapSearchAllUids.mockResolvedValue([]);
+      mockCommands.imapAppendMessage.mockResolvedValue(undefined);
 
       await uploadFilterSettingsForAccount("acc-imap");
-      expect(mockTauri.imapAppendMessage).toHaveBeenCalledTimes(1);
+      expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(1);
     });
 
     it("syncSettingsForAccount coordinates general and filters sync", async () => {
@@ -546,12 +546,12 @@ describe("settingsSidecarSync", () => {
         provider: "imap",
         imap_host: "imap.example.com",
       };
-      mockTauri.imapListFolders.mockResolvedValue([
+      mockCommands.imapListFolders.mockResolvedValue([
         { path: ".settings/general", name: "general", raw_path: ".settings/general" },
         { path: ".settings/filters", name: "filters", raw_path: ".settings/filters" },
       ]);
-      mockTauri.imapSearchAllUids.mockResolvedValue([1]);
-      mockTauri.imapFetchMessages.mockImplementation((_c, folder) => {
+      mockCommands.imapSearchAllUids.mockResolvedValue([1]);
+      mockCommands.imapFetchMessages.mockImplementation((_c, folder) => {
         if (folder.includes("general")) {
           return Promise.resolve({
             messages: [
@@ -571,7 +571,7 @@ describe("settingsSidecarSync", () => {
           ],
         });
       });
-      mockTauri.imapGetFolderStatus.mockResolvedValue({ uidvalidity: 1, highest_modseq: 1 });
+      mockCommands.imapGetFolderStatus.mockResolvedValue({ uidvalidity: 1, highest_modseq: 1 });
       mockDb.select.mockResolvedValue([]);
 
       const result = await syncSettingsForAccount("acc-imap");

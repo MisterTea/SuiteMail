@@ -166,7 +166,7 @@ export function MoveToFolderDialog({
       }
 
       // Refresh thread list
-      window.dispatchEvent(new Event("velo-sync-done"));
+      window.dispatchEvent(new Event("suitemail-sync-done"));
 
       // Immediate optimistic feedback toast
       useToastStore.getState().showToast({

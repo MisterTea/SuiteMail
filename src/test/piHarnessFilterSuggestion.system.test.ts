@@ -65,7 +65,7 @@ vi.mock("@/platform", async () => {
     // Turn 2: Tool result returned -> Gemma 4 E4B on Pi harness invokes suggest_filter
     if (
       lastMessage?.role === "tool" &&
-      lastMessage?.tool_call_id === "call_search_newsletters"
+      ["call_search_newsletters", "call_suggest_filter_1"].includes(lastMessage?.tool_call_id)
     ) {
       return new Response(
         JSON.stringify({
@@ -331,9 +331,10 @@ describe("System Test: Pi Agent Suggesting Filters with Affected Email Preview",
     expect(suggestionResult.filter.actions.markRead).toBe(true);
 
     // Verify multi-turn interaction with Pi harness (turn 1 search, turn 2 suggest)
-    expect(piHarnessCalls).toHaveLength(2);
+    expect(piHarnessCalls).toHaveLength(3);
     expect(suggestionResult.toolCallsExecuted.map((t) => t.tool)).toEqual([
       "search_emails",
+      "suggest_filter",
       "suggest_filter",
     ]);
 

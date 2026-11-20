@@ -72,7 +72,6 @@ fn find_executable() -> Option<PathBuf> {
     // 2. Check relative to current working directory (development / workspace submodule)
     if let Ok(cwd) = std::env::current_dir() {
         for name in &exe_names {
-            candidates.push(cwd.join("src-tauri").join("bin").join(name));
             candidates.push(cwd.join("bin").join(name));
             candidates.push(cwd.join("submodules").join("proton-bridge").join(name));
             #[cfg(windows)]

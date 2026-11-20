@@ -161,7 +161,7 @@ export default function App() {
     };
   }, []);
 
-  // Suppress default browser context menu globally (Tauri app should feel native)
+  // Suppress default browser context menu globally (Electron app should feel native)
   // Elements with data-native-context-menu opt out so the browser menu is available
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -186,19 +186,19 @@ export default function App() {
       const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
       setMoveToFolderState({ open: true, threadIds: detail.threadIds });
     };
-    window.addEventListener("velo-toggle-command-palette", togglePalette);
-    window.addEventListener("velo-toggle-shortcuts-help", toggleHelp);
-    window.addEventListener("velo-toggle-ask-inbox", toggleAskInbox);
-    window.addEventListener("velo-suggest-filter", handleOpenFilterModal);
-    window.addEventListener("velo-create-filter", handleOpenFilterModal);
-    window.addEventListener("velo-move-to-folder", handleMoveToFolder);
+    window.addEventListener("suitemail-toggle-command-palette", togglePalette);
+    window.addEventListener("suitemail-toggle-shortcuts-help", toggleHelp);
+    window.addEventListener("suitemail-toggle-ask-inbox", toggleAskInbox);
+    window.addEventListener("suitemail-suggest-filter", handleOpenFilterModal);
+    window.addEventListener("suitemail-create-filter", handleOpenFilterModal);
+    window.addEventListener("suitemail-move-to-folder", handleMoveToFolder);
     return () => {
-      window.removeEventListener("velo-toggle-command-palette", togglePalette);
-      window.removeEventListener("velo-toggle-shortcuts-help", toggleHelp);
-      window.removeEventListener("velo-toggle-ask-inbox", toggleAskInbox);
-      window.removeEventListener("velo-suggest-filter", handleOpenFilterModal);
-      window.removeEventListener("velo-create-filter", handleOpenFilterModal);
-      window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
+      window.removeEventListener("suitemail-toggle-command-palette", togglePalette);
+      window.removeEventListener("suitemail-toggle-shortcuts-help", toggleHelp);
+      window.removeEventListener("suitemail-toggle-ask-inbox", toggleAskInbox);
+      window.removeEventListener("suitemail-suggest-filter", handleOpenFilterModal);
+      window.removeEventListener("suitemail-create-filter", handleOpenFilterModal);
+      window.removeEventListener("suitemail-move-to-folder", handleMoveToFolder);
     };
   }, []);
 
@@ -471,25 +471,10 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, progress, error) => {
-      if (status === "syncing") {
-        if (progress) {
-          if (progress.phase === "messages") {
-            setSyncStatus(
-              `Syncing: ${progress.current}/${progress.total} messages`,
-            );
-          } else if (progress.phase === "labels") {
-            setSyncStatus("Syncing labels...");
-          } else if (progress.phase === "threads") {
-            setSyncStatus(`Building threads... (${progress.current}/${progress.total})`);
-          }
-        } else {
-          setSyncStatus("Syncing...");
-        }
-      } else if (status === "done") {
-        setSyncStatus("Sync complete");
-        setTimeout(() => setSyncStatus(null), 2_000);
-        window.dispatchEvent(new Event("velo-sync-done"));
+    const unsub = onSyncStatus((accountId, status, _progress, error) => {
+      useUIStore.getState().setAccountSyncing(accountId, status === "syncing");
+      if (status === "done") {
+        window.dispatchEvent(new Event("suitemail-sync-done"));
         updateBadgeCount();
 
         // Backfill uncategorized threads after first successful sync
@@ -502,7 +487,7 @@ export default function App() {
       } else if (status === "error") {
         setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
         // Still dispatch sync-done so the UI refreshes with any partially stored data
-        window.dispatchEvent(new Event("velo-sync-done"));
+        window.dispatchEvent(new Event("suitemail-sync-done"));
         // Auto-clear the error after 8 seconds
         setTimeout(() => setSyncStatus(null), 8_000);
       }
@@ -650,6 +635,8 @@ export default function App() {
       {syncStatus && (
         <div
           className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
+            sidebarCollapsed ? "md:left-16" : "md:left-60"
+          } ${
             syncStatus.startsWith("Sync failed") ? "bg-danger/90" : "bg-accent/90"
           }`}
         >

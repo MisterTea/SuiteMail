@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { FakeServer } from "./fakeServer";
-import { getTauriBridgeScript } from "./tauriBridge";
+import { getElectronBridgeScript } from "./electronBridge";
 
 const FAKE_SERVER_PORT = 3334;
 let fakeServer: FakeServer;
@@ -19,9 +19,9 @@ test.beforeEach(async () => {
 });
 
 test.describe("Top 20 Email Workflows", () => {
-  // Helper to setup page with Tauri bridge and navigate to Inbox
+  // Helper to setup page with Electron bridge and navigate to Inbox
   async function setupInboxPage(page: any) {
-    await page.addInitScript(getTauriBridgeScript(FAKE_SERVER_PORT));
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
     page.on("console", (msg: any) => {
       if (msg.type() === "error") {
         console.error(`[Browser Error] ${msg.text()}`);

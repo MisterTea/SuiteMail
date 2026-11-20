@@ -201,7 +201,7 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
     }
 
     // Emit event for UI update
-    window.dispatchEvent(new CustomEvent("velo-calendar-sync-done"));
+    window.dispatchEvent(new CustomEvent("suitemail-calendar-sync-done"));
   } catch (err) {
     console.warn(`[syncManager] Calendar sync failed for account ${accountId}:`, err);
   }
@@ -221,7 +221,7 @@ async function syncAccountInternal(accountId: string): Promise<void> {
 
     statusCallback?.(accountId, "syncing");
 
-    console.log(`[syncManager] Syncing account ${accountId} (provider=${account.provider}, history_id=${account.history_id ?? "null"})`);
+    console.log(`[syncManager] Syncing account ${accountId} (provider=${account.provider}, has_sync_cursor=${Boolean(account.history_id)})`);
 
     if (account.provider === "caldav") {
       // CalDAV-only accounts — skip email sync, only sync calendar

@@ -43,7 +43,7 @@ async function checkSnoozedThreads(): Promise<void> {
     });
 
     // Notify the UI to refresh
-    window.dispatchEvent(new Event("velo-sync-done"));
+    window.dispatchEvent(new Event("suitemail-sync-done"));
   }
 }
 
@@ -73,7 +73,7 @@ export async function snoozeThread(
     );
   });
 
-  window.dispatchEvent(new Event("velo-sync-done"));
+  window.dispatchEvent(new Event("suitemail-sync-done"));
 }
 
 /**
@@ -98,7 +98,7 @@ export async function unsnoozeThread(
     );
   });
 
-  window.dispatchEvent(new Event("velo-sync-done"));
+  window.dispatchEvent(new Event("suitemail-sync-done"));
 }
 
 const snoozeChecker = createBackgroundChecker("Snooze", checkSnoozedThreads);

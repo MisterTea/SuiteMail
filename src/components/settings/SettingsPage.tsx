@@ -1841,7 +1841,6 @@ function SyncOfflineSection() {
 
 function DeveloperTab() {
   const [appVersion, setAppVersion] = useState("");
-  const [tauriVersion, setTauriVersion] = useState("");
   const [webviewVersion, setWebviewVersion] = useState("");
   const [platformLabel, setPlatformLabel] = useState("...");
   const [checkingForUpdate, setCheckingForUpdate] = useState(false);
@@ -1852,7 +1851,6 @@ function DeveloperTab() {
   useEffect(() => {
     async function load() {
       setAppVersion("0.4.21");
-      setTauriVersion("Electron");
 
       // Extract WebView version from user agent
       const ua = navigator.userAgent;
@@ -1908,7 +1906,7 @@ function DeveloperTab() {
     <>
       <Section title="App Info">
         <InfoRow label="App version" value={appVersion || "..."} />
-        <InfoRow label="Tauri version" value={tauriVersion || "..."} />
+        <InfoRow label="Desktop framework" value="Electron" />
         <InfoRow label="WebView version" value={webviewVersion || "..."} />
         <InfoRow label="Platform" value={platformLabel} />
       </Section>

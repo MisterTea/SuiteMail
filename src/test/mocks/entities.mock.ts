@@ -8,7 +8,7 @@ import type {
   ImapFolderStatus,
   ImapFetchResult,
   ImapFolderSyncResult,
-} from "@/services/imap/tauriCommands";
+} from "@/services/imap/electronCommands";
 import type { QuickStep } from "@/services/quickSteps/types";
 import type { SendAsAlias } from "@/services/db/sendAsAliases";
 

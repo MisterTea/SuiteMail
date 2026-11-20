@@ -36,14 +36,9 @@ describe("AttachmentList", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     vi.mocked(getEmailProvider).mockResolvedValue({
       fetchAttachment: mockFetchAttachment,
     } as never);
-  });
-
-  afterEach(() => {
-    delete (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
   it("renders nothing when no file attachments", () => {

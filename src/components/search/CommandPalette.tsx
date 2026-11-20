@@ -82,7 +82,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         }
       },
     },
-    { id: "create-filter", label: "Create Filter Rule", category: "Actions", action: () => { onClose(); window.dispatchEvent(new CustomEvent("velo-create-filter", { detail: { mode: "manual" } })); } },
+    { id: "create-filter", label: "Create Filter Rule", category: "Actions", action: () => { onClose(); window.dispatchEvent(new CustomEvent("suitemail-create-filter", { detail: { mode: "manual" } })); } },
     { id: "deselect", label: "Close Thread", shortcut: "Esc", category: "Actions", action: () => { navigateBack(); onClose(); } },
     { id: "spam", label: activeLabel === "spam" ? "Not Spam" : "Report Spam", shortcut: "!", category: "Actions", action: async () => {
       onClose();
@@ -111,15 +111,15 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       onClose();
       const threadId = getSelectedThreadId();
       if (threadId) {
-        window.dispatchEvent(new CustomEvent("velo-extract-task", { detail: { threadId } }));
+        window.dispatchEvent(new CustomEvent("suitemail-extract-task", { detail: { threadId } }));
       }
     } },
     { id: "task-view", label: "View Tasks", shortcut: "g k", category: "Tasks", action: () => { navigateToLabel("tasks"); onClose(); } },
     { id: "task-toggle-panel", label: "Toggle Task Panel", category: "Tasks", action: () => { useUIStore.getState().toggleTaskSidebar(); onClose(); } },
 
     // AI
-    { id: "ask-ai", label: "Ask AI about your inbox", category: "AI", action: () => { onClose(); window.dispatchEvent(new Event("velo-toggle-ask-inbox")); } },
-    { id: "ai-suggest-filter", label: "Suggest Filter with AI (Pi Agent)", category: "AI", action: () => { onClose(); window.dispatchEvent(new Event("velo-suggest-filter")); } },
+    { id: "ask-ai", label: "Ask AI about your inbox", category: "AI", action: () => { onClose(); window.dispatchEvent(new Event("suitemail-toggle-ask-inbox")); } },
+    { id: "ai-suggest-filter", label: "Suggest Filter with AI (Pi Agent)", category: "AI", action: () => { onClose(); window.dispatchEvent(new Event("suitemail-suggest-filter")); } },
 
     // Settings
     { id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+Shift+E", category: "Settings", action: () => { toggleSidebar(); onClose(); } },

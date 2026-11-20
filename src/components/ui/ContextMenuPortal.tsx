@@ -577,7 +577,7 @@ function ThreadMenu({
       icon: FolderInput,
       shortcut: "v",
       action: () => {
-        window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [...targetIds] } }));
+        window.dispatchEvent(new CustomEvent("suitemail-move-to-folder", { detail: { threadIds: [...targetIds] } }));
       },
     },
     {
@@ -591,7 +591,7 @@ function ThreadMenu({
           for (const id of targetIds) {
             await setThreadCategory(activeAccountId, id, cat, true);
           }
-          window.dispatchEvent(new Event("velo-sync-done"));
+          window.dispatchEvent(new Event("suitemail-sync-done"));
         },
       })),
     },
@@ -767,7 +767,7 @@ function MessageMenu({
             icon: Code,
             action: () => {
               window.dispatchEvent(
-                new CustomEvent("velo-view-raw-message", {
+                new CustomEvent("suitemail-view-raw-message", {
                   detail: { messageId, accountId },
                 }),
               );

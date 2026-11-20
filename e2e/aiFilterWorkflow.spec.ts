@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { FakeServer } from "./fakeServer";
-import { getTauriBridgeScript } from "./tauriBridge";
+import { getElectronBridgeScript } from "./electronBridge";
 
 const FAKE_SERVER_PORT = 3333;
 let fakeServer: FakeServer;
@@ -14,16 +14,33 @@ test.afterAll(async () => {
   await fakeServer.stop();
 });
 
-test.beforeEach(async () => {
+test.beforeEach(async ({ page }) => {
   fakeServer.reset();
+  // This fake server exercises the desktop local-model transport.
+  await page.addInitScript(() => Object.defineProperty(navigator, "userAgent", {
+    get: () => "SuiteMail Desktop",
+  }));
 });
 
 test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
+  test("settings filter buttons open their dialogs", async ({ page }) => {
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
+    await page.goto("http://localhost:1420/#/settings/mail-rules");
+    await page.getByRole("button", { name: "Mail Rules", exact: true }).click();
+    await page.getByRole("button", { name: "Suggest filter with Pi Agent", exact: true }).click();
+    const assistant = page.getByRole("dialog", { name: "AI Filter Assistant" });
+    await expect(assistant).toBeVisible();
+    await assistant.getByRole("button", { name: /close/i }).click();
+    await expect(assistant).toHaveCount(0);
+    await page.getByRole("button", { name: "+ Add filter", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Create Filter Manually" })).toBeVisible();
+  });
+
   test("asks AI to create a filter, previews affected emails, accepts with retroactive filtering, and syncs changes to fake server", async ({
     page,
   }) => {
-    // 1. Inject the Tauri IPC bridge connected to our Fake Server
-    await page.addInitScript(getTauriBridgeScript(FAKE_SERVER_PORT));
+    // 1. Inject the Electron IPC bridge connected to our Fake Server
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
 
     // Capture browser console logs for debug visibility
     page.on("console", (msg) => {
@@ -142,7 +159,7 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
 
     // 13. VERIFY SYNC WITH FAKE SERVER
     // Fake Server received the AI completions request
-    expect(fakeServer.state.aiRequests.length).toBeGreaterThanOrEqual(1);
+    expect(fakeServer.state.aiRequests.length).toBeGreaterThanOrEqual(3);
     const aiReq = fakeServer.state.aiRequests[0];
     const aiMessages = (aiReq.body as any)?.messages || [];
     const userPrompt = aiMessages.find((m: any) => m.role === "user")?.content;
@@ -179,7 +196,7 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
   test("accepting a filter with retroactive checkbox unchecked saves filter and syncs without altering existing inbox emails", async ({
     page,
   }) => {
-    await page.addInitScript(getTauriBridgeScript(FAKE_SERVER_PORT));
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
     await page.goto("http://localhost:1420/#/settings/mail-rules");
 
     const mailRulesTab = page.locator('button:has-text("Mail Rules")');
@@ -245,7 +262,7 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
   test("manual filter creation transitions to same accept/reject pane with retroactive filtering preview and sync", async ({
     page,
   }) => {
-    await page.addInitScript(getTauriBridgeScript(FAKE_SERVER_PORT));
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
     await page.goto("http://localhost:1420/#/settings/mail-rules");
 
     const mailRulesTab = page.locator('button:has-text("Mail Rules")');

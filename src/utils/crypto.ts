@@ -1,7 +1,7 @@
 /**
  * Application-level AES-GCM encryption using a device-derived key.
  * Key is randomly generated on first launch and stored in a separate file
- * via Tauri's filesystem in the app data directory.
+ * via Electron's filesystem in the app data directory.
  */
 
 

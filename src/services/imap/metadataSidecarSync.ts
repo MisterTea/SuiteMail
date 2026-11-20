@@ -7,7 +7,7 @@ import {
   imapFetchMessages,
   imapGetFolderStatus,
   type ImapConfig,
-} from "./tauriCommands";
+} from "./electronCommands";
 import { isSidecarFolder, METADATA_SIDECAR_FOLDER } from "./folderMapper";
 import { getFolderSyncState, upsertFolderSyncState } from "../db/folderSyncState";
 import { setThreadCategory } from "../db/threadCategories";

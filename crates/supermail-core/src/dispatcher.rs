@@ -211,12 +211,12 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
         "oauth_exchange_token" => {
-            let token_url = args["token_url"].as_str().unwrap_or("").to_string();
+            let token_url = args.get("token_url").or_else(|| args.get("tokenUrl")).unwrap_or(&Value::Null).as_str().unwrap_or("").to_string();
             let code = args["code"].as_str().unwrap_or("").to_string();
-            let client_id = args["client_id"].as_str().unwrap_or("").to_string();
-            let redirect_uri = args["redirect_uri"].as_str().unwrap_or("").to_string();
-            let code_verifier = args.get("code_verifier").and_then(|v| v.as_str()).map(String::from);
-            let client_secret = args.get("client_secret").and_then(|v| v.as_str()).map(String::from);
+            let client_id = args.get("client_id").or_else(|| args.get("clientId")).unwrap_or(&Value::Null).as_str().unwrap_or("").to_string();
+            let redirect_uri = args.get("redirect_uri").or_else(|| args.get("redirectUri")).unwrap_or(&Value::Null).as_str().unwrap_or("").to_string();
+            let code_verifier = args.get("code_verifier").or_else(|| args.get("codeVerifier")).and_then(|v| v.as_str()).map(String::from);
+            let client_secret = args.get("client_secret").or_else(|| args.get("clientSecret")).and_then(|v| v.as_str()).map(String::from);
             let scope = args.get("scope").and_then(|v| v.as_str()).map(String::from);
             let res = oauth::oauth_exchange_token(
                 token_url,
@@ -226,14 +226,15 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
                 code_verifier,
                 client_secret,
                 scope,
+                args.get("resource").and_then(|v| v.as_str()).map(String::from),
             ).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
         "oauth_refresh_token" => {
-            let token_url = args["token_url"].as_str().unwrap_or("").to_string();
-            let refresh_token = args["refresh_token"].as_str().unwrap_or("").to_string();
-            let client_id = args["client_id"].as_str().unwrap_or("").to_string();
-            let client_secret = args.get("client_secret").and_then(|v| v.as_str()).map(String::from);
+            let token_url = args.get("token_url").or_else(|| args.get("tokenUrl")).unwrap_or(&Value::Null).as_str().unwrap_or("").to_string();
+            let refresh_token = args.get("refresh_token").or_else(|| args.get("refreshToken")).unwrap_or(&Value::Null).as_str().unwrap_or("").to_string();
+            let client_id = args.get("client_id").or_else(|| args.get("clientId")).unwrap_or(&Value::Null).as_str().unwrap_or("").to_string();
+            let client_secret = args.get("client_secret").or_else(|| args.get("clientSecret")).and_then(|v| v.as_str()).map(String::from);
             let scope = args.get("scope").and_then(|v| v.as_str()).map(String::from);
             let res = oauth::oauth_refresh_token(
                 token_url,
@@ -241,6 +242,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
                 client_id,
                 client_secret,
                 scope,
+                args.get("resource").and_then(|v| v.as_str()).map(String::from),
             ).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }

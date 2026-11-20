@@ -24,7 +24,7 @@ import {
   smtpTestConnection,
   type ImapConfig,
   type SmtpConfig,
-} from './tauriCommands';
+} from './electronCommands';
 
 const testImapConfig: ImapConfig = {
   host: 'imap.example.com',
@@ -48,7 +48,7 @@ beforeEach(() => {
   mockInvoke.mockReset();
 });
 
-describe('IMAP Tauri commands', () => {
+describe('IMAP Electron commands', () => {
   it('imapTestConnection invokes with correct command and params', async () => {
     mockInvoke.mockResolvedValue('Connected successfully. Found 5 folder(s).');
 
@@ -240,7 +240,7 @@ describe('IMAP Tauri commands', () => {
   });
 });
 
-describe('SMTP Tauri commands', () => {
+describe('SMTP Electron commands', () => {
   it('smtpSendEmail invokes with correct command and params', async () => {
     const sendResult = { success: true, message: 'Email sent successfully' };
     mockInvoke.mockResolvedValue(sendResult);

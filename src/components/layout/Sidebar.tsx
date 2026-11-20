@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useDroppable } from "@dnd-kit/core";
+import { FeedbackButton } from "../feedback/FeedbackButton";
 import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
 import { InputDialog } from "../ui/InputDialog";
@@ -323,7 +324,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [visibleNavItems, isEwsAccount, isGmailAccount]);
 
   const [labelsExpanded, setLabelsExpanded] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isManualSyncing, setIsSyncing] = useState(false);
+  const isAccountSyncing = useUIStore((s) =>
+    activeAccountId !== null && s.syncingAccountIds.includes(activeAccountId),
+  );
+  const isSyncing = isManualSyncing || isAccountSyncing;
 
   // Inline label editing state
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
@@ -435,11 +440,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       }
     };
 
-    window.addEventListener("velo-sync-done", handler);
+    window.addEventListener("suitemail-sync-done", handler);
     window.addEventListener("draft-count-changed", draftHandler);
     window.addEventListener("unread-count-changed", unreadHandler);
     return () => {
-      window.removeEventListener("velo-sync-done", handler);
+      window.removeEventListener("suitemail-sync-done", handler);
       window.removeEventListener("draft-count-changed", draftHandler);
       window.removeEventListener("unread-count-changed", unreadHandler);
       if (timer) clearTimeout(timer);
@@ -467,11 +472,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       }).catch(() => {});
     };
     load();
-    window.addEventListener("velo-sync-done", load);
+    window.addEventListener("suitemail-sync-done", load);
     window.addEventListener("unread-count-changed", load);
     return () => {
       cancelled = true;
-      window.removeEventListener("velo-sync-done", load);
+      window.removeEventListener("suitemail-sync-done", load);
       window.removeEventListener("unread-count-changed", load);
     };
   }, [activeAccountId, isGmailAccount]);
@@ -567,13 +572,15 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         <button
           type="button"
           aria-label="Sync"
-          title="Sync"
+          aria-busy={isSyncing}
+          title={isSyncing ? "Syncing…" : "Sync"}
           onClick={() => { void handleManualSync(); }}
           disabled={!activeAccountId || isSyncing}
           className="flex items-center justify-center h-9 w-9 shrink-0 rounded-lg text-sidebar-text hover:bg-sidebar-hover disabled:opacity-40 interactive-btn"
         >
           <RefreshCw size={16} className={isSyncing ? "animate-spin" : ""} />
         </button>
+        <FeedbackButton />
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Trash2, Pencil, Sparkles } from "lucide-react";
+import { AiFilterSuggestModal } from "./AiFilterSuggestModal";
 import { TextField } from "@/components/ui/TextField";
 import { useAccountStore } from "@/stores/accountStore";
 import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
@@ -21,6 +22,8 @@ export function FilterEditor() {
   const [labels, setLabels] = useState<DbLabel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+
+  const [createMode, setCreateMode] = useState<"ai" | "manual" | null>(null);
 
   // Form state
   const [name, setName] = useState("");
@@ -355,28 +358,29 @@ export function FilterEditor() {
       ) : (
         <div className="flex items-center gap-3">
           <button
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("velo-create-filter", { detail: { mode: "manual" } }),
-              )
-            }
+            onClick={() => setCreateMode("manual")}
             className="text-xs text-accent hover:text-accent-hover font-medium"
           >
             + Add filter
           </button>
           <span className="text-border-primary text-xs">|</span>
           <button
-            onClick={() =>
-              window.dispatchEvent(
-                new CustomEvent("velo-suggest-filter", { detail: { mode: "ai" } }),
-              )
-            }
+            onClick={() => setCreateMode("ai")}
             className="text-xs text-accent hover:text-accent-hover flex items-center gap-1 font-medium"
           >
             <Sparkles size={13} />
             Suggest filter with Pi Agent
           </button>
         </div>
+      )}
+      {createMode && (
+        <AiFilterSuggestModal
+          isOpen
+          initialMode={createMode}
+          accountId={activeAccountId ?? undefined}
+          onClose={() => setCreateMode(null)}
+          onFilterAdded={() => { void loadFilters(); }}
+        />
       )}
     </div>
   );

@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('supermail', {
   isElectron: true,
+  captureScreenshot: () => ipcRenderer.invoke('feedback:captureScreenshot'),
 
   invoke: (cmd, args = {}) => ipcRenderer.invoke('supermail:invoke', cmd, args),
 

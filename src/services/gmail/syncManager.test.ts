@@ -262,10 +262,10 @@ describe("syncManager", () => {
   });
 
   describe("error coercion", () => {
-    it("propagates plain string errors from Tauri IPC (not 'Unknown error')", async () => {
+    it("propagates plain string errors from Electron IPC (not 'Unknown error')", async () => {
       const account = makeGmailAccount("a1", "100");
       mockGetAccount.mockResolvedValue(account);
-      // Tauri IPC rejects with a plain string, not an Error instance
+      // Electron IPC rejects with a plain string, not an Error instance
       mockDeltaSync.mockRejectedValue("authentication failed for user@test.com");
 
       const errors: string[] = [];
