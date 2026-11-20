@@ -358,16 +358,17 @@ export default function App() {
         // Initialize Gmail clients for existing accounts
         await initializeClients();
 
-        // Fetch send-as aliases for each active email account (skip CalDAV-only)
+        // Fetch send-as aliases in background for active Gmail accounts
         const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
-        const emailAccountIds = mapped.filter((a) => a.isActive && a.provider !== "caldav").map((a) => a.id);
-        for (const accountId of emailAccountIds) {
-          try {
-            const client = await getGmailClient(accountId);
-            await fetchSendAsAliases(client, accountId);
-          } catch (err) {
-            console.warn(`Failed to fetch send-as aliases for ${accountId}:`, err);
-          }
+        const gmailAccountIds = mapped
+          .filter((a) => a.isActive && (a.provider === "gmail" || a.provider === "gmail_api"))
+          .map((a) => a.id);
+        for (const accountId of gmailAccountIds) {
+          getGmailClient(accountId)
+            .then((client) => fetchSendAsAliases(client, accountId))
+            .catch((err) => {
+              console.warn(`Failed to fetch send-as aliases for ${accountId}:`, err);
+            });
         }
 
         // Start background sync for active accounts

@@ -1,9 +1,13 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage } from 'electron';
 import fs from 'node:fs';
+import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadSupermailCore } from './loadAddon.js';
 import { setupUpdater, checkForUpdates, installUpdate } from './updater.js';
+
+// Avoid VPN / corporate proxy interception on local development ports
+app.commandLine.appendSwitch('no-proxy-server');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -47,6 +51,12 @@ if (!gotTheLock) {
 
 // Register mailto scheme
 app.setAsDefaultProtocolClient('mailto');
+
+function isDevMode() {
+  if (process.env.NODE_ENV === 'development') return true;
+  if (process.env.NODE_ENV === 'production') return false;
+  return Boolean(process.defaultApp || !fs.existsSync(path.join(process.resourcesPath, 'app.asar')));
+}
 
 function resolveFsPath(targetPath) {
   if (path.isAbsolute(targetPath)) return targetPath;
@@ -150,22 +160,68 @@ async function createMainWindow() {
     }
   });
 
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  if (isDev) {
-    const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://localhost:1420';
-    let loaded = false;
-    for (let attempt = 1; attempt <= 30; attempt++) {
-      try {
-        await mainWindow.loadURL(devUrl);
-        loaded = true;
-        break;
-      } catch (err) {
-        if (attempt === 30) {
-          console.error(`[Main] Failed to load ${devUrl} after ${attempt} attempts:`, err);
-        } else {
-          await new Promise((resolve) => setTimeout(resolve, 500));
+  const isDev = isDevMode();
+
+  // Safety fallback: if splashscreen is not dismissed within 10s of page load, show main window
+  mainWindow.webContents.once('did-finish-load', () => {
+    console.log('[Main] MainWindow did-finish-load, current URL:', mainWindow.webContents.getURL());
+    setTimeout(() => {
+      if (splashWindow) {
+        console.warn('[Main] Splashscreen auto-dismissed via safety timeout');
+        try {
+          splashWindow.close();
+        } catch {}
+        splashWindow = null;
+        if (mainWindow && !mainWindow.isVisible()) {
+          mainWindow.show();
+          mainWindow.focus();
         }
       }
+    }, 10000);
+  });
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`[Main] Page failed to load: ${validatedURL} (${errorCode}: ${errorDescription})`);
+  });
+
+  mainWindow.webContents.on('console-message', (event, ...args) => {
+    const msg = typeof event === 'object' && event?.message !== undefined
+      ? event.message
+      : args[1] !== undefined
+        ? args[1]
+        : event;
+    console.log('[Renderer]', msg);
+  });
+
+  if (isDev) {
+    const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:1420';
+
+    // Probe dev server readiness before loadURL to prevent Chromium socket hang
+    let devServerReady = false;
+    for (let attempt = 1; attempt <= 30; attempt++) {
+      try {
+        devServerReady = await new Promise((resolve) => {
+          const req = http.get(devUrl, (res) => {
+            resolve(res.statusCode !== undefined && res.statusCode >= 200 && res.statusCode < 500);
+          });
+          req.on('error', () => resolve(false));
+          req.setTimeout(800, () => {
+            req.destroy();
+            resolve(false);
+          });
+        });
+      } catch {
+        devServerReady = false;
+      }
+
+      if (devServerReady) break;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    try {
+      await mainWindow.loadURL(devUrl);
+    } catch (err) {
+      console.error(`[Main] Failed to load ${devUrl}:`, err);
     }
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
@@ -173,7 +229,7 @@ async function createMainWindow() {
 }
 
 function openThreadWindow(threadId, accountId) {
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+  const isDev = isDevMode();
   const threadWin = new BrowserWindow({
     title: 'SuiteMail',
     icon: appIconPath,
@@ -189,7 +245,7 @@ function openThreadWindow(threadId, accountId) {
 
   const params = `?thread=${encodeURIComponent(threadId)}&account=${encodeURIComponent(accountId)}`;
   if (isDev) {
-    const devUrl = (process.env.VITE_DEV_SERVER_URL || 'http://localhost:1420') + params;
+    const devUrl = (process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:1420') + params;
     threadWin.loadURL(devUrl);
   } else {
     threadWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {

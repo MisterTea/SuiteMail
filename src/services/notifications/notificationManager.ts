@@ -46,7 +46,7 @@ export async function initNotifications(): Promise<void> {
   if (!notificationsEnabled) return;
 
   if (typeof Notification !== "undefined" && Notification.permission !== "granted" && Notification.permission !== "denied") {
-    await Notification.requestPermission();
+    Notification.requestPermission().catch(() => {});
   }
 }
 

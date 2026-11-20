@@ -1,4 +1,6 @@
 import { app } from 'electron';
+import fs from 'node:fs';
+import path from 'node:path';
 import electronUpdater from 'electron-updater';
 
 const { autoUpdater } = electronUpdater;
@@ -6,9 +8,14 @@ const { autoUpdater } = electronUpdater;
 let updateDownloaded = false;
 let latestUpdate = null;
 
+function isPackagedApp() {
+  if (process.env.NODE_ENV === 'development') return false;
+  return Boolean(app.isPackaged && fs.existsSync(path.join(process.resourcesPath, 'app.asar')));
+}
+
 export function setupUpdater(mainWindow) {
   // Only auto-download in production packaged builds
-  if (!app.isPackaged) {
+  if (!isPackagedApp()) {
     autoUpdater.autoDownload = false;
   } else {
     autoUpdater.autoDownload = true;
@@ -46,7 +53,7 @@ export function setupUpdater(mainWindow) {
 }
 
 export async function checkForUpdates() {
-  if (!app.isPackaged) {
+  if (!isPackagedApp()) {
     return null;
   }
   try {
@@ -71,7 +78,7 @@ export async function checkForUpdates() {
 }
 
 export async function installUpdate() {
-  if (!app.isPackaged) {
+  if (!isPackagedApp()) {
     console.log('[Updater] App is not packaged; skipping installUpdate.');
     return;
   }
