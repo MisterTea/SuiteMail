@@ -39,7 +39,8 @@
       "deb"
     ],
     "icon": "electron/icons/icon.png",
-    "category": "Network"
+    "category": "Network",
+    "maintainer": "SuiteMail Team"
   },
   "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
   "asarUnpack": [
