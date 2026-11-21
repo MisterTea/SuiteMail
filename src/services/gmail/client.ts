@@ -7,6 +7,13 @@ const GMAIL_API_BASE = "https://www.googleapis.com/gmail/v1";
 const MAX_RETRY_ATTEMPTS = 3;
 const INITIAL_BACKOFF_MS = 1000;
 
+export class GmailApiError extends Error {
+  constructor(public readonly status: number, body: string) {
+    super(`Gmail API error: ${status} ${body}`);
+    this.name = "GmailApiError";
+  }
+}
+
 interface TokenInfo {
   accessToken: string;
   refreshToken: string;
@@ -130,16 +137,14 @@ export class GmailClient {
         },
       });
       if (!retry.ok) {
-        throw new Error(`Gmail API error: ${retry.status} ${await retry.text()}`);
+        throw new GmailApiError(retry.status, await retry.text());
       }
       if (retry.status === 204) return undefined as T;
       return retry.json();
     }
 
     if (!response.ok) {
-      throw new Error(
-        `Gmail API error: ${response.status} ${await response.text()}`,
-      );
+      throw new GmailApiError(response.status, await response.text());
     }
 
     if (response.status === 204) return undefined as T;

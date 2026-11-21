@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { deltaSync } from "./sync";
-import { GmailClient } from "./client";
+import { GmailApiError, GmailClient } from "./client";
+
+import { deleteThread } from "../db/threads";
+import { updateAccountSyncState } from "../db/accounts";
 
 // Mock all DB modules
 vi.mock("../db/threads", () => ({
+  deleteThread: vi.fn(),
   upsertThread: vi.fn(),
   setThreadLabels: vi.fn(),
   getMutedThreadIds: vi.fn().mockResolvedValue(new Set()),
@@ -182,5 +186,42 @@ describe("deltaSync notifications", () => {
     await deltaSync(client, "account-1", "99");
 
     expect(mockNotify).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("deltaSync missing threads", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("removes a missing thread locally and advances the sync cursor", async () => {
+    const client = createMockClient([{
+      messagesDeleted: [{ message: { id: "deleted-message", threadId: "deleted-thread" } }],
+    }]);
+    vi.mocked(client.getThread).mockRejectedValue(new GmailApiError(404, "Not Found"));
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await deltaSync(client, "account-1", "99");
+      expect(deleteThread).toHaveBeenCalledExactlyOnceWith("account-1", "deleted-thread");
+      expect(updateAccountSyncState).toHaveBeenCalledWith("account-1", "200");
+      expect(errorLog).not.toHaveBeenCalled();
+    } finally {
+      errorLog.mockRestore();
+    }
+  });
+
+  it("preserves cached threads on other API errors", async () => {
+    const client = createMockClient([{
+      messagesDeleted: [{ message: { id: "message", threadId: "thread" } }],
+    }]);
+    const error = new GmailApiError(403, "Forbidden");
+    vi.mocked(client.getThread).mockRejectedValue(error);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await deltaSync(client, "account-1", "99");
+      expect(deleteThread).not.toHaveBeenCalled();
+      expect(errorLog).toHaveBeenCalledWith("Failed to re-sync thread thread:", error);
+    } finally {
+      errorLog.mockRestore();
+    }
   });
 });

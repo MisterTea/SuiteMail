@@ -1,7 +1,7 @@
-import { GmailClient } from "./client";
+import { GmailApiError, GmailClient } from "./client";
 import { parseGmailMessage, type ParsedMessage } from "./messageParser";
 import { upsertLabel } from "../db/labels";
-import { upsertThread, setThreadLabels } from "../db/threads";
+import { deleteThread, upsertThread, setThreadLabels } from "../db/threads";
 import { upsertMessage } from "../db/messages";
 import { upsertAttachment } from "../db/attachments";
 import { updateAccountSyncState } from "../db/accounts";
@@ -376,7 +376,15 @@ export async function deltaSync(
             return;
           }
 
-          const thread = await client.getThread(threadId, "full");
+          const thread = await client.getThread(threadId, "full").catch(async (err) => {
+            // History can reference a thread that has since been permanently deleted.
+            if (err instanceof GmailApiError && err.status === 404) {
+              await deleteThread(accountId, threadId);
+              return null;
+            }
+            throw err;
+          });
+          if (!thread) return;
 
           if (!thread.messages || thread.messages.length === 0) return;
 
