@@ -513,7 +513,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                     : "font-semibold text-accent dark:text-accent-hover"
                 }`}
               >
-                {androidMobile ? new Date(thread.lastMessageAt * 1000).toLocaleDateString(undefined, {month:"short", day:"numeric"}) : formatRelativeDate(thread.lastMessageAt)}
+                {formatRelativeDate(thread.lastMessageAt)}
               </span>
 
               {/* Quick Pin toggle (44x44dp mobile touch target) */}

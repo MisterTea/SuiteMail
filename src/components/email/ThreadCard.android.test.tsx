@@ -15,6 +15,19 @@ const thread: Thread = {id:"t",accountId:"a",subject:"Touch safety",snippet:"Pre
 describe("Android conversation gestures",()=>{
   beforeEach(()=>{vi.clearAllMocks();state.label="inbox";vi.useFakeTimers();});
   afterEach(()=>vi.useRealTimers());
+  it("shows today's Gmail millisecond timestamp as a local time",()=>{
+    const received = new Date(2026,10,21,14,7,26);
+    vi.setSystemTime(new Date(2026,10,21,15,0));
+    render(<ThreadCard thread={{...thread,lastMessageAt:received.getTime()}} isSelected={false} onClick={vi.fn()}/>);
+    expect(screen.getByText(received.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}))).toBeInTheDocument();
+    expect(screen.queryByText("Jul 11")).not.toBeInTheDocument();
+  });
+  it("continues to support second-based timestamps from other providers",()=>{
+    const received = new Date(2026,10,21,14,7,26);
+    vi.setSystemTime(new Date(2026,10,21,15,0));
+    render(<ThreadCard thread={{...thread,lastMessageAt:Math.floor(received.getTime()/1000)}} isSelected={false} onClick={vi.fn()}/>);
+    expect(screen.getByText(received.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}))).toBeInTheDocument();
+  });
   it("does not archive during a vertical scroll with horizontal drift",()=>{
     render(<ThreadCard thread={thread} isSelected={false} onClick={vi.fn()}/>);
     const card=screen.getByRole("button",{name:/Unread email from/});
