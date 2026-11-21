@@ -1,3 +1,4 @@
+import { gmailRequestCost, waitForGmailQuota, pauseGmailQuota, isGmailRateLimit, retryAfterMs } from "./quota";
 import { refreshAccessToken, type TokenResponse } from "./auth";
 import { getDb } from "../db/connection";
 import { encryptValue } from "@/utils/crypto";
@@ -89,7 +90,7 @@ export class GmailClient {
   }
 
   /**
-   * Fetch with automatic retry on 429 (rate limit) responses.
+   * Pace requests and retry both Gmail quota 403s and HTTP 429 responses.
    * Uses Retry-After header when available, otherwise exponential backoff.
    */
   private async fetchWithRetry(
@@ -98,16 +99,15 @@ export class GmailClient {
   ): Promise<Response> {
     let lastResponse: Response | undefined;
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+      await waitForGmailQuota(this.accountId, gmailRequestCost(url, options.method || "GET"));
       const response = await fetch(url, options);
-      if (response.status !== 429) return response;
+      if (!(await isGmailRateLimit(response))) return response;
 
       lastResponse = response;
+      const retryAfter = retryAfterMs(response.headers.get("Retry-After"));
+      const delayMs = retryAfter ?? (response.status === 403 ? 60_000 : INITIAL_BACKOFF_MS) * Math.pow(2, attempt);
+      pauseGmailQuota(this.accountId, delayMs);
       if (attempt === MAX_RETRY_ATTEMPTS - 1) break;
-
-      const retryAfter = response.headers.get("Retry-After");
-      const delayMs = retryAfter
-        ? parseInt(retryAfter, 10) * 1000
-        : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     return lastResponse!;

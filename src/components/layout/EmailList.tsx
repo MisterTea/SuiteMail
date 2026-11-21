@@ -556,8 +556,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       timer = setTimeout(() => loadThreads(), 500);
     };
     window.addEventListener("suitemail-sync-done", handler);
+    window.addEventListener("suitemail-sync-progress", handler);
     return () => {
       window.removeEventListener("suitemail-sync-done", handler);
+      window.removeEventListener("suitemail-sync-progress", handler);
       if (timer) clearTimeout(timer);
     };
   }, [loadThreads, activeAccountId, activeLabel]);

@@ -7,7 +7,7 @@ import { upsertAttachment } from "../db/attachments";
 import { updateAccountSyncState } from "../db/accounts";
 import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
 import { applyFiltersToMessages, isEmailFiltered, markEmailFiltered } from "../filters/filterEngine";
-import { getSetting } from "../db/settings";
+import { getSetting, setSetting } from "../db/settings";
 import { getMutedThreadIds } from "../db/threads";
 import { getThreadCategory } from "../db/threadCategories";
 import { getVipSenders } from "../db/notificationVips";
@@ -191,76 +191,57 @@ export async function initialSync(
   daysBack = 365,
   onProgress?: SyncProgressCallback,
 ): Promise<void> {
-  // Phase 1: Sync labels
-  onProgress?.({ phase: "labels", current: 0, total: 1 });
+  const key = `gmail_initial_sync:${accountId}`;
+  type Checkpoint = {version:1; daysBack:number; query:string; historyId:string; pageToken?:string; completed:number; total:number; storedIds:string[]};
+  let checkpoint: Checkpoint | undefined;
+  try {
+    const raw = await getSetting(key);
+    const saved = raw ? JSON.parse(raw) as Checkpoint : undefined;
+    if (saved?.version === 1 && saved.daysBack === daysBack && typeof saved.historyId === "string" && saved.historyId && typeof saved.query === "string" && Number.isFinite(saved.completed) && Array.isArray(saved.storedIds)) checkpoint = saved;
+  } catch { /* Invalid/old checkpoints start a fresh listing. */ }
+  if (!checkpoint) {
+    const afterDate = new Date();
+    afterDate.setDate(afterDate.getDate() - daysBack);
+    const afterStr = `${afterDate.getFullYear()}/${afterDate.getMonth()+1}/${afterDate.getDate()}`;
+    // Use a pre-sync cursor: changes during a long initial download must be replayed by delta sync.
+    const profile = await client.getProfile();
+    checkpoint = {version:1, daysBack, query:`after:${afterStr}`, historyId:profile.historyId, completed:0, total:0, storedIds:[]};
+  }
+  const save = () => setSetting(key, JSON.stringify(checkpoint), {skipNotify:true});
+  await save();
+  onProgress?.({phase:"labels",current:0,total:1});
   await syncLabels(client, accountId);
-  onProgress?.({ phase: "labels", current: 1, total: 1 });
-
-  // Phase 2: Fetch thread list
-  const afterDate = new Date();
-  afterDate.setDate(afterDate.getDate() - daysBack);
-  const afterStr = `${afterDate.getFullYear()}/${afterDate.getMonth() + 1}/${afterDate.getDate()}`;
-
-  const threadStubs: { id: string }[] = [];
-  let pageToken: string | undefined;
-
-  onProgress?.({ phase: "threads", current: 0, total: 0 });
-
-  do {
-    const response = await client.listThreads({
-      maxResults: 100,
-      pageToken,
-      q: `after:${afterStr}`,
-    });
-
-    if (response.threads) {
-      threadStubs.push(...response.threads.map((t) => ({ id: t.id })));
-    }
-
-    pageToken = response.nextPageToken;
-    onProgress?.({
-      phase: "threads",
-      current: threadStubs.length,
-      total: threadStubs.length + (pageToken ? 100 : 0), // estimate
-    });
-  } while (pageToken);
-
-  // Phase 3: Fetch and store each thread's details
-  let historyId = "0";
-
-  // Load auto-archive categories once for the whole sync
   const autoArchiveCategories = await loadAutoArchiveCategories();
-
-  let progress = 0;
-  await parallelLimit(
-    threadStubs.map((stub) => async () => {
-      onProgress?.({
-        phase: "messages",
-        current: ++progress,
-        total: threadStubs.length,
-      });
-
+  // Stream small pages instead of enumerating a year of mail before displaying anything.
+  while (true) {
+    const response = await client.listThreads({maxResults:10,pageToken:checkpoint.pageToken,q:checkpoint.query});
+    const stubs = response.threads || [];
+    checkpoint.total = Math.max(checkpoint.total, checkpoint.completed+stubs.length, response.resultSizeEstimate || 0);
+    onProgress?.({phase:"messages",current:checkpoint.completed,total:checkpoint.total});
+    for (const stub of stubs) {
+      if (checkpoint.storedIds.includes(stub.id)) continue;
       try {
-        const thread = await client.getThread(stub.id, "full");
-
-        if (BigInt(thread.historyId) > BigInt(historyId)) {
-          historyId = thread.historyId;
+        const thread = await client.getThread(stub.id,"full");
+        if (thread.messages?.length) {
+          await processAndStoreThread(thread,accountId,thread.messages.map(parseGmailMessage),client,autoArchiveCategories);
         }
-
-        if (!thread.messages || thread.messages.length === 0) return;
-
-        const parsedMessages = thread.messages.map(parseGmailMessage);
-        await processAndStoreThread(thread, accountId, parsedMessages, client, autoArchiveCategories);
-      } catch (err) {
-        console.error(`Failed to sync thread ${stub.id}:`, err);
+      } catch (error) {
+        // A thread deleted after listing is safe to skip; every other failure retains the checkpoint.
+        if (!(error instanceof GmailApiError && error.status === 404)) throw error;
       }
-    }),
-    10,
-  );
-
-  // Store the latest history ID for delta sync
-  await updateAccountSyncState(accountId, historyId);
-
+      checkpoint.storedIds.push(stub.id);
+      checkpoint.completed++;
+      await save();
+      onProgress?.({phase:"messages",current:checkpoint.completed,total:checkpoint.total});
+      window.dispatchEvent(new Event("suitemail-sync-progress"));
+    }
+    if (!response.nextPageToken) break;
+    checkpoint.pageToken = response.nextPageToken;
+    checkpoint.storedIds = [];
+    await save();
+  }
+  await updateAccountSyncState(accountId,checkpoint.historyId);
+  await setSetting(key,"",{skipNotify:true});
   // Fire-and-forget vector embedding for new messages
   import("@/services/ai/embeddingIndexer")
     .then(({ indexBatchForAccount }) => indexBatchForAccount(accountId, 100))
@@ -268,8 +249,8 @@ export async function initialSync(
 
   onProgress?.({
     phase: "done",
-    current: threadStubs.length,
-    total: threadStubs.length,
+    current: checkpoint.completed,
+    total: checkpoint.completed,
   });
 }
 
@@ -285,16 +266,20 @@ async function parallelLimit<T>(
 ): Promise<T[]> {
   const results: T[] = [];
   let index = 0;
+  let failed = false;
+  let failure: unknown;
 
   async function next(): Promise<void> {
-    while (index < tasks.length) {
+    while (!failed && index < tasks.length) {
       const i = index++;
-      results[i] = await tasks[i]!();
+      try { results[i] = await tasks[i]!(); }
+      catch (error) { if (!failed) failure = error; failed = true; }
     }
   }
 
   const workers = Array.from({ length: Math.min(limit, tasks.length) }, () => next());
   await Promise.all(workers);
+  if (failed) throw failure;
   return results;
 }
 
@@ -444,6 +429,7 @@ export async function deltaSync(
           }
         } catch (err) {
           console.error(`Failed to re-sync thread ${threadId}:`, err);
+          throw err; // Never advance history past a failed download.
         }
       }),
       10,

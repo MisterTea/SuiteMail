@@ -17,7 +17,7 @@ Created and verified in Google Cloud Console on 2026-11-21:
 - Gmail and Calendar APIs: already enabled, verified in the Console.
 - Audience: already External / In production. The Console reports the existing unverified-sensitive-scope user cap; public distribution verification is still separate work. Existing project audience, branding, scope declarations, and other clients were not changed.
 
-Registration changes may take time to propagate. A production signing certificate needs a separate Android OAuth registration. This debug registration does not validate actual account consent or mailbox operations; see the validation limits below.
+Registration changes may take time to propagate. A production signing certificate needs a separate Android OAuth registration. Live Gmail downloads have now been verified for one emulator account; see the remaining validation limits below.
 
 ## Register the Android application with Google
 
@@ -57,8 +57,8 @@ Google configuration errors show the package/certificate registration requiremen
 
 ## Validation and current limits
 
-The installed-APK emulator check opens the real Google authorization surface and cancels it, verifies no account was created, and verifies retry remains available. This emulator has no Google accounts. Unit tests cover selecting an account, verified profile lookup, cancellation, account mismatch, independent per-account renewal without refresh tokens, concurrent refresh, 401 invalidation/retry, and reconnection.
+The installed-APK emulator check opens the real Google authorization surface and cancels it, verifies no account was created, and verifies retry remains available. The original cancellation smoke test ran before an account was added. A subsequent live-account check verified native authorization after restart and five consecutive successful Gmail thread downloads, with the inbox visible and resumable download progress advancing. Unit tests cover selecting an account, verified profile lookup, cancellation, account mismatch, independent per-account renewal without refresh tokens, concurrent refresh, 401 invalidation/retry, and reconnection.
 
-A successful live consent, real Gmail sync/send, multiple actual device accounts, and consent revocation still require signed-in test accounts. They are not claimed as validated by the cancellation smoke test. The API dependency is `com.google.android.gms:play-services-auth:22.0.0`; the implementation uses the current AuthorizationClient API, not the deprecated GoogleSignIn API. A separate Credential Manager app-login flow is unnecessary because SuiteMail is authorizing mailbox data access and reads the selected profile after authorization.
+Live sending, multiple actual device accounts, and consent revocation still require separate validation. They are not claimed as validated by the download or cancellation checks. The API dependency is `com.google.android.gms:play-services-auth:22.0.0`; the implementation uses the current AuthorizationClient API, not the deprecated GoogleSignIn API. A separate Credential Manager app-login flow is unnecessary because SuiteMail is authorizing mailbox data access and reads the selected profile after authorization.
 
 References: [Google Android authorization guide](https://developer.android.com/identity/authorization), [AuthorizationRequest account selection](https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationRequest.Builder).

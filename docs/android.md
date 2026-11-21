@@ -80,7 +80,7 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 
 ## Preview limitations
 
-- Google (Gmail) now uses native device account authorization and Play services token renewal. The current debug package/signing certificate is registered in `bits-and-bytes`; a production certificate needs its own registration. See [Google account setup and validation](android-google.md). Actual live consent and mailbox access remain unverified pending a signed-in test account; IMAP app-password setup remains available.
+- Google (Gmail) now uses native device account authorization and Play services token renewal. The current debug package/signing certificate is registered in `bits-and-bytes`; a production certificate needs its own registration. See [Google account setup and validation](android-google.md). Live Gmail downloads are verified for one emulator account; live sending, multiple real accounts and revocation still need separate checks. IMAP app-password setup remains available.
 - Microsoft Graph's current dependency fails to compile on Android, so Graph is excluded from this build and hidden in the account chooser. The desktop integration remains enabled. EWS is compiled but has not been validated against a live Microsoft account on Android.
 - Proton Mail Bridge requires a desktop OS and is hidden on Android.
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.
@@ -88,3 +88,9 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 - Native document picker/share-sheet integration, Android Keystore wrapping for the encryption key, hardware-device testing, and Play Store signing/release work remain future work.
 
 The app's existing encryption key is stored in private app files, and account secrets remain encrypted in SQLite. This is not hardware-backed Keystore storage.
+
+## Gmail initial-download behavior
+
+Gmail requests are paced by their current quota costs, with headroom under the per-user limit. Quota-related 403 responses and HTTP 429 responses honor Retry-After/cooldowns; genuine permission failures are not retried as quota errors. Initial sync streams small pages, publishes inbox/count updates while downloading, and persists a page checkpoint after each stored thread. Interrupted sync resumes completed work; a failure never advances the history cursor past missed mail. Delta sync likewise retains its history cursor if a required thread fails. The initial history cursor is captured before downloading so later delta sync can replay changes made during the download.
+
+Validation on 2026-11-21: 2,092 non-live-model unit tests passed; the updated installed APK showed 50 rendered mail rows and five successful live Gmail thread responses over 15 seconds, without quota errors. Existing account and 419 stored messages were retained. Native background sync still requires the app to remain open.

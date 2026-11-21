@@ -441,10 +441,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     };
 
     window.addEventListener("suitemail-sync-done", handler);
+    window.addEventListener("suitemail-sync-progress", handler);
     window.addEventListener("draft-count-changed", draftHandler);
     window.addEventListener("unread-count-changed", unreadHandler);
     return () => {
       window.removeEventListener("suitemail-sync-done", handler);
+      window.removeEventListener("suitemail-sync-progress", handler);
       window.removeEventListener("draft-count-changed", draftHandler);
       window.removeEventListener("unread-count-changed", unreadHandler);
       if (timer) clearTimeout(timer);
@@ -473,10 +475,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     };
     load();
     window.addEventListener("suitemail-sync-done", load);
+    window.addEventListener("suitemail-sync-progress", load);
     window.addEventListener("unread-count-changed", load);
     return () => {
       cancelled = true;
       window.removeEventListener("suitemail-sync-done", load);
+      window.removeEventListener("suitemail-sync-progress", load);
       window.removeEventListener("unread-count-changed", load);
     };
   }, [activeAccountId, isGmailAccount]);

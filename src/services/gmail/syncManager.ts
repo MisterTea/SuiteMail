@@ -1,7 +1,7 @@
 import { getGmailClient } from "./tokenManager";
 import { initialSync, deltaSync, type SyncProgress } from "./sync";
 import { getAccount, clearAccountHistoryId } from "../db/accounts";
-import { getSetting } from "../db/settings";
+import { getSetting, setSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
 import { deleteAllMessagesForAccount } from "../db/messages";
 import { imapInitialSync, imapDeltaSync } from "../imap/imapSync";
@@ -349,6 +349,7 @@ export async function triggerSync(accountIds: string[]): Promise<void> {
 export async function forceFullSync(accountIds: string[]): Promise<void> {
   for (const id of accountIds) {
     await clearAccountHistoryId(id);
+    await setSetting(`gmail_initial_sync:${id}`, "", {skipNotify:true});
   }
   await runSync(accountIds);
 }
@@ -362,6 +363,7 @@ export async function resyncAccount(accountId: string): Promise<void> {
   await deleteAllThreadsForAccount(accountId);
   await deleteAllMessagesForAccount(accountId);
   await clearAccountHistoryId(accountId);
+  await setSetting(`gmail_initial_sync:${accountId}`, "", {skipNotify:true});
   await clearAllFolderSyncStates(accountId);
   await runSync([accountId]);
 }
