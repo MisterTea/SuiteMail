@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { Capacitor } from "@capacitor/core";
 import { platformInvoke as invoke } from "@/platform";
 import {
   ArrowLeft,
@@ -132,6 +133,7 @@ export function AddImapAccount({
   onSuccess,
   onBack,
 }: AddImapAccountProps) {
+  const androidPreview = Capacitor.getPlatform() === "android";
   const [currentStep, setCurrentStep] = useState<Step>("basic");
   const [form, setForm] = useState<FormState>(initialFormState);
   const [imapTest, setImapTest] = useState<TestStatus>({ state: "idle" });
@@ -162,7 +164,7 @@ export function AddImapAccount({
       let oauthClientId = form.oauthClientId;
       let oauthClientSecret = form.oauthClientSecret;
 
-      if (result.oauthProviderId === "google" && !oauthClientId) {
+      if (result.oauthProviderId === "google" && !oauthClientId && !androidPreview) {
         try {
           const creds = await resolveGoogleClientCredentials();
           if (creds.clientId) oauthClientId = creds.clientId;
@@ -181,8 +183,10 @@ export function AddImapAccount({
         smtpPort: result.settings.smtpPort,
         smtpSecurity: result.settings.smtpSecurity,
         acceptInvalidCerts: result.acceptInvalidCerts ?? false,
-        // Auto-select OAuth2 if it's the only option (e.g. Outlook, Gmail)
-        authMode: result.authMethods[0] === "oauth2" ? "oauth2" : prev.authMode,
+        // Prefer app passwords on Android where supported; desktop retains provider OAuth defaults.
+        authMode: androidPreview && result.authMethods.includes("password")
+          ? "password"
+          : result.authMethods[0] === "oauth2" ? "oauth2" : prev.authMode,
         oauthProvider: result.oauthProviderId ?? null,
         oauthClientId: oauthClientId || prev.oauthClientId,
         oauthClientSecret: oauthClientSecret || prev.oauthClientSecret,
@@ -191,7 +195,7 @@ export function AddImapAccount({
       setDetectedOAuthProviderId(result.oauthProviderId ?? null);
       setDiscoveryApplied(true);
     }
-  }, [form.email, form.imapHost, form.smtpHost, form.oauthClientId, form.oauthClientSecret, discoveryApplied]);
+  }, [form.email, form.imapHost, form.smtpHost, form.oauthClientId, form.oauthClientSecret, discoveryApplied, androidPreview]);
 
   const handleImapSecurityChange = useCallback(
     (security: SecurityType) => {

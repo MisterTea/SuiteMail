@@ -209,10 +209,13 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
         <div className="space-y-3">
           <button
-            disabled={androidPreview}
             onClick={() => {
-              setView("gmail");
-              handleAddGmailAccount();
+              if (androidPreview) {
+                setView("imap");
+              } else {
+                setView("gmail");
+                handleAddGmailAccount();
+              }
             }}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -241,7 +244,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Google (Gmail)
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                {androidPreview ? "Google sign-in is not available in this Android preview. Use IMAP / SMTP with an app password." : "Connect via OAuth with full Gmail API support"}
+                {androidPreview ? "Connect with IMAP / SMTP using a Google app password. Browser sign-in is not available in this Android preview." : "Connect via OAuth with full Gmail API support"}
               </div>
             </div>
           </button>

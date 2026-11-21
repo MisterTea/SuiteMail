@@ -60,7 +60,7 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 
 ## Preview limitations
 
-- Google sign-in needs an Android-specific OAuth implementation and credential setup. It is disabled in the account chooser; IMAP/SMTP with an app password is the preview path where the provider permits it.
+- Google sign-in needs an Android-specific OAuth implementation and credential setup. The Google choice opens IMAP/SMTP setup with app-password authentication selected. Use a Google app password where the account permits one; browser sign-in is not available in this preview.
 - Microsoft Graph's current dependency fails to compile on Android, so Graph is excluded from this build and hidden in the account chooser. The desktop integration remains enabled. EWS is compiled but has not been validated against a live Microsoft account on Android.
 - Proton Mail Bridge requires a desktop OS and is hidden on Android.
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.

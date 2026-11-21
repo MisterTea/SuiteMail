@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { Capacitor } from "@capacitor/core";
 import { AddAccount } from "./AddAccount";
 import * as auth from "@/services/gmail/auth";
 import * as tokenManager from "@/services/gmail/tokenManager";
@@ -85,5 +86,29 @@ describe("AddAccount - Gmail Flow", () => {
     const setupTitle = await screen.findByText("Google API Setup");
     expect(setupTitle).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Paste your Client ID here...")).toBeInTheDocument();
+  });
+});
+
+
+describe("Android Gmail entry", () => {
+  it("opens working password setup instead of a disabled Google choice or desktop OAuth", async () => {
+    const previousMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockReturnValue({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()});
+    const platform = vi.spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+    try {
+      render(<AddAccount onClose={() => {}} onSuccess={() => {}} />);
+      const google = screen.getByRole("button", { name: /^Google \(Gmail\)/ });
+      expect(google).toBeEnabled();
+      fireEvent.click(google);
+      expect(await screen.findByRole("dialog", { name: "Add IMAP/SMTP Account" })).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText("Email Address"), { target: { value: "person@gmail.com" } });
+      fireEvent.blur(screen.getByLabelText("Email Address"));
+      await waitFor(() => expect(screen.getByText(/16-character App Password/)).toBeInTheDocument());
+      expect(screen.getByLabelText("Password")).toBeEnabled();
+      expect(screen.queryByRole("button", { name: "Sign in with Google" })).not.toBeInTheDocument();
+    } finally {
+      platform.mockRestore();
+      window.matchMedia = previousMatchMedia;
+    }
   });
 });
