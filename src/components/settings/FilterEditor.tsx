@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Trash2, Pencil, Sparkles } from "lucide-react";
 import { AiFilterSuggestModal } from "./AiFilterSuggestModal";
@@ -17,6 +18,7 @@ import {
 import { uploadFilterChangeForAccount } from "@/services/imap/settingsSidecarSync";
 
 export function FilterEditor() {
+  const androidMobile = useAndroidMobile();
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [filters, setFilters] = useState<DbFilterRule[]>([]);
   const [labels, setLabels] = useState<DbLabel[]>([]);
@@ -356,20 +358,20 @@ export function FilterEditor() {
           </div>
         </div>
       ) : (
-        <div className="flex items-center gap-3">
+        <div className={androidMobile ? "flex flex-col gap-3" : "flex items-center gap-3"}>
           <button
             onClick={() => setCreateMode("manual")}
-            className="text-xs text-accent hover:text-accent-hover font-medium"
+            className={androidMobile ? "min-h-12 w-full px-4 text-base text-accent border border-border-primary rounded-lg text-left" : "text-xs text-accent hover:text-accent-hover font-medium"}
           >
-            + Add filter
+            {androidMobile ? "Create filter manually" : "+ Add filter"}
           </button>
-          <span className="text-border-primary text-xs">|</span>
+          {!androidMobile && <span className="text-border-primary text-xs">|</span>}
           <button
             onClick={() => setCreateMode("ai")}
-            className="text-xs text-accent hover:text-accent-hover flex items-center gap-1 font-medium"
+            className={androidMobile ? "min-h-12 w-full px-4 text-base text-accent border border-border-primary rounded-lg flex items-center gap-2" : "text-xs text-accent hover:text-accent-hover flex items-center gap-1 font-medium"}
           >
             <Sparkles size={13} />
-            Suggest filter with Pi Agent
+            {androidMobile ? "Create filter with AI" : "Suggest filter with Pi Agent"}
           </button>
         </div>
       )}

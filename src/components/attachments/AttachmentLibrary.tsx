@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { platformSaveFile } from "@/platform";
 import { Paperclip, Search, LayoutGrid, List, Menu } from "lucide-react";
@@ -85,6 +86,8 @@ function matchesSize(att: AttachmentWithContext, filter: SizeFilter): boolean {
 }
 
 export function AttachmentLibrary() {
+  const android = useAndroidMobile();
+  const [error, setError] = useState<string | null>(null);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.isActive);
   const accountId = activeAccount?.id ?? null;
@@ -98,11 +101,12 @@ export function AttachmentLibrary() {
   const [senderFilter, setSenderFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+  const [viewMode, setViewMode] = useState<ViewMode>(android ? "list" : "grid");
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentWithContext | null>(null);
 
   const loadData = useCallback(async (acctId: string) => {
     setLoading(true);
+    setError(null);
     try {
       const [atts, snds] = await Promise.all([
         getAttachmentsForAccount(acctId),
@@ -112,6 +116,7 @@ export function AttachmentLibrary() {
       setSenders(snds);
     } catch (err) {
       console.error("Failed to load attachments:", err);
+      setError("Couldn’t load attachments. Try again.");
     } finally {
       setLoading(false);
     }
@@ -168,6 +173,7 @@ export function AttachmentLibrary() {
       await platformSaveFile(att.filename ?? "attachment", bytes);
     } catch (err) {
       console.error("Download failed:", err);
+      setError("Couldn’t download the attachment. Try Download again.");
     }
   }, [accountId]);
 
@@ -217,6 +223,7 @@ export function AttachmentLibrary() {
 
           {/* Filters */}
           <select
+            style={android ? { minHeight: 48, fontSize: 16, maxWidth: "100%" } : undefined}
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value as TypeFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
@@ -227,6 +234,7 @@ export function AttachmentLibrary() {
           </select>
 
           <select
+            style={android ? { minHeight: 48, fontSize: 16, maxWidth: "100%" } : undefined}
             value={senderFilter}
             onChange={(e) => setSenderFilter(e.target.value)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent max-w-40"
@@ -240,6 +248,7 @@ export function AttachmentLibrary() {
           </select>
 
           <select
+            style={android ? { minHeight: 48, fontSize: 16, maxWidth: "100%" } : undefined}
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value as DateFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
@@ -250,6 +259,7 @@ export function AttachmentLibrary() {
           </select>
 
           <select
+            style={android ? { minHeight: 48, fontSize: 16, maxWidth: "100%" } : undefined}
             value={sizeFilter}
             onChange={(e) => setSizeFilter(e.target.value as SizeFilter)}
             className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent"
@@ -279,13 +289,14 @@ export function AttachmentLibrary() {
         </div>
       </div>
 
+      {error && <div role="alert" className="p-4 text-sm text-danger">{error}<button className="min-h-12 px-4" onClick={() => accountId && loadData(accountId)}>Reload library</button></div>}
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 pb-16 md:pb-6">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <p className="text-sm text-text-tertiary">Loading attachments...</p>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : error && attachments.length === 0 ? null : filtered.length === 0 ? (
           <EmptyState
             icon={Paperclip}
             title={attachments.length === 0 ? "No attachments yet" : "No matching attachments"}

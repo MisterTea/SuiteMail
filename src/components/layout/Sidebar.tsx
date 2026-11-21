@@ -553,6 +553,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             : "hidden md:flex"
         } ${collapsed && !mobileSidebarOpen ? "md:w-16" : "md:w-60"}`}
       >
+      {mobileSidebarOpen && <div className="flex items-center justify-between px-4 pt-3 md:hidden">
+        <h2 className="text-lg font-semibold">Mail folders</h2>
+        <button data-testid="close-mobile-folders" aria-label="Close folders" onClick={()=>setMobileSidebarOpen(false)} className="flex h-12 w-12 items-center justify-center rounded-full text-xl">×</button>
+      </div>}
       <AccountSwitcher collapsed={collapsed && !mobileSidebarOpen} onAddAccount={onAddAccount} />
 
       {/* Compose and sync */}

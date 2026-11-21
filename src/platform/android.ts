@@ -2,6 +2,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import type { PlatformBridge } from "./index";
+import { installAndroidViewport } from "./androidViewport";
 
 interface NativeCore {
   invoke(options: { command: string; args: Record<string, unknown> }): Promise<{ value: unknown }>;
@@ -11,6 +12,7 @@ interface NativeCore {
 // The same platform contract as desktop; mail and SQLite execute locally in Rust.
 if (Capacitor.getPlatform() === "android") {
   document.documentElement.classList.add("android-app");
+  installAndroidViewport();
   const native = registerPlugin<NativeCore>("SuiteMail");
   const invoke = async <T>(command: string, args: Record<string, unknown> = {}): Promise<T> => {
     if (["close_splashscreen", "set_tray_tooltip", "set_badge_count", "set_tray_icon"].includes(command)) return undefined as T;
@@ -58,6 +60,20 @@ if (Capacitor.getPlatform() === "android") {
   };
   window.supermail = bridge;
   App.addListener("backButton", () => {
+    // Dismiss the topmost surface before navigating away from the message.
+    const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')];
+    if (dialogs.length) {
+      document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape", bubbles:true}));
+      return;
+    }
+    const composer = document.querySelector<HTMLButtonElement>('[data-testid="composer-save-close"]');
+    if (composer) { composer.click(); return; }
+    const selection = document.querySelector<HTMLButtonElement>('button[aria-label="Clear selection"]');
+    if (selection) {selection.click();return;}
+    const search = document.querySelector<HTMLInputElement>('input[aria-label="Search mail"]');
+    if (search?.value) {document.querySelector<HTMLButtonElement>('button[aria-label="Clear search"]')?.click();search.blur();return;}
+    const drawer = document.querySelector<HTMLButtonElement>('[data-testid="close-mobile-folders"]');
+    if (drawer) { drawer.click(); return; }
     const close = document.querySelector<HTMLButtonElement>('button[title="Back to list"]');
     if (close) close.click();
     else if (window.history.length > 1) window.history.back();

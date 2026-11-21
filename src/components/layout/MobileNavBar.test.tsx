@@ -13,6 +13,7 @@ vi.mock("@/router/navigate", () => ({
 
 vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveLabel: () => "inbox",
+  useSelectedThreadId: () => null,
 }));
 
 vi.mock("@/stores/composerStore", () => ({

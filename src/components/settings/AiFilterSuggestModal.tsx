@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -56,6 +57,9 @@ export function AiFilterSuggestModal({
   initialMode = "ai",
   onFilterAdded,
 }: AiFilterSuggestModalProps) {
+  const androidMobile = useAndroidMobile();
+  const saveInFlight = useRef(false);
+  const [previewReady, setPreviewReady] = useState(false);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accountId = propAccountId ?? activeAccountId;
 
@@ -69,7 +73,7 @@ export function AiFilterSuggestModal({
   const [suggestedFilter, setSuggestedFilter] = useState<SuggestedFilter | null>(null);
   const [filterName, setFilterName] = useState("");
   const [affectedEmails, setAffectedEmails] = useState<AffectedEmail[]>([]);
-  const [applyToWholeInbox, setApplyToWholeInbox] = useState(true);
+  const [applyToWholeInbox, setApplyToWholeInbox] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Manual Form State
@@ -88,6 +92,7 @@ export function AiFilterSuggestModal({
   const [manualTrash, setManualTrash] = useState(false);
 
   const requestVersion = useRef(0);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Sync initialMode and initialPrompt when modal opens
@@ -112,7 +117,9 @@ export function AiFilterSuggestModal({
     setSuggestedFilter(null);
     setFilterName("");
     setAffectedEmails([]);
-    setApplyToWholeInbox(true);
+    setApplyToWholeInbox(false);
+    setPreviewReady(false);
+    saveInFlight.current = false;
     setSaving(false);
 
     // Reset manual form
@@ -135,6 +142,24 @@ export function AiFilterSuggestModal({
     onClose();
   }, [handleReset, onClose]);
 
+  // Keep native Back (dispatched as Escape) and keyboard focus inside this portal.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    dialog?.querySelector<HTMLElement>("button, input, textarea")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); if (!saveInFlight.current) handleClose(); }
+      if (event.key !== "Tab" || !dialog) return;
+      const items = Array.from(dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled)'));
+      const first = items[0]; const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("keydown", onKey); previous?.focus(); };
+  }, [isOpen, handleClose]);
+
   // Execute Pi agent filter generation
   const handleGenerateAi = useCallback(
     async (textPrompt: string) => {
@@ -144,6 +169,7 @@ export function AiFilterSuggestModal({
       const version = ++requestVersion.current;
       setAgentProgress("Starting Pi agent…");
       setLoading(true);
+      setPreviewReady(false);
       setError(null);
       setSuggestedFilter(null);
       setAffectedEmails([]);
@@ -167,10 +193,11 @@ export function AiFilterSuggestModal({
           accountId,
           filter.criteria,
           filter.actions,
-          50,
+          Number.POSITIVE_INFINITY,
         );
         if (version !== requestVersion.current) return;
         setAffectedEmails(affected);
+        setPreviewReady(true);
       } catch (err) {
         if (version !== requestVersion.current) return;
         console.error("Failed to suggest filter with Pi Agent:", err);
@@ -220,6 +247,7 @@ export function AiFilterSuggestModal({
 
     const version = ++requestVersion.current;
     setLoading(true);
+      setPreviewReady(false);
     setError(null);
 
     try {
@@ -238,10 +266,11 @@ export function AiFilterSuggestModal({
         accountId,
         criteria,
         actions,
-        50,
+        Number.POSITIVE_INFINITY,
       );
       if (version !== requestVersion.current) return;
       setAffectedEmails(affected);
+        setPreviewReady(true);
     } catch (err) {
       if (version !== requestVersion.current) return;
       setError(err instanceof Error ? err.message : "Failed to calculate affected emails");
@@ -266,7 +295,8 @@ export function AiFilterSuggestModal({
 
   // Confirm adding the filter with highest priority
   const handleAddFilter = useCallback(async () => {
-    if (!suggestedFilter || !accountId || saving) return;
+    if (!suggestedFilter || !accountId || saving || saveInFlight.current || loading || !previewReady) return;
+    saveInFlight.current = true;
 
     setSaving(true);
     try {
@@ -294,7 +324,7 @@ export function AiFilterSuggestModal({
 
       // Apply to whole inbox if checkbox is selected
       if (applyToWholeInbox && affectedEmails.length > 0) {
-        const threadIds = affectedEmails.map((e) => e.threadId);
+        const threadIds = [...new Set(affectedEmails.map((e) => e.threadId))];
         await applyFilterActionsToThreads(accountId, finalActions, threadIds);
       }
 
@@ -318,11 +348,14 @@ export function AiFilterSuggestModal({
       console.error("Failed to add suggested filter:", err);
       setError("Failed to save filter rule to database.");
       setSaving(false);
+      saveInFlight.current = false;
     }
   }, [
     suggestedFilter,
     accountId,
     saving,
+    loading,
+    previewReady,
     filterName,
     applyToWholeInbox,
     affectedEmails,
@@ -339,25 +372,27 @@ export function AiFilterSuggestModal({
 
   return createPortal(
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="filter-modal-title"
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+      className={`fixed inset-0 z-[70] flex items-center justify-center ${androidMobile ? "p-0" : "p-4"}`}
+      style={androidMobile ? { height: "var(--android-viewport-height, 100dvh)", bottom: "auto" } : undefined}
     >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/40 glass-backdrop"
-        onClick={handleClose}
+        onClick={() => { if (!saveInFlight.current) handleClose(); }}
       />
 
       {/* Modal Dialog */}
-      <div className="relative bg-bg-primary border border-border-primary rounded-xl glass-modal w-full max-w-2xl overflow-hidden flex flex-col max-h-[88vh] shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+      <div className={`relative bg-bg-primary border border-border-primary glass-modal w-full overflow-hidden flex flex-col shadow-2xl ${androidMobile ? "h-full text-base [&_input:not([type=checkbox])]:min-h-12 [&_input]:text-base [&_select]:min-h-12 [&_select]:text-base [&_textarea]:text-base [&_button]:min-h-12 [&_label]:text-sm [&_label:has(input[type=checkbox])]:min-h-12 [&_label:has(input[type=checkbox])]:p-2 [&_.text-xs]:text-sm [&_p]:text-sm [&_span]:text-sm [&_.grid]:grid-cols-1" : "rounded-xl max-w-2xl max-h-[88vh]"}`}>
         {/* Header */}
-        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-border-primary bg-bg-secondary">
+        <div className={`flex items-center gap-2 px-5 py-3.5 border-b border-border-primary bg-bg-secondary shrink-0 ${androidMobile ? "flex-wrap" : ""}`}>
           <div className="w-7 h-7 rounded-lg bg-accent/15 flex items-center justify-center text-accent">
             {mode === "ai" ? <Sparkles size={16} /> : <PenTool size={16} />}
           </div>
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h2 id="filter-modal-title" className="text-sm font-semibold text-text-primary">
               {suggestedFilter
                 ? "Review Filter & Affected Emails"
@@ -376,11 +411,14 @@ export function AiFilterSuggestModal({
 
           {/* Mode Switcher Tabs (when not in accept/reject review pane) */}
           {!suggestedFilter && (
-            <div className="flex items-center bg-bg-tertiary p-0.5 rounded-lg border border-border-secondary mr-2">
+            <div className={`flex items-center bg-bg-tertiary p-0.5 rounded-lg border border-border-secondary ${androidMobile ? "order-last w-full [&_button]:flex-1 [&_button]:justify-center" : "mr-2"}`}>
               <button
                 type="button"
+                aria-pressed={mode === "ai"}
                 onClick={() => {
                   setMode("ai");
+                  requestVersion.current += 1; setLoading(false);
+                  setApplyToWholeInbox(false);
                   setError(null);
                 }}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
@@ -394,8 +432,11 @@ export function AiFilterSuggestModal({
               </button>
               <button
                 type="button"
+                aria-pressed={mode === "manual"}
                 onClick={() => {
                   setMode("manual");
+                  requestVersion.current += 1; setLoading(false);
+                  setApplyToWholeInbox(false);
                   setError(null);
                 }}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${
@@ -412,7 +453,9 @@ export function AiFilterSuggestModal({
 
           <button
             onClick={handleClose}
-            className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors"
+            className={`${androidMobile ? "min-w-12 flex items-center justify-center" : "p-1"} rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors`}
+            disabled={saving}
+            aria-label="Close filter editor"
             title="Close"
           >
             <X size={16} />
@@ -420,9 +463,9 @@ export function AiFilterSuggestModal({
         </div>
 
         {/* Body Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className={`flex-1 min-h-0 overflow-y-auto space-y-4 ${androidMobile ? "p-4" : "p-5"}`}>
           {error && (
-            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-danger/10 border border-danger/30 text-xs text-danger">
+            <div role="alert" className="flex items-start gap-2.5 p-3 rounded-lg bg-danger/10 border border-danger/30 text-xs text-danger">
               <AlertCircle size={15} className="shrink-0 mt-0.5" />
               <div className="flex-1">{error}</div>
             </div>
@@ -436,10 +479,10 @@ export function AiFilterSuggestModal({
               /* AI Mode: Prompt Input View */
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1.5">
+                  <label htmlFor="filter-field-1" className="block text-xs font-medium text-text-secondary mb-1.5">
                     Describe what you want this filter to do in plain English:
                   </label>
-                  <textarea
+                  <textarea id="filter-field-1"
                     ref={inputRef}
                     autoFocus
                     rows={3}
@@ -482,10 +525,10 @@ export function AiFilterSuggestModal({
               /* Manual Mode: Hand-crafted Filter Form */
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-text-secondary mb-1">
+                  <label htmlFor="filter-field-2" className="block text-xs font-medium text-text-secondary mb-1">
                     Filter Name
                   </label>
-                  <input
+                  <input id="filter-field-2"
                     type="text"
                     value={manualName}
                     onChange={(e) => setManualName(e.target.value)}
@@ -501,10 +544,10 @@ export function AiFilterSuggestModal({
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="text-[0.6875rem] text-text-tertiary block mb-1">
+                      <label htmlFor="filter-field-3" className="text-[0.6875rem] text-text-tertiary block mb-1">
                         From contains
                       </label>
-                      <input
+                      <input id="filter-field-3"
                         type="text"
                         value={manualFrom}
                         onChange={(e) => setManualFrom(e.target.value)}
@@ -513,10 +556,10 @@ export function AiFilterSuggestModal({
                       />
                     </div>
                     <div>
-                      <label className="text-[0.6875rem] text-text-tertiary block mb-1">
+                      <label htmlFor="filter-field-4" className="text-[0.6875rem] text-text-tertiary block mb-1">
                         To contains
                       </label>
-                      <input
+                      <input id="filter-field-4"
                         type="text"
                         value={manualTo}
                         onChange={(e) => setManualTo(e.target.value)}
@@ -525,10 +568,10 @@ export function AiFilterSuggestModal({
                       />
                     </div>
                     <div>
-                      <label className="text-[0.6875rem] text-text-tertiary block mb-1">
+                      <label htmlFor="filter-field-5" className="text-[0.6875rem] text-text-tertiary block mb-1">
                         Subject contains
                       </label>
-                      <input
+                      <input id="filter-field-5"
                         type="text"
                         value={manualSubject}
                         onChange={(e) => setManualSubject(e.target.value)}
@@ -537,10 +580,10 @@ export function AiFilterSuggestModal({
                       />
                     </div>
                     <div>
-                      <label className="text-[0.6875rem] text-text-tertiary block mb-1">
+                      <label htmlFor="filter-field-6" className="text-[0.6875rem] text-text-tertiary block mb-1">
                         Body contains
                       </label>
-                      <input
+                      <input id="filter-field-6"
                         type="text"
                         value={manualBody}
                         onChange={(e) => setManualBody(e.target.value)}
@@ -569,10 +612,10 @@ export function AiFilterSuggestModal({
                   {/* Folder / Label destination */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
-                      <label className="text-[0.6875rem] text-text-tertiary block mb-1">
+                      <label htmlFor="filter-field-7" className="text-[0.6875rem] text-text-tertiary block mb-1">
                         Apply to existing folder / label
                       </label>
-                      <select
+                      <select id="filter-field-7"
                         value={manualSelectedLabel}
                         onChange={(e) => {
                           setManualSelectedLabel(e.target.value);
@@ -613,7 +656,7 @@ export function AiFilterSuggestModal({
                   </div>
 
                   {/* Additional Action Checkboxes */}
-                  <div className="flex flex-wrap gap-4 pt-1">
+                  <div className={androidMobile ? "flex flex-col gap-1 pt-1" : "flex flex-wrap gap-4 pt-1"}>
                     <label className="flex items-center gap-1.5 text-xs text-text-secondary cursor-pointer">
                       <input
                         type="checkbox"
@@ -664,11 +707,14 @@ export function AiFilterSuggestModal({
                     Filter Rule Summary
                   </span>
                   <button
+                    disabled={saving}
                     onClick={() => {
                       requestVersion.current += 1;
                       setLoading(false);
                       setSuggestedFilter(null);
                       setAffectedEmails([]);
+                      setPreviewReady(false);
+                      setApplyToWholeInbox(false);
                       setError(null);
                     }}
                     className="text-xs text-text-tertiary hover:text-text-primary flex items-center gap-1 transition-colors"
@@ -680,10 +726,10 @@ export function AiFilterSuggestModal({
 
                 {/* Filter Name */}
                 <div>
-                  <label className="text-[0.6875rem] font-medium text-text-tertiary block mb-1">
+                  <label htmlFor="filter-field-8" className="text-[0.6875rem] font-medium text-text-tertiary block mb-1">
                     Rule Name
                   </label>
-                  <input
+                  <input id="filter-field-8"
                     type="text"
                     value={filterName}
                     onChange={(e) => setFilterName(e.target.value)}
@@ -782,30 +828,30 @@ export function AiFilterSuggestModal({
 
               {/* Affected Emails Section */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className={androidMobile ? "flex flex-col gap-2" : "flex items-center justify-between"}>
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-text-primary">
-                      Affected Emails
+                      {applyToWholeInbox ? "Matching existing emails" : "Existing matches — preview only"}
                     </span>
                     <span className="text-[0.6875rem] px-2 py-0.5 rounded-full font-medium bg-accent/15 text-accent">
-                      {affectedEmails.length} matching email
+                      {previewReady ? affectedEmails.length : "Checking"} matching email
                       {affectedEmails.length === 1 ? "" : "s"}
                     </span>
                   </div>
-                  <span className="text-[0.6875rem] text-text-tertiary">
+                  <span className="text-sm text-text-tertiary">
                     Assuming this filter has highest priority
                   </span>
                 </div>
 
-                {affectedEmails.length > 0 ? (
-                  <div className="max-h-44 overflow-y-auto space-y-1.5 border border-border-primary rounded-lg p-2 bg-bg-secondary">
-                    {affectedEmails.map((email) => (
+                {loading ? <p role="status">Calculating matching emails…</p> : !previewReady ? <p role="status">Matching emails could not be checked. Go back to edit and retry.</p> : affectedEmails.length > 0 ? (
+                  <div className={`${androidMobile ? "" : "max-h-44 overflow-y-auto"} space-y-1.5 border border-border-primary rounded-lg p-2 bg-bg-secondary`}>
+                    {affectedEmails.slice(0, 50).map((email) => (
                       <div
                         key={email.id}
                         className="p-2.5 rounded-md bg-bg-primary border border-border-secondary space-y-1 text-xs"
                       >
-                        <div className="flex items-center justify-between text-text-tertiary text-[0.6875rem]">
-                          <span className="font-medium text-text-primary truncate">
+                        <div className={`flex text-text-tertiary text-[0.6875rem] ${androidMobile ? "flex-col gap-1" : "items-center justify-between"}`}>
+                          <span className={`font-medium text-text-primary ${androidMobile ? "break-words min-w-0" : "truncate"}`}>
                             {email.fromName
                               ? `${email.fromName} <${email.fromAddress}>`
                               : email.fromAddress ?? "Unknown"}
@@ -816,7 +862,7 @@ export function AiFilterSuggestModal({
                             ).toLocaleDateString()}
                           </span>
                         </div>
-                        <div className="font-medium text-text-primary truncate">
+                        <div className={`font-medium text-text-primary ${androidMobile ? "break-words min-w-0" : "truncate"}`}>
                           {email.subject ?? "(no subject)"}
                         </div>
                         {email.snippet && (
@@ -848,22 +894,24 @@ export function AiFilterSuggestModal({
                   </div>
                 )}
 
+                {affectedEmails.length > 50 && <p>Showing 50 of {affectedEmails.length} matching emails. Applying includes all matches.</p>}
                 {/* Whole Inbox Checkbox */}
                 <div className="pt-2">
-                  <label className="flex items-center gap-2 text-xs font-medium text-text-primary cursor-pointer select-none">
+                  <label className="flex items-center gap-3 min-h-12 p-3 text-sm font-medium text-text-primary cursor-pointer select-none rounded border border-border-primary">
                     <input
                       type="checkbox"
+                      aria-describedby="filter-scope-help"
                       checked={applyToWholeInbox}
                       onChange={(e) => setApplyToWholeInbox(e.target.checked)}
                       className="rounded border-border-primary accent-accent"
                     />
-                    Apply this new filter to whole inbox
-                  </label>
-                  <p className="text-[0.6875rem] text-text-tertiary ml-5 mt-0.5">
+                    <span>Also apply to matching existing emails
+                  <span id="filter-scope-help" className="block text-sm text-text-tertiary mt-1">
                     {applyToWholeInbox
-                      ? `Will apply actions to all ${affectedEmails.length} existing matching emails in your inbox right now.`
-                      : "Will only filter future incoming emails without modifying existing emails in your inbox."}
-                  </p>
+                      ? `Will apply actions to all ${affectedEmails.length} matching emails in this account right now.`
+                      : "Will only filter future incoming emails without modifying existing emails in this account."}
+                  </span></span>
+                  </label>
                 </div>
               </div>
             </div>
@@ -871,7 +919,8 @@ export function AiFilterSuggestModal({
         </div>
 
         {/* Footer / User Decision */}
-        <div className="flex items-center justify-between px-5 py-3.5 border-t border-border-primary bg-bg-secondary">
+        <div className={`shrink-0 px-5 py-3.5 border-t border-border-primary bg-bg-secondary ${androidMobile ? "[&>div]:flex-col [&>div]:gap-2 [&>div>span]:hidden [&>div>div]:w-full [&>div>div]:justify-end [&>div>div]:flex-col-reverse [&>div>div>button]:w-full [&>div>div>button]:justify-center [&_button]:min-h-12 [&_button]:text-sm" : "flex items-center justify-between"}`}
+          style={androidMobile ? { paddingBottom: "max(12px, var(--safe-area-inset-bottom, 0px))" } : undefined}>
           {!suggestedFilter ? (
             mode === "ai" ? (
               <div className="flex items-center justify-between w-full">
@@ -944,7 +993,7 @@ export function AiFilterSuggestModal({
             /* Accept/Reject Decision Buttons */
             <div className="flex items-center justify-between w-full">
               <div className="text-xs font-medium text-text-primary">
-                Add this filter to your rules or discard?
+                {androidMobile ? (applyToWholeInbox ? "New and existing matching emails" : "Future emails only · Existing emails stay unchanged") : "Add this filter to your rules or discard?"}
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -958,18 +1007,18 @@ export function AiFilterSuggestModal({
                 <button
                   type="button"
                   onClick={handleAddFilter}
-                  disabled={saving}
+                  disabled={saving || loading || !previewReady}
                   className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow"
                 >
                   {saving ? (
                     <>
                       <Loader2 size={13} className="animate-spin" />
-                      Applying...
+                      Saving filter…
                     </>
                   ) : (
                     <>
                       <Check size={13} />
-                      Add Filter (Highest Priority)
+                      {androidMobile ? (applyToWholeInbox ? "Create & apply" : "Create filter") : "Add Filter (Highest Priority)"}
                     </>
                   )}
                 </button>

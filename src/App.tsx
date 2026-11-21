@@ -617,7 +617,7 @@ export default function App() {
         <div className="blob" />
       </div>
       <TitleBar />
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div data-app-content className="flex flex-1 min-w-0 overflow-hidden">
         <DndProvider>
           <ErrorBoundary name="Sidebar">
             <Sidebar

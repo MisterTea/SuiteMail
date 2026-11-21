@@ -1,0 +1,18 @@
+# Storyboard 17 — Calendar Invite & RSVP
+
+## Evidence
+
+- `recordings/android/storyboard-17-calendar-invite-rsvp.png` shows the event title wrapping, a readable date/time with CST, Conference Room B, a long organizer address, three labeled RSVP buttons, an Accepted badge and a full success confirmation. The accepted state is visible; this still frame cannot establish pending or failure behavior.
+- `src/components/email/CalendarInviteBanner.tsx` already provides 48px RSVP buttons with text labels. Event details use 12px text and share horizontal space with the date badge; the organizer is truncated. The time formatter includes a timezone only when an end time exists, omits the year for timed events and cannot clearly describe an overnight end date.
+- Submitting disables all RSVP buttons but supplies no visible progress text. Errors appear inline without a live-region role. Existing `needs-action` status falls through to the Tentative badge, incorrectly implying a response. Auxiliary calendar buttons are 44px high.
+
+## Three phone-touch improvements
+
+1. **Prioritize readable when and where.** On phones, place date/time and location beneath the title at full card width instead of indenting all details alongside the date badge. Use at least 14px detail text with wrapping. Show the event year, start and end times, and a timezone even without an end time; include the end date for overnight events and explicit **All day** text for all-day events. Keep organizer information below these essentials, wrapping long addresses without widening the card.
+   - **Acceptance:** At 360px width, a long title, location and organizer address remain available without horizontal scrolling or overlap. A timed invite without an end still shows its timezone with no dangling dash; an overnight invite identifies both dates; an all-day invite says All day. The screenshot's event location and timezone remain readable before organizer metadata.
+
+2. **Preserve labeled, generous RSVP controls.** Keep three visible actions with concise labels **Accept**, **Maybe** and **Decline**, each at least 48px high and 48px wide with at least 8px separation; icons supplement the labels. Mark the confirmed choice through text and selected semantics as well as color. Increase Open in Calendar and Add to Calendar to 48px minimum, allowing their labels to wrap on narrow phones.
+   - **Acceptance:** Every invitation action can be tapped independently at 360px width. Labels remain visible at enlarged text sizes; no action becomes icon-only or clips. Assistive technology exposes each button's name and selected state. All five action targets measure at least 48×48 CSS px.
+
+3. **Make RSVP progress and outcomes truthful.** While sending, show **Sending response…** next to the action area, disable duplicate submissions and announce progress politely. On success retain the selected action and explicit **Accepted**, **Maybe** or **Declined** status; accepted confirmation must state that the event was added to the calendar only when that operation succeeded. On failure retain the previous confirmed choice and show **Couldn't send response. Try again.** with a labeled 48px retry action. Render `needs-action` as **Awaiting your response**, never Tentative.
+   - **Acceptance:** A delayed response visibly announces sending and one tap causes one request. A successful acceptance shows Accepted after reopening the message. A failed change leaves the old confirmed RSVP intact, announces the error and lets Retry repeat the intended choice. An unanswered invite never displays Maybe/Tentative. Status messages do not push the event time or place out of the card or steal focus.

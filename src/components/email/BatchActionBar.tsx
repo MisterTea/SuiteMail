@@ -1,4 +1,6 @@
-import { memo } from "react";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { Modal } from "@/components/ui/Modal";
+import { memo, useState } from "react";
 import {
   Archive,
   Trash2,
@@ -9,6 +11,7 @@ import {
   Ban,
   X,
   CheckSquare,
+  MoreHorizontal,
 } from "lucide-react";
 
 export interface BatchActionBarProps {
@@ -42,6 +45,34 @@ export const BatchActionBar = memo(function BatchActionBar({
   onClear,
   onSelectAll,
 }: BatchActionBarProps) {
+  const androidMobile = useAndroidMobile();
+  const [showMore, setShowMore] = useState(false);
+  if (androidMobile) return <>
+    <div role="toolbar" aria-label="Bulk actions toolbar" className="w-[calc(100vw-2rem)] rounded-2xl border border-border-primary bg-bg-primary p-2 shadow-xl pointer-events-auto">
+      <div className="flex items-center justify-between px-2">
+        <strong role="status" className="text-base">{selectedCount} selected</strong>
+        <button onClick={onSelectAll} className="px-2 text-sm text-accent" disabled={selectedCount === totalCount}>Select all</button>
+        <button onClick={onClear} title="Clear selection" aria-label="Clear selection" className="px-2 text-sm text-text-secondary">Cancel</button>
+      </div>
+      <div className="grid grid-cols-3 gap-1 border-t border-border-primary pt-1">
+        {[
+          {label:"Archive",title:"Archive selected",icon:Archive,action:onArchive},
+          {label:"Trash",title:"Delete selected",icon:Trash2,action:onDelete},
+          {label:"More",title:"More selection actions",icon:MoreHorizontal,action:()=>setShowMore(true)},
+        ].map(({label,title,icon:Icon,action})=><button key={title} title={title} aria-label={title} onClick={action} className="flex min-h-14 items-center justify-center gap-2 rounded-xl text-sm font-medium text-text-primary active:bg-accent/10"><Icon size={20}/>{label}</button>)}
+      </div>
+    </div>
+    <Modal isOpen={showMore} onClose={()=>setShowMore(false)} title={`Actions for ${selectedCount} conversations`} width="w-full max-w-md">
+      <div className="p-3 space-y-1">
+        {[
+          {label:allRead ? "Mark unread" : "Mark read",action:()=>onMarkRead(!allRead)},
+          {label:allStarred ? "Remove stars" : "Star conversations",action:()=>onStar(!allStarred)},
+          {label:"Move to folder",action:onMoveToFolder},
+          {label:isSpamView ? "Not spam" : "Report spam",action:onSpam},
+        ].map(({label,action})=><button key={label} onClick={()=>{setShowMore(false);action();}} className="block w-full rounded-xl px-4 py-3 text-left text-base active:bg-accent/10">{label}</button>)}
+      </div>
+    </Modal>
+  </>;
   return (
     <div
       role="toolbar"

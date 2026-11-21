@@ -1,4 +1,5 @@
-import { memo, useMemo, useState, useRef } from "react";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { memo, useMemo, useState, useRef, useEffect } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
@@ -48,6 +49,10 @@ function highlightMatch(text: string | null | undefined, query?: string | null) 
 }
 
 export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const consumedLongPress = useRef(false);
+  useEffect(() => () => {if(longPressTimer.current) clearTimeout(longPressTimer.current);}, []);
+  const androidMobile = useAndroidMobile();
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
   const hasMultiSelect = useThreadStore((s) => s.selectedThreadIds.size > 0);
   const toggleThreadSelection = useThreadStore((s) => s.toggleThreadSelection);
@@ -68,10 +73,12 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `thread-${thread.id}`,
+    disabled: androidMobile,
     data: dragData,
   });
 
   const handleClick = (e: React.MouseEvent) => {
+    if (consumedLongPress.current) {consumedLongPress.current=false;e.preventDefault();return;}
     if (e.shiftKey) {
       e.preventDefault();
       selectThreadRange(thread.id);
@@ -193,9 +200,20 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
 
   const [touchOffset, setTouchOffset] = useState(0);
   const [isExiting, setIsExiting] = useState(false);
+  const touchStartYRef = useRef<number | null>(null);
   const touchStartXRef = useRef<number | null>(null);
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    consumedLongPress.current = false;
+    if (androidMobile && (e.target as HTMLElement).closest('[role="checkbox"], [role="button"]')) return;
+    if (androidMobile && !(e.target as HTMLElement).closest('[role="checkbox"], [role="button"]')) {
+      longPressTimer.current = setTimeout(()=>{consumedLongPress.current=true;toggleThreadSelection(thread.id);setTouchOffset(0);},500);
+    }
+    if (androidMobile && (isDraft || activeLabel === "trash" || hasMultiSelect)) {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      return;
+    }
+    touchStartYRef.current = e.touches[0]?.clientY ?? null;
     touchStartXRef.current = e.touches[0]?.clientX ?? null;
   };
 
@@ -203,17 +221,27 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     if (touchStartXRef.current === null) return;
     const currentX = e.touches[0]?.clientX ?? 0;
     const diff = currentX - touchStartXRef.current;
+    if (longPressTimer.current && Math.abs(diff) > 10) clearTimeout(longPressTimer.current);
+    const vertical = Math.abs((e.touches[0]?.clientY ?? 0) - (touchStartYRef.current ?? 0));
+    if (androidMobile && vertical > 12 && vertical > Math.abs(diff)) {
+      if (longPressTimer.current) clearTimeout(longPressTimer.current);
+      touchStartXRef.current = null;
+      setTouchOffset(0);
+      return;
+    }
     if (Math.abs(diff) < 120) {
       setTouchOffset(diff);
     }
   };
 
   const handleTouchEnd = async () => {
+    if(longPressTimer.current) clearTimeout(longPressTimer.current);
+    if(consumedLongPress.current) {touchStartXRef.current=null;setTouchOffset(0);return;}
     if (touchStartXRef.current === null) return;
     const finalOffset = touchOffset;
     touchStartXRef.current = null;
 
-    const SWIPE_THRESHOLD = 75;
+    const SWIPE_THRESHOLD = androidMobile ? 104 : 75;
     if (finalOffset < -SWIPE_THRESHOLD) {
       setIsExiting(true);
       if (isDraft || activeLabel === "drafts") {
@@ -339,13 +367,14 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
 
       <button
         ref={setNodeRef}
-        {...attributes}
-        {...listeners}
+        {...(androidMobile ? {} : attributes)}
+        {...(androidMobile ? {} : listeners)}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
+        onTouchCancel={()=>{if(longPressTimer.current) clearTimeout(longPressTimer.current);touchStartXRef.current=null;setTouchOffset(0);}}
         style={{
           transform: isExiting ? "translateX(-100%)" : touchOffset ? `translateX(${touchOffset}px)` : undefined,
           transition: isExiting ? "transform 0.2s ease-out, opacity 0.2s ease-out" : touchOffset === 0 ? "transform 0.2s ease-out" : undefined,
@@ -409,7 +438,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               </>
             )}
           </div>
-          {!thread.isRead && !isMultiSelected && (
+          {!thread.isRead && !isMultiSelected && !androidMobile && (
             <span
               className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-accent ring-2 ring-bg-primary dark:ring-slate-900 shadow-xs"
               aria-hidden="true"
@@ -484,12 +513,12 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                     : "font-semibold text-accent dark:text-accent-hover"
                 }`}
               >
-                {formatRelativeDate(thread.lastMessageAt)}
+                {androidMobile ? new Date(thread.lastMessageAt * 1000).toLocaleDateString(undefined, {month:"short", day:"numeric"}) : formatRelativeDate(thread.lastMessageAt)}
               </span>
 
               {/* Quick Pin toggle (44x44dp mobile touch target) */}
               <span
-                role="button"
+                data-thread-pin-toggle role="button"
                 tabIndex={0}
                 aria-label={thread.isPinned ? "Unpin thread" : "Pin thread"}
                 title={thread.isPinned ? "Unpin thread" : "Pin thread"}
@@ -518,6 +547,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                 role="button"
                 tabIndex={0}
                 aria-label={thread.isStarred ? "Unstar" : "Star"}
+                aria-pressed={thread.isStarred}
                 title={thread.isStarred ? "Unstar (s)" : "Star (s)"}
                 onClick={handleStarClick}
                 onKeyDown={handleStarKeyDown}

@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } from "react";
 import { ImageOff } from "lucide-react";
 import { platformOpenUrl as openUrl } from "@/platform";
@@ -31,6 +32,7 @@ export function EmailRenderer({
   inlineAttachments,
   onTrackersDetected,
 }: EmailRendererProps) {
+  const androidMobile = useAndroidMobile();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const rafRef = useRef<number>(0);
@@ -158,7 +160,7 @@ export function EmailRenderer({
     body {
       padding: ${isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
       font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", system-ui, sans-serif;
-      font-size: 15px;
+      font-size: ${androidMobile ? 16 : 15}px;
       line-height: 1.65;
       color: ${plainTextDark ? "#e8eaed" : "#202124"};
       background: ${htmlDark ? "#f8f9fa" : "transparent"};
@@ -170,7 +172,7 @@ export function EmailRenderer({
     @media (min-width: 640px) {
       body {
         padding: ${isPlainText ? "8px 2px 14px 2px" : "16px"};
-        font-size: 14px;
+        font-size: ${androidMobile ? 16 : 14}px;
         line-height: 1.6;
       }
     }

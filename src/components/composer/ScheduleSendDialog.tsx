@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useMemo, useRef } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -98,6 +99,8 @@ function getSchedulePresets(): PresetItem[] {
 }
 
 export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogProps) {
+  const android = useAndroidMobile();
+  const [validationError, setValidationError] = useState("");
   const presets = useMemo(() => getSchedulePresets(), []);
   const [recurrence, setRecurrence] = useState<RecurrenceRule>("none");
   const [customDateTime, setCustomDateTime] = useState("");
@@ -171,7 +174,10 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
     } else {
       return;
     }
-    if (isNaN(dt.getTime())) return;
+    if (!Number.isFinite(dt.getTime()) || dt.getTime() <= Date.now()) {
+      setValidationError("Choose a future date and time");
+      return;
+    }
     onSchedule(Math.floor(dt.getTime() / 1000), recurrence === "none" ? null : recurrence);
   };
 
@@ -179,7 +185,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
     <Modal
       isOpen={true}
       onClose={onClose}
-      title="Schedule send"
+      title={android ? "Send later" : "Schedule send"}
       width="w-full sm:w-[400px] max-w-full sm:max-w-md"
       zIndex="z-[60]"
       panelClassName="overflow-hidden shadow-2xl rounded-t-3xl sm:rounded-2xl border-t sm:border border-border-primary/80 transition-all duration-200"
@@ -205,6 +211,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
               </div>
             </div>
             <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
               type="button"
               onClick={onClose}
               className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-bg-hover active:bg-bg-tertiary transition-colors touch-manipulation text-base leading-none"
@@ -218,6 +225,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
       }
     >
       <div className="p-4 space-y-3.5 pb-[max(1.5rem,env(safe-area-inset-bottom,0px))] sm:pb-4">
+        {android && <p className="text-sm text-text-secondary" role="note">Keep SuiteMail open and connected to send at the selected time. If the app is closed, sending waits until you reopen it. This also applies to repeated sends.</p>}
         {/* Recurrence Selector */}
         <div className="flex items-center justify-between px-3.5 py-2.5 bg-bg-secondary/70 hover:bg-bg-secondary rounded-xl border border-border-primary/60 transition-colors min-h-[48px]">
           <div className="flex items-center gap-2.5 min-w-0 pr-2">
@@ -226,7 +234,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
             </div>
             <div className="min-w-0">
               <span className="text-text-primary font-medium text-xs sm:text-xs block">Repeat</span>
-              <div className="text-[0.68rem] text-text-tertiary truncate">Automatic recurring delivery</div>
+              <div className={android ? "text-sm text-text-tertiary whitespace-normal" : "text-[0.68rem] text-text-tertiary truncate"}>Recurring delivery</div>
             </div>
           </div>
           <div className="relative shrink-0">
@@ -256,6 +264,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
             const Icon = preset.icon;
             return (
               <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                 key={preset.label}
                 type="button"
                 onClick={() => handleSelect(preset.timestamp)}
@@ -268,16 +277,16 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
                     <Icon size={16} />
                   </div>
                   <div className="flex flex-col min-w-0">
-                    <span className="font-semibold text-sm sm:text-xs text-text-primary group-hover:text-accent transition-colors truncate">
+                    <span className={android ? "font-semibold text-base text-text-primary whitespace-normal" : "font-semibold text-sm sm:text-xs text-text-primary group-hover:text-accent transition-colors truncate"}>
                       {preset.label}
                     </span>
-                    <span className="text-[0.68rem] text-text-tertiary truncate">
-                      {preset.subtext}
+                    <span className={android ? "text-sm text-text-tertiary whitespace-normal" : "text-[0.68rem] text-text-tertiary truncate"}>
+                      {android ? new Date(preset.timestamp * 1000).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) + " · " + timeZoneName : preset.subtext}
                     </span>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0 pl-2">
+                <div className={android ? "hidden" : "flex items-center gap-1.5 shrink-0 pl-2"}>
                   <span className="text-[0.72rem] font-medium text-text-secondary bg-bg-secondary/90 px-2.5 py-1 rounded-lg border border-border-primary/40 shadow-2xs group-hover:border-accent/30 group-hover:text-text-primary transition-colors">
                     {preset.detail}
                   </span>
@@ -306,6 +315,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
           {/* Touchscreen ergonomic datetime input for mobile */}
           <div className="block sm:hidden">
             <input
+                      style={android ? { minHeight: 48 } : undefined}
               type="datetime-local"
               aria-label="Custom delivery date and time"
               min={`${todayStr}T00:00`}
@@ -319,6 +329,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
           <div className="hidden sm:grid sm:grid-cols-5 gap-2">
             <div className="col-span-3">
               <input
+                      style={android ? { minHeight: 48 } : undefined}
                 type="date"
                 aria-label="Custom delivery date"
                 min={todayStr}
@@ -329,6 +340,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
             </div>
             <div className="col-span-2">
               <input
+                      style={android ? { minHeight: 48 } : undefined}
                 type="time"
                 aria-label="Custom delivery time"
                 value={customTime}
@@ -348,6 +360,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
               { label: "8:00 PM", value: "20:00" },
             ].map((slot) => (
               <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                 key={slot.value}
                 type="button"
                 onClick={() => {
@@ -358,7 +371,9 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
                     const yyyy = tomorrow.getFullYear();
                     const mm = String(tomorrow.getMonth() + 1).padStart(2, "0");
                     const dd = String(tomorrow.getDate()).padStart(2, "0");
-                    handleDateChange(`${yyyy}-${mm}-${dd}`);
+                    const nextDate = `${yyyy}-${mm}-${dd}`;
+                    setCustomDate(nextDate);
+                    setCustomDateTime(`${nextDate}T${slot.value}`);
                   }
                 }}
                 className={`min-h-[40px] px-3 py-2 sm:min-h-0 sm:px-2.5 sm:py-1 rounded-lg border text-xs sm:text-[0.68rem] font-medium transition-all touch-manipulation cursor-pointer ${
@@ -372,6 +387,7 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
             ))}
           </div>
 
+          {validationError && <p role="alert" className="text-sm text-danger">{validationError}</p>}
           <Button
             variant="primary"
             onClick={handleCustomSubmit}

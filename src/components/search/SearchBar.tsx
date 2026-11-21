@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { searchMessages } from "@/services/db/search";
 import { useAccountStore } from "@/stores/accountStore";
@@ -7,6 +8,9 @@ import { InputDialog } from "@/components/ui/InputDialog";
 import { Search, X, FolderPlus } from "lucide-react";
 
 export function SearchBar() {
+  const androidMobile = useAndroidMobile();
+  const searchRequestRef = useRef(0);
+  const [searchStatus, setSearchStatus] = useState("");
   const searchQuery = useThreadStore((s) => s.searchQuery);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -26,6 +30,7 @@ export function SearchBar() {
         clearTimeout(debounceRef.current);
         debounceRef.current = null;
       }
+      const request = ++searchRequestRef.current;
       const trimmed = value.trim();
       const { setSearch } = useThreadStore.getState();
 
@@ -35,11 +40,16 @@ export function SearchBar() {
       }
 
       try {
+        setSearchStatus("Searching…");
         const hits = await searchMessages(trimmed, activeAccountId ?? undefined, 100);
+        if (request !== searchRequestRef.current) return;
+        setSearchStatus("");
         const threadIds = new Set(hits.map((h) => h.thread_id));
         useThreadStore.getState().setSearch(value, threadIds);
       } catch {
-        useThreadStore.getState().setSearch(value, null);
+        if (request !== searchRequestRef.current) return;
+        setSearchStatus("Couldn’t search. Please try again.");
+        useThreadStore.getState().setSearch(value, new Set());
       }
     },
     [activeAccountId],
@@ -47,6 +57,8 @@ export function SearchBar() {
 
   const handleChange = useCallback(
     (value: string) => {
+      searchRequestRef.current++;
+      setSearchStatus("");
       const { setSearch } = useThreadStore.getState();
       setSearch(value, useThreadStore.getState().searchThreadIds);
 
@@ -65,6 +77,8 @@ export function SearchBar() {
   );
 
   const handleClear = useCallback(() => {
+    searchRequestRef.current++;
+    setSearchStatus("");
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
       debounceRef.current = null;
@@ -77,6 +91,7 @@ export function SearchBar() {
     if (e.key === "Enter") {
       e.preventDefault();
       executeSearch(inputRef.current?.value ?? searchQuery);
+      if (androidMobile) inputRef.current?.blur();
     } else if (e.key === "Escape") {
       useThreadStore.getState().clearSearch();
       inputRef.current?.blur();
@@ -106,7 +121,8 @@ export function SearchBar() {
         />
         <input
           ref={inputRef}
-          type="text"
+          type="search"
+          aria-label="Search mail"
           enterKeyHint="search"
           autoCapitalize="none"
           autoCorrect="off"
@@ -116,7 +132,7 @@ export function SearchBar() {
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
           onKeyDown={handleKeyDown}
-          placeholder="Search... (from: to: has:attachment)"
+          placeholder={androidMobile ? "Search mail" : "Search... (from: to: has:attachment)"}
           className="w-full bg-transparent text-text-primary text-base sm:text-sm pl-11 sm:pl-9 pr-24 sm:pr-16 py-3 sm:py-1.5 focus:outline-none placeholder:text-text-tertiary leading-normal"
         />
         {searchQuery && (
@@ -144,6 +160,7 @@ export function SearchBar() {
           </div>
         )}
       </div>
+      {androidMobile && searchStatus && <p role="status" className="px-2 py-1 text-sm text-text-secondary">{searchStatus}</p>}
       <InputDialog
         isOpen={showSaveModal}
         onClose={() => setShowSaveModal(false)}

@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useRef, useCallback, useMemo, Fragment } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useLabelStore } from "@/stores/labelStore";
@@ -54,6 +55,7 @@ export function MoveToFolderDialog({
   threadIds,
   onClose,
 }: MoveToFolderDialogProps) {
+  const android = useAndroidMobile();
   const [query, setQuery] = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [isCreating, setIsCreating] = useState(false);
@@ -261,7 +263,7 @@ export function MoveToFolderDialog({
     setSelectedIdx(0);
     setIsCreating(false);
     setNewFolderName("");
-    inputRef.current?.focus();
+    if (!android) inputRef.current?.focus();
   };
 
   return (
@@ -310,6 +312,7 @@ export function MoveToFolderDialog({
               )}
             </div>
             <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
               type="button"
               onClick={onClose}
               aria-label="Close dialog"
@@ -324,6 +327,7 @@ export function MoveToFolderDialog({
             <div className="flex-1 flex items-center gap-2.5 bg-bg-primary/90 dark:bg-bg-secondary/70 border border-border-primary/80 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/25 rounded-xl px-3.5 py-2.5 sm:py-1.5 transition-all shadow-2xs">
               <Search size={18} className="text-accent shrink-0" />
               <input
+                      style={android ? { minHeight: 48 } : undefined}
                 ref={inputRef}
                 type="text"
                 value={query}
@@ -333,10 +337,11 @@ export function MoveToFolderDialog({
                 }}
                 placeholder="Move to..."
                 className="flex-1 bg-transparent text-base sm:text-sm text-text-primary placeholder:text-text-tertiary outline-none font-normal"
-                autoFocus
+                autoFocus={!android}
               />
               {query ? (
                 <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                   type="button"
                   onClick={() => {
                     setQuery("");
@@ -373,6 +378,7 @@ export function MoveToFolderDialog({
                 </div>
                 {query.trim() && (
                   <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                     type="button"
                     onClick={() => handleCreateAndMove(query.trim())}
                     disabled={isSubmittingNew}
@@ -414,6 +420,7 @@ export function MoveToFolderDialog({
                   )}
 
                   <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                     role="option"
                     aria-selected={isSelected}
                     className={`group flex items-center gap-3 w-full min-h-[52px] sm:min-h-0 px-3.5 py-3 sm:py-2 rounded-xl text-left cursor-pointer transition-all duration-150 touch-manipulation active:scale-[0.98] ${
@@ -485,7 +492,7 @@ export function MoveToFolderDialog({
                     )}
 
                     {/* Enter shortcut hint on desktop selection / checkmark on mobile selection */}
-                    {isSelected && (
+                    {isSelected && !android && (
                       <>
                         <kbd className="hidden sm:inline-block text-[10px] font-semibold text-accent/80 dark:text-accent-light px-1.5 py-0.5 rounded bg-accent/15 border border-accent/30 font-mono shadow-2xs">
                           ↵
@@ -503,6 +510,7 @@ export function MoveToFolderDialog({
           {!isCreating ? (
             <div className="px-4 py-3 sm:py-1.5 border-t border-border-secondary/60 bg-bg-secondary/25 flex items-center justify-between shrink-0">
               <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                 type="button"
                 onClick={() => {
                   setIsCreating(true);
@@ -515,6 +523,7 @@ export function MoveToFolderDialog({
               </button>
               {query.trim() && !hasExactMatch && (
                 <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                   type="button"
                   onClick={() => handleCreateAndMove(query.trim())}
                   className="min-h-[48px] sm:min-h-0 px-3 py-2 text-sm sm:text-[11px] font-semibold text-accent hover:underline active:scale-95 transition-transform cursor-pointer touch-manipulation flex items-center"
@@ -526,6 +535,7 @@ export function MoveToFolderDialog({
           ) : (
             <div className="p-3 sm:p-2 border-t border-border-secondary/60 bg-bg-secondary/40 flex items-center gap-2 shrink-0">
               <input
+                      style={android ? { minHeight: 48 } : undefined}
                 ref={newFolderInputRef}
                 type="text"
                 value={newFolderName}
@@ -545,6 +555,7 @@ export function MoveToFolderDialog({
                 }}
               />
               <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                 type="button"
                 disabled={!newFolderName.trim() || isSubmittingNew}
                 onClick={() => handleCreateAndMove(newFolderName)}
@@ -553,6 +564,7 @@ export function MoveToFolderDialog({
                 Create
               </button>
               <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                 type="button"
                 onClick={() => setIsCreating(false)}
                 className="min-h-[48px] min-w-[48px] sm:min-h-0 sm:min-w-0 p-2.5 sm:p-1.5 flex items-center justify-center text-text-tertiary hover:text-text-primary rounded-xl hover:bg-bg-hover active:scale-90 transition-all cursor-pointer touch-manipulation"

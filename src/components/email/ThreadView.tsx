@@ -119,7 +119,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
     if (thread.isRead || markAsReadBehavior === "manual") return;
 
+    let explicitlyUnread = false;
+    const preserveUnread = (event: Event) => {
+      if ((event as CustomEvent).detail === thread.id) explicitlyUnread = true;
+    };
+    window.addEventListener("suitemail-explicit-unread", preserveUnread);
     const markRead = () => {
+      if (explicitlyUnread) return;
       markThreadRead(activeAccountId, thread.id, [], true).catch((err) => {
         console.error("Failed to mark thread as read:", err);
       });
@@ -127,11 +133,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
     if (markAsReadBehavior === "2s") {
       const timer = setTimeout(markRead, 2000);
-      return () => clearTimeout(timer);
+      return () => { clearTimeout(timer); window.removeEventListener("suitemail-explicit-unread", preserveUnread); };
     }
 
     // instant
     markRead();
+    return () => window.removeEventListener("suitemail-explicit-unread", preserveUnread);
   }, [activeAccountId, thread.id, markAsReadBehavior]);
 
   const openComposer = useComposerStore((s) => s.openComposer);

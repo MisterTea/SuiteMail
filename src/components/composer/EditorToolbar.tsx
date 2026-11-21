@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { InputDialog } from "@/components/ui/InputDialog";
@@ -30,6 +31,7 @@ interface EditorToolbarProps {
 }
 
 export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: EditorToolbarProps) {
+  const androidMobile = useAndroidMobile();
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
@@ -62,7 +64,8 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
       onClick={onClick}
       title={title}
       aria-label={ariaLabel ?? title}
-      className={`h-10 min-w-10 sm:h-7 sm:min-w-7 px-2 sm:px-1.5 flex items-center justify-center rounded-lg sm:rounded-md text-xs shrink-0 transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer select-none ${
+      aria-pressed={isActive}
+      className={`${androidMobile ? "h-12 min-w-12" : "h-10 min-w-10 sm:h-7 sm:min-w-7"} px-2 sm:px-1.5 flex items-center justify-center rounded-lg sm:rounded-md text-xs shrink-0 transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer select-none ${
         isActive
           ? "bg-accent/15 text-accent font-semibold shadow-2xs ring-1 ring-accent/30 dark:bg-accent/25 dark:text-accent-light"
           : "text-text-secondary hover:text-text-primary hover:bg-bg-hover/80 active:bg-bg-hover"
@@ -83,7 +86,8 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
       onClick={onClick}
       title={title}
       aria-label={title}
-      className={`h-10 min-w-10 sm:h-7 sm:min-w-7 px-2 sm:px-1.5 flex items-center justify-center rounded-lg sm:rounded-md text-[11px] font-bold tracking-tight shrink-0 transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer select-none ${
+      aria-pressed={isActive}
+      className={`${androidMobile ? "h-12 min-w-12" : "h-10 min-w-10 sm:h-7 sm:min-w-7"} px-2 sm:px-1.5 flex items-center justify-center rounded-lg sm:rounded-md text-[11px] font-bold tracking-tight shrink-0 transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer select-none ${
         isActive
           ? "bg-accent/15 text-accent shadow-2xs ring-1 ring-accent/30 dark:bg-accent/25 dark:text-accent-light"
           : "text-text-secondary hover:text-text-primary hover:bg-bg-hover/80 active:bg-bg-hover"
@@ -97,7 +101,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
 
   return (
     <div className="relative border-b border-border-secondary/60 bg-bg-secondary/40 backdrop-blur-xs">
-      <div className="flex items-center gap-1 sm:gap-0.5 px-3 py-1.5 overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap overscroll-x-contain touch-pan-x scroll-smooth">
+      <div role="toolbar" aria-label="Message formatting" className={androidMobile ? "flex flex-wrap items-center gap-1 px-3 py-1.5" : "flex items-center gap-1 sm:gap-0.5 px-3 py-1.5 overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap overscroll-x-contain touch-pan-x scroll-smooth"}>
       {/* Inline styles */}
       {toolbarBtn(<Bold size={14} />, editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "Bold (Ctrl+B)")}
       {toolbarBtn(<Italic size={14} />, editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "Italic (Ctrl+I)")}
@@ -148,7 +152,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
       <div className="flex-1 min-w-[8px]" />
 
       {/* Productivity Tools */}
-      <div className="flex items-center gap-1 shrink-0">
+      <div className="flex flex-wrap items-center gap-1 min-w-0">
         <button
           type="button"
           onClick={() => setShowAvailabilityModal(true)}

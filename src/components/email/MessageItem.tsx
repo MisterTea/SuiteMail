@@ -158,13 +158,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               {fromDisplay[0]?.toUpperCase()}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
+              <div data-message-sender-row className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 sm:gap-2 min-w-0 flex-1">
                   <span className="text-sm font-semibold text-text-primary tracking-tight truncate">
                     {fromDisplay}
                   </span>
                   {expanded && message.from_address && message.from_name && (
-                    <span className="inline text-xs text-text-tertiary font-normal truncate max-w-[140px] sm:max-w-none">
+                    <span data-message-address-inline className="inline text-xs text-text-tertiary font-normal truncate max-w-[140px] sm:max-w-none">
                       &lt;{message.from_address}&gt;
                     </span>
                   )}
@@ -172,7 +172,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
                   <TrackingPixelBadge trackers={detectedTrackers} />
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <span className="text-[11px] sm:text-xs font-medium text-text-tertiary whitespace-nowrap px-2 sm:px-2.5 py-0.5 rounded-md bg-bg-tertiary/40 border border-border-secondary/40">
+                  <span data-message-date className="text-[11px] sm:text-xs font-medium text-text-tertiary whitespace-nowrap px-2 sm:px-2.5 py-0.5 rounded-md bg-bg-tertiary/40 border border-border-secondary/40">
                     {formatFullDate(message.date)}
                   </span>
                   <ChevronDown

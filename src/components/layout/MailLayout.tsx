@@ -40,7 +40,7 @@ function ResizableEmailLayout() {
   }, [emailListWidth, setEmailListWidth]);
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-w-0 flex-row pb-14 md:pb-0">
+    <div data-mail-layout ref={containerRef} className="flex flex-1 min-w-0 flex-row pb-14 md:pb-0">
       <div
         className={`flex flex-col min-w-0 ${
           selectedThreadId ? "hidden md:flex" : "flex flex-1 md:flex-initial w-full md:w-auto"
@@ -75,7 +75,7 @@ export function MailLayout() {
   }
 
   return (
-    <div className={`flex flex-1 min-w-0 pb-14 md:pb-0 ${readingPanePosition === "bottom" ? "flex-col" : "flex-row"}`}>
+    <div data-mail-layout className={`flex flex-1 min-w-0 pb-14 md:pb-0 ${readingPanePosition === "bottom" ? "flex-col" : "flex-row"}`}>
       <ErrorBoundary name="EmailList">
         <EmailList />
       </ErrorBoundary>

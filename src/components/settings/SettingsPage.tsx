@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
@@ -77,6 +78,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
 ];
 
 export function SettingsPage() {
+  const androidMobile = useAndroidMobile();
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
@@ -416,7 +418,8 @@ export function SettingsPage() {
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <button
           onClick={() => navigateToLabel("inbox")}
-          className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          className={`${androidMobile ? "min-h-12 min-w-12 flex items-center justify-center" : "p-1.5 -ml-1"} rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors`}
+          aria-label="Back to Inbox"
           title="Back to Inbox"
         >
           <ArrowLeft size={18} />
@@ -425,9 +428,9 @@ export function SettingsPage() {
       </div>
 
       {/* Body: sidebar nav + content */}
-      <div className="flex flex-1 min-h-0">
+      <div className={`flex flex-1 min-h-0 ${androidMobile ? "flex-col" : ""}`}>
         {/* Vertical tab sidebar */}
-        <nav className="w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30">
+        <nav aria-label="Settings categories" className={androidMobile ? "flex overflow-x-auto shrink-0 border-b border-border-primary p-2 gap-2" : "w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30"}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -435,7 +438,8 @@ export function SettingsPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2.5 w-full px-4 py-2 text-[0.8125rem] transition-colors ${
+                aria-current={isActive ? "page" : undefined}
+                className={`flex items-center gap-2.5 ${androidMobile ? "min-h-12 shrink-0 whitespace-nowrap px-4 text-sm rounded-lg" : "w-full px-4 py-2 text-[0.8125rem]"} transition-colors ${
                   isActive
                     ? "bg-bg-selected text-accent font-medium"
                     : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -450,7 +454,7 @@ export function SettingsPage() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl px-8 py-6">
+          <div className={androidMobile ? "min-w-0 px-4 py-5" : "max-w-2xl px-8 py-6"}>
             {/* Tab title */}
             {activeTabDef && (
               <div className="mb-6">

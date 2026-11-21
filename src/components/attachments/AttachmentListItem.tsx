@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { Download, Eye, ExternalLink } from "lucide-react";
 import { formatFileSize, canPreview, getFileTypeMeta } from "@/utils/fileTypeHelpers";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -20,10 +21,23 @@ function formatShortDate(timestamp: number | null): string {
 }
 
 export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpToEmail }: AttachmentListItemProps) {
+  const android = useAndroidMobile();
   const previewable = canPreview(attachment.mime_type, attachment.filename);
   const senderName = attachment.from_name || attachment.from_address || "Unknown";
   const meta = getFileTypeMeta(attachment.mime_type, attachment.filename);
 
+  if (android) return (
+    <article className="border-b border-border-primary py-4 space-y-2">
+      <h2 className="text-base font-medium text-text-primary break-all">{attachment.filename ?? "Unnamed attachment"}</h2>
+      <p className="text-sm text-text-secondary">{meta.extension || "Unknown type"} · {attachment.size != null ? formatFileSize(attachment.size) : "Size unavailable"}</p>
+      <p className="text-sm text-text-tertiary break-words">{senderName} · {formatShortDate(attachment.date)}</p>
+      <div className="flex flex-wrap gap-2">
+        {previewable && <button className="min-h-12 min-w-12 px-4 rounded-lg border border-border-primary" onClick={onPreview} aria-label={`Open ${attachment.filename ?? "attachment"}`}>Open</button>}
+        <button className="min-h-12 min-w-12 px-4 rounded-lg border border-border-primary" onClick={onDownload} aria-label={`Download ${attachment.filename ?? "attachment"}`}>Download</button>
+        <button className="min-h-12 min-w-12 px-4 rounded-lg border border-border-primary" onClick={onJumpToEmail}>View email</button>
+      </div>
+    </article>
+  );
   return (
     <div
       onClick={previewable ? onPreview : onDownload}

@@ -3,6 +3,9 @@ import { FakeServer } from "./fakeServer";
 import { getElectronBridgeScript } from "./electronBridge";
 
 const FAKE_SERVER_PORT = 3333;
+const android = process.env.SUITEMAIL_ANDROID === "1";
+const aiFilterName = android ? "Create filter with AI" : "Suggest filter with Pi Agent";
+const manualFilterName = android ? "Create filter manually" : "+ Add filter";
 let fakeServer: FakeServer;
 
 test.beforeAll(async () => {
@@ -23,12 +26,12 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
     await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
     await page.goto("http://localhost:1420/#/settings/mail-rules");
     await page.getByRole("button", { name: "Mail Rules", exact: true }).click();
-    await page.getByRole("button", { name: "Suggest filter with Pi Agent", exact: true }).click();
+    await page.getByRole("button", { name: aiFilterName, exact: true }).click();
     const assistant = page.getByRole("dialog", { name: "AI Filter Assistant" });
     await expect(assistant).toBeVisible();
     await assistant.getByRole("button", { name: /close/i }).click();
     await expect(assistant).toHaveCount(0);
-    await page.getByRole("button", { name: "+ Add filter", exact: true }).click();
+    await page.getByRole("button", { name: manualFilterName, exact: true }).click();
     await expect(page.getByRole("dialog", { name: "Create Filter Manually" })).toBeVisible();
   });
 
@@ -53,7 +56,7 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
     await mailRulesTab.click();
 
     // 3. Verify Filters section loaded and click "Suggest filter with Pi Agent"
-    const suggestButton = page.locator('button:has-text("Suggest filter with Pi Agent")');
+    const suggestButton = page.getByRole('button',{name:aiFilterName,exact:true});
     await expect(suggestButton).toBeVisible({ timeout: 15_000 });
     await suggestButton.click();
 
@@ -100,14 +103,15 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
 
     // 9. Verify the "Apply this new filter to whole inbox" checkbox is present and checked
     const wholeInboxCheckbox = page.locator(
-      'label:has-text("Apply this new filter to whole inbox")',
+      'label:has-text("Also apply to matching existing emails")',
     );
     await expect(wholeInboxCheckbox).toBeVisible();
     const checkboxInput = page.locator('input[type="checkbox"]');
+    await checkboxInput.check();
     await expect(checkboxInput).toBeChecked();
 
     // 10. Click "Add Filter (Highest Priority)" to accept
-    const addFilterButton = page.locator('button:has-text("Add Filter (Highest Priority)")');
+    const addFilterButton = page.getByRole('button',{name:android ? 'Create & apply' : 'Add Filter (Highest Priority)',exact:true});
     await expect(addFilterButton).toBeVisible();
     await addFilterButton.click();
 
@@ -199,7 +203,7 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
     await expect(mailRulesTab).toBeVisible({ timeout: 15_000 });
     await mailRulesTab.click();
 
-    const suggestButton = page.locator('button:has-text("Suggest filter with Pi Agent")');
+    const suggestButton = page.getByRole('button',{name:aiFilterName,exact:true});
     await expect(suggestButton).toBeVisible({ timeout: 15_000 });
     await suggestButton.click();
 
@@ -217,12 +221,11 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
 
     // UNCHECK the retroactive checkbox
     const checkboxInput = page.locator('input[type="checkbox"]');
-    await expect(checkboxInput).toBeChecked();
     await checkboxInput.uncheck();
     await expect(checkboxInput).not.toBeChecked();
 
     // Click "Add Filter (Highest Priority)"
-    const addFilterButton = page.locator('button:has-text("Add Filter (Highest Priority)")');
+    const addFilterButton = page.getByRole('button',{name:android ? 'Create filter' : 'Add Filter (Highest Priority)',exact:true});
     await addFilterButton.click();
     await expect(reviewHeader).toBeHidden({ timeout: 10_000 });
 
@@ -266,12 +269,12 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
     await mailRulesTab.click();
 
     // Click "+ Add filter" to open Manual filter creation modal
-    const addFilterButton = page.locator('button:has-text("+ Add filter")');
+    const addFilterButton = page.getByRole('button',{name:manualFilterName,exact:true});
     await expect(addFilterButton).toBeVisible({ timeout: 15_000 });
     await addFilterButton.click();
 
     // Verify modal is in Manual mode
-    const manualHeader = page.locator("text=Create Filter Manually");
+    const manualHeader = page.getByRole("heading",{name:"Create Filter Manually",exact:true});
     await expect(manualHeader).toBeVisible();
 
     // Fill manual form
@@ -305,8 +308,10 @@ test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
     await expect(page.locator("text=Tech Weekly #101: AI Agents & Innovations")).toBeVisible();
     await expect(page.locator("text=Tech Weekly #102: Deep Dive into Gemma 4")).toBeVisible();
 
+    await page.getByLabel(/Also apply to matching existing emails/).check();
+
     // Accept filter
-    const confirmAddButton = page.locator('button:has-text("Add Filter (Highest Priority)")');
+    const confirmAddButton = page.getByRole('button',{name:android ? 'Create & apply' : 'Add Filter (Highest Priority)',exact:true});
     await confirmAddButton.click();
     await expect(reviewHeader).toBeHidden({ timeout: 10_000 });
 

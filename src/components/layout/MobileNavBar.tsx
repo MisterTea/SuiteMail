@@ -1,16 +1,45 @@
+import { useThreadStore } from "@/stores/threadStore";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { Mail, Star, Calendar, ListTodo, Plus, Settings, Menu } from "lucide-react";
-import { useActiveLabel } from "@/hooks/useRouteNavigation";
+import { useActiveLabel, useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { useComposerStore } from "@/stores/composerStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useUIStore } from "@/stores/uiStore";
 
 export function MobileNavBar() {
+  const androidMobile = useAndroidMobile();
+  const selectedThreadId = useSelectedThreadId();
+  const selectedCount = useThreadStore((s)=>s.selectedThreadIds.size);
   const activeLabel = useActiveLabel();
   const openComposer = useComposerStore((s) => s.openComposer);
   const incompleteTaskCount = useTaskStore((s) => s.incompleteCount);
   const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+
+  if (androidMobile) {
+    const destinations = [
+      {label:"Inbox", id:"inbox", icon:Mail},
+      {label:"Starred", id:"starred", icon:Star},
+      {label:"Calendar", id:"calendar", icon:Calendar},
+      {label:"Folders", id:"folders", icon:Menu},
+    ];
+    return <>
+      <nav data-mobile-nav aria-label="Mobile navigation" className="fixed bottom-0 inset-x-0 z-30 grid grid-cols-4 border-t border-border-primary bg-bg-primary px-2 pt-1">
+        {destinations.map(({label,id,icon:Icon}) => <button key={id} data-testid={id === "folders" ? "mobile-nav-menu" : undefined}
+          aria-label={id === "folders" ? "Open folders menu" : label} aria-current={activeLabel === id ? "page" : undefined}
+          onClick={()=>{if(id === "folders") toggleMobileSidebar();else {setMobileSidebarOpen(false);navigateToLabel(id);}}}
+          className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-xs font-medium ${activeLabel === id ? "text-accent bg-accent/10" : "text-text-secondary"}`}>
+          <Icon size={24} /><span>{label}</span>
+        </button>)}
+      </nav>
+      {!selectedThreadId && !selectedCount && <button data-mobile-nav title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
+        className="fixed right-4 z-30 flex min-h-14 items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-base font-semibold text-white shadow-lg active:bg-accent-hover"
+        style={{bottom:"calc(88px + var(--safe-area-inset-bottom, 0px))"}}>
+        <Plus size={24}/><span>Compose</span>
+      </button>}
+    </>;
+  }
 
   return (
     <nav

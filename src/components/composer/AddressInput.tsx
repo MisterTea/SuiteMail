@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { searchContacts, type DbContact } from "@/services/db/contacts";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { X } from "lucide-react";
 
 interface AddressInputProps {
@@ -53,6 +54,8 @@ export function AddressInput({
   autoFocus = false,
   isForwardMode = false,
 }: AddressInputProps) {
+  const androidMobile = useAndroidMobile();
+  const [error, setError] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<DbContact[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -64,20 +67,6 @@ export function AddressInput({
   useEffect(() => {
     if (autoFocus && addresses.length === 0) {
       inputRef.current?.focus();
-      const raf = requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
-      const timer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 80);
-      const lateTimer = setTimeout(() => {
-        inputRef.current?.focus();
-      }, 220);
-      return () => {
-        cancelAnimationFrame(raf);
-        clearTimeout(timer);
-        clearTimeout(lateTimer);
-      };
     }
   }, [autoFocus, addresses.length]);
 
@@ -91,6 +80,8 @@ export function AddressInput({
   const handleInputChange = useCallback(
     (value: string) => {
       setInputValue(value);
+      setError("");
+      inputRef.current?.setCustomValidity("");
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
       if (value.length >= 2) {
         searchTimerRef.current = setTimeout(async () => {
@@ -108,15 +99,22 @@ export function AddressInput({
   );
 
   const addAddress = useCallback(
-    (address: string) => {
+    (address: string, refocus = true) => {
       const trimmed = address.trim();
-      if (trimmed && !addresses.includes(trimmed)) {
+      if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        setError("Enter a valid email address");
+        inputRef.current?.setCustomValidity("Enter a valid email address");
+        return;
+      }
+      setError("");
+      inputRef.current?.setCustomValidity("");
+      if (trimmed && !addresses.some((a) => a.toLowerCase() === trimmed.toLowerCase())) {
         onChange([...addresses, trimmed]);
       }
       setInputValue("");
       setSuggestions([]);
       setShowSuggestions(false);
-      inputRef.current?.focus();
+      if (refocus) inputRef.current?.focus();
     },
     [addresses, onChange],
   );
@@ -130,11 +128,12 @@ export function AddressInput({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
-      e.preventDefault();
+      if (e.key === "Tab" && !inputValue.trim()) return;
+      if (e.key !== "Tab") e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
         addAddress(suggestions[selectedIdx]!.email);
       } else if (inputValue.trim()) {
-        addAddress(inputValue);
+        addAddress(inputValue, e.key !== "Tab");
       }
     } else if (e.key === "Backspace" && !inputValue && addresses.length > 0) {
       removeAddress(addresses.length - 1);
@@ -206,7 +205,7 @@ export function AddressInput({
                   e.stopPropagation();
                   onChange(addresses.filter((a) => a !== addr));
                 }}
-                className="min-w-[28px] min-h-[28px] sm:min-w-[20px] sm:min-h-[20px] rounded-full flex items-center justify-center text-text-tertiary hover:text-danger hover:bg-danger/15 active:bg-danger/25 active:scale-90 transition-all shrink-0 cursor-pointer touch-manipulation"
+                className={`${androidMobile ? "min-w-[48px] min-h-[48px]" : "min-w-[28px] min-h-[28px]"} ${androidMobile ? "" : "sm:min-w-[20px] sm:min-h-[20px]"} rounded-full flex items-center justify-center text-text-tertiary hover:text-danger hover:bg-danger/15 active:bg-danger/25 active:scale-90 transition-all shrink-0 cursor-pointer touch-manipulation`}
                 title={`Remove ${addr}`}
                 aria-label={`Remove ${addr}`}
               >
@@ -230,12 +229,16 @@ export function AddressInput({
             // Delay to allow click on suggestion
             if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
             blurTimerRef.current = setTimeout(() => setShowSuggestions(false), 150);
-            if (inputValue.trim()) addAddress(inputValue);
+            if (inputValue.trim()) addAddress(inputValue, false);
           }}
           placeholder={addresses.length === 0 ? placeholder : ""}
+          data-recipient-input="true"
+          aria-invalid={!!error}
           aria-label={label}
-          className="flex-1 min-w-[140px] bg-transparent text-base sm:text-sm min-h-[44px] sm:min-h-[28px] text-text-primary outline-none placeholder:text-text-tertiary/70 py-1"
+          className="flex-1 min-w-[80px] bg-transparent text-base sm:text-sm min-h-[44px] sm:min-h-[28px] text-text-primary outline-none placeholder:text-text-tertiary/70 py-1"
         />
+
+        {error && <span role="alert" className="w-full text-xs text-danger">{error}</span>}
 
         {/* Autocomplete dropdown */}
         {showSuggestions && (

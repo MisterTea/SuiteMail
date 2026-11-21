@@ -522,6 +522,9 @@ export function markThreadRead(
   messageIds: string[],
   read: boolean,
 ): Promise<ActionResult> {
+  if (!read && typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("suitemail-explicit-unread", {detail:threadId}));
+  }
   return executeEmailAction(accountId, {
     type: "markRead",
     threadId,

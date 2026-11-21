@@ -32,15 +32,18 @@ export const test = isAndroid ? base.extend({
     await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true,maxTouchPoints:5});
     const locatorPrototype = Object.getPrototypeOf(page.locator('body'));
     const originalTap = locatorPrototype.tap;
+    const originalClick = locatorPrototype.click;
     locatorPrototype.tap = async function(options: {timeout?: number} = {}) {
       await this.waitFor({state:'visible',timeout:options.timeout});
-      await this.scrollIntoViewIfNeeded();
+      await originalClick.call(this, {trial:true,timeout:options.timeout});
+      await page.waitForTimeout(Number(process.env.SLOW_MO || 350));
       const box = await this.boundingBox();
       if (!box) throw new Error('Touch target has no bounds');
-      await page.waitForTimeout(Number(process.env.SLOW_MO || 350));
       await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});
       await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
     };
+    // Exercise touch gestures even where a shared scenario calls click().
+    locatorPrototype.click = locatorPrototype.tap;
     // Existing desktop scenarios use a local dev URL. Android always loads the
     // bundled interface from its installed APK, including after a reload.
     const goto = page.goto.bind(page);
@@ -96,6 +99,7 @@ export const test = isAndroid ? base.extend({
         fs.writeFileSync(reportPath,JSON.stringify(report,null,2));
       } finally {
         locatorPrototype.tap = originalTap;
+        locatorPrototype.click = originalClick;
         await browser.close();
         adbRun('forward','--remove','tcp:9223');
       }

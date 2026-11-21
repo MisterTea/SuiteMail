@@ -46,6 +46,7 @@ export interface ComposerState {
   draftId: string | null;
   undoSendTimer: ReturnType<typeof setTimeout> | null;
   undoSendVisible: boolean;
+  undoSendRestore: (() => void) | null;
   scheduledToast: ScheduledToastInfo | null;
   attachments: ComposerAttachment[];
   lastSavedAt: number | null;
@@ -84,6 +85,7 @@ export interface ComposerState {
   setDraftId: (id: string | null) => void;
   setUndoSendTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
   setUndoSendVisible: (visible: boolean) => void;
+  setUndoSendRestore: (restore: (() => void) | null) => void;
   setScheduledToast: (toast: ScheduledToastInfo | null) => void;
   addAttachment: (attachment: ComposerAttachment) => void;
   removeAttachment: (id: string) => void;
@@ -112,6 +114,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   draftId: null,
   undoSendTimer: null,
   undoSendVisible: false,
+  undoSendRestore: null,
   scheduledToast: null,
   attachments: [],
   viewMode: "modal",
@@ -181,6 +184,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   setDraftId: (draftId) => set({ draftId }),
   setUndoSendTimer: (undoSendTimer) => set({ undoSendTimer }),
   setUndoSendVisible: (undoSendVisible) => set({ undoSendVisible }),
+  setUndoSendRestore: (undoSendRestore) => set({ undoSendRestore }),
   setScheduledToast: (scheduledToast) => set({ scheduledToast }),
   addAttachment: (attachment) =>
     set((state) => ({ attachments: [...state.attachments, attachment] })),

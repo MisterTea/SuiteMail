@@ -13,7 +13,10 @@ export function UndoSendToast() {
       clearTimeout(undoSendTimer);
       setUndoSendTimer(null);
     }
+    const restore = useComposerStore.getState().undoSendRestore;
+    useComposerStore.getState().setUndoSendRestore(null);
     setUndoSendVisible(false);
+    restore?.();
   };
 
   return (

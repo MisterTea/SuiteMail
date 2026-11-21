@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useCallback } from "react";
 import { Calendar, MapPin, User, Check, X, Clock, ExternalLink, AlertCircle } from "lucide-react";
 import type { InviteDetails, InviteResponseStatus } from "@/services/calendar/types";
@@ -12,6 +13,7 @@ interface CalendarInviteBannerProps {
 }
 
 export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerProps) {
+  const android = useAndroidMobile();
   const activeAccount = useAccountStore((s) =>
     s.accounts.find((a) => a.id === message.account_id) ?? s.accounts[0],
   );
@@ -36,7 +38,7 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
     async (responseStatus: InviteResponseStatus) => {
       if (!userEmail || submitting) return;
       setSubmitting(true);
-      setStatusMessage(null);
+      setStatusMessage("Sending response…");
 
       try {
         const res = await respondToInvite({
@@ -61,7 +63,7 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
           setStatusMessage("Failed to send response: " + (res.error ?? "unknown error"));
         }
       } catch {
-        setStatusMessage("Error sending response");
+        setStatusMessage("Error sending response. Try again.");
       } finally {
         setSubmitting(false);
       }
@@ -102,6 +104,10 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
 
   const formatInviteTime = () => {
     if (!startDate) return "";
+    if (android) {
+      const options: Intl.DateTimeFormatOptions = { weekday: "short", year: "numeric", month: "short", day: "numeric", ...(invite.isAllDay ? {} : { hour: "numeric", minute: "2-digit", timeZoneName: "short" }) };
+      return startDate.toLocaleString(undefined, options) + (invite.isAllDay ? " · All day" : endDate ? " – " + endDate.toLocaleString(undefined, options) : "");
+    }
 
     if (invite.isAllDay) {
       return startDate.toLocaleDateString(undefined, {
@@ -139,7 +145,7 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
       {/* Top Section: Date Badge & Event Details */}
       <div className="flex items-start gap-3 sm:gap-3.5 min-w-0">
         {/* Calendar Tear-Off Badge */}
-        <div className="shrink-0 flex flex-col items-center justify-between w-13 h-15 rounded-xl overflow-hidden border border-border-secondary/90 bg-bg-primary dark:bg-bg-tertiary shadow-xs select-none">
+        <div className={`${android ? "hidden" : "flex"} shrink-0 flex-col items-center justify-between w-13 h-15 rounded-xl overflow-hidden border border-border-secondary/90 bg-bg-primary dark:bg-bg-tertiary shadow-xs select-none`}>
           {/* Tear-off top header band */}
           <div className="w-full bg-red-600 dark:bg-red-500 text-white text-[10px] font-extrabold tracking-widest uppercase text-center py-0.5 leading-tight shadow-inner">
             {monthBadge}
@@ -192,14 +198,14 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
                 ) : (
                   <>
                     <Clock size={12} className="stroke-[3]" />
-                    <span>Tentative</span>
+                    <span>{currentRsvp === "needs-action" ? "Awaiting your response" : "Tentative"}</span>
                   </>
                 )}
               </span>
             )}
           </div>
 
-          <div className="mt-2 flex flex-col gap-1.5 text-xs text-text-secondary">
+          <div className={android ? "mt-2 flex flex-col gap-2 text-sm text-text-secondary" : "mt-2 flex flex-col gap-1.5 text-xs text-text-secondary"}>
             <div className="font-semibold text-text-primary flex items-center gap-2">
               <div className="w-5 h-5 rounded-md bg-accent/10 dark:bg-accent/20 flex items-center justify-center shrink-0">
                 <Clock size={12} className="text-accent shrink-0" />
@@ -221,7 +227,7 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
                 <div className="w-5 h-5 rounded-md bg-bg-tertiary flex items-center justify-center shrink-0">
                   <User size={12} className="shrink-0" />
                 </div>
-                <span className="truncate leading-tight">
+                <span className={android ? "break-all leading-relaxed" : "truncate leading-tight"}>
                   Organizer: <span className="text-text-secondary font-medium">{invite.organizerEmail}</span>
                 </span>
               </div>
@@ -235,10 +241,12 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
         <div className="grid grid-cols-3 gap-2 w-full">
           {/* Accept / Yes Button */}
           <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
             type="button"
             onClick={() => handleRsvp("accepted")}
             disabled={submitting}
             aria-label="Yes, Accept"
+            aria-pressed={currentRsvp === "accepted"}
             className={`inline-flex flex-col sm:flex-row justify-center items-center gap-1 sm:gap-1.5 min-h-[48px] px-2 sm:px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 shadow-xs cursor-pointer select-none active:scale-95 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed ${
               currentRsvp === "accepted"
                 ? "bg-emerald-600 text-white border border-emerald-600 ring-2 ring-emerald-500/30 font-semibold shadow-sm"
@@ -256,10 +264,12 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
 
           {/* Tentative / Maybe Button */}
           <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
             type="button"
             onClick={() => handleRsvp("tentative")}
             disabled={submitting}
             aria-label="Maybe, Tentative"
+            aria-pressed={currentRsvp === "tentative"}
             className={`inline-flex flex-col sm:flex-row justify-center items-center gap-1 sm:gap-1.5 min-h-[48px] px-2 sm:px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 shadow-xs cursor-pointer select-none active:scale-95 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed ${
               currentRsvp === "tentative"
                 ? "bg-amber-600 text-white border border-amber-600 ring-2 ring-amber-500/30 font-semibold shadow-sm"
@@ -277,10 +287,12 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
 
           {/* Decline / No Button */}
           <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
             type="button"
             onClick={() => handleRsvp("declined")}
             disabled={submitting}
             aria-label="No, Decline"
+            aria-pressed={currentRsvp === "declined"}
             className={`inline-flex flex-col sm:flex-row justify-center items-center gap-1 sm:gap-1.5 min-h-[48px] px-2 sm:px-3 py-2 text-xs font-medium rounded-xl transition-all duration-150 shadow-xs cursor-pointer select-none active:scale-95 touch-manipulation disabled:opacity-50 disabled:cursor-not-allowed ${
               currentRsvp === "declined"
                 ? "bg-rose-600 text-white border border-rose-600 ring-2 ring-rose-500/30 font-semibold shadow-sm"
@@ -300,6 +312,8 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
         {/* Status Confirmation Banner */}
         {statusMessage && (
           <div
+            role="status"
+            aria-live="polite"
             className={`flex items-center gap-2 text-xs font-medium rounded-xl p-3 animate-fade-in transition-all ${
               isErrorStatus
                 ? "bg-rose-500/10 text-rose-800 dark:text-rose-200 border border-rose-500/30"
@@ -327,6 +341,7 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
         {/* Auxiliary Calendar Affordances: Open in Calendar & Add to Calendar (.ics) */}
         <div className="flex items-center gap-2 pt-1 border-t border-border-secondary/40">
           <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
             type="button"
             onClick={() => navigateToLabel("calendar")}
             className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-text-secondary hover:text-accent hover:bg-accent/10 active:scale-95 min-h-[44px] px-3 py-2 rounded-xl border border-border-secondary/70 transition-all touch-manipulation cursor-pointer"
@@ -337,6 +352,7 @@ export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerPr
           </button>
 
           <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
             type="button"
             onClick={handleDownloadIcs}
             className="flex-1 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-text-secondary hover:text-accent hover:bg-accent/10 active:scale-95 min-h-[44px] px-3 py-2 rounded-xl border border-border-secondary/70 transition-all touch-manipulation cursor-pointer"

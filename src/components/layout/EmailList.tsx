@@ -1,3 +1,4 @@
+import { useToastStore } from "@/stores/toastStore";
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { ThreadCard } from "../email/ThreadCard";
@@ -202,7 +203,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
     try {
-      await Promise.all(ids.map((id) => archiveThread(activeAccountId, id, [])));
+      const results = await Promise.all(ids.map((id) => archiveThread(activeAccountId, id, [])));
+      const completed = results.filter(result=>result.success).length;
+      useToastStore.getState().showToast({message:completed === ids.length ? `${completed} conversations archived` : `${completed} of ${ids.length} archived. Some actions need retry.`,duration:7000});
     } catch (err) {
       console.error("Bulk archive failed:", err);
     }
@@ -711,7 +714,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       {/* Thread list */}
       <div
         ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto ${multiSelectCount > 0 ? "pb-20" : ""}`}
+        data-email-scroll className={`flex-1 overflow-y-auto ${multiSelectCount > 0 ? "pb-20" : ""}`}
       >
         {isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
@@ -856,7 +859,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       >
         <div
           ref={multiSelectBarRef}
-          className="absolute bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto"
+          data-bulk-anchor className="absolute bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto"
         >
           <BatchActionBar
             selectedCount={multiSelectCount}
