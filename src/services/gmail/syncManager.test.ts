@@ -5,6 +5,7 @@ vi.mock("./tokenManager", () => ({
   getGmailClient: vi.fn(),
 }));
 vi.mock("./sync", () => ({
+  syncInitialChanges: vi.fn().mockResolvedValue(undefined),
   initialSync: vi.fn(),
   deltaSync: vi.fn(),
 }));
@@ -56,7 +57,7 @@ import {
 } from "./syncManager";
 import { getAccount } from "../db/accounts";
 import { getGmailClient } from "./tokenManager";
-import { initialSync, deltaSync } from "./sync";
+import { initialSync, deltaSync, syncInitialChanges } from "./sync";
 
 const mockGetAccount = vi.mocked(getAccount);
 const mockGetGmailClient = vi.mocked(getGmailClient);
@@ -116,6 +117,9 @@ describe("syncManager", () => {
       await syncAccount("a1");
 
       expect(mockInitialSync).toHaveBeenCalledTimes(1);
+      expect(syncInitialChanges).toHaveBeenCalledWith(expect.anything(), "a1");
+      expect(vi.mocked(syncInitialChanges).mock.invocationCallOrder[0]).toBeLessThan(mockInitialSync.mock.invocationCallOrder[0]!);
+      expect(mockInitialSync).toHaveBeenCalledWith(expect.anything(), "a1", 365, expect.any(Function), {maxThreads:10});
       expect(mockDeltaSync).not.toHaveBeenCalled();
     });
 
@@ -165,6 +169,18 @@ describe("syncManager", () => {
   });
 
   describe("startBackgroundSync", () => {
+    it("polls fresh mail every minute while historical backfill is incomplete", async()=>{
+      vi.useFakeTimers();
+      try {
+        mockGetAccount.mockResolvedValue(makeGmailAccount("a1"));
+        startBackgroundSync(["a1"]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(syncInitialChanges).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(syncInitialChanges).toHaveBeenCalledTimes(2);
+        expect(mockInitialSync).toHaveBeenCalledTimes(2);
+      } finally { stopBackgroundSync();vi.useRealTimers(); }
+    });
     it("triggers an immediate sync by default", async () => {
       mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "100"));
 
@@ -181,7 +197,7 @@ describe("syncManager", () => {
 
       startBackgroundSync(["a1"], true);
 
-      // Wait — no sync should have fired (next interval is 15s away)
+      // Wait — no sync should have fired (next interval is 60s away)
       await wait(50);
 
       expect(mockDeltaSync).not.toHaveBeenCalled();

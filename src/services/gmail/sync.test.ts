@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { initialSync, deltaSync } from "./sync";
+import { initialSync, deltaSync, syncInitialChanges } from "./sync";
 import { GmailApiError, GmailClient } from "./client";
 
 import { deleteThread } from "../db/threads";
@@ -259,4 +259,22 @@ describe("initialSync streaming and recovery",()=>{
   await initialSync(c,"resume");expect(c.getThread).toHaveBeenCalledExactlyOnceWith("second","full");expect(updateAccountSyncState).toHaveBeenCalledWith("resume","100");
   vi.mocked(getSetting).mockResolvedValue(null);
  });
+ it("polls newly arrived mail between bounded initial-sync chunks without skipping older mail",async()=>{
+  const saved=new Map<string,string>();
+  vi.mocked(getSetting).mockImplementation(async key=>saved.get(key) || null);
+  vi.mocked(setSetting).mockImplementation(async(key,value)=>{saved.set(key,value);});
+  const c=client();vi.mocked(c.listThreads).mockResolvedValue({threads:[{id:"older-first",snippet:""},{id:"older-second",snippet:""}]});
+  c.getHistory=vi.fn().mockResolvedValue({historyId:"200",history:[{messagesAdded:[{message:{id:"new-message",threadId:"new-thread",labelIds:["INBOX"]}}]}]});
+  await initialSync(c,"interleave",365,undefined,{maxThreads:1});
+  expect(updateAccountSyncState).not.toHaveBeenCalled();
+  await syncInitialChanges(c,"interleave");
+  expect(c.getThread).toHaveBeenNthCalledWith(2,"new-thread","full");
+  expect(updateAccountSyncState).not.toHaveBeenCalled();
+  expect(JSON.parse(saved.get("gmail_initial_sync:interleave")!).historyId).toBe("200");
+  await initialSync(c,"interleave",365,undefined,{maxThreads:1});
+  expect(c.getThread).toHaveBeenNthCalledWith(3,"older-second","full");
+  expect(updateAccountSyncState).toHaveBeenCalledWith("interleave","200");
+  vi.mocked(getSetting).mockResolvedValue(null);vi.mocked(setSetting).mockResolvedValue(undefined);
+ });
+
 });

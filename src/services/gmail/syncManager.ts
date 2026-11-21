@@ -1,5 +1,5 @@
 import { getGmailClient } from "./tokenManager";
-import { initialSync, deltaSync, type SyncProgress } from "./sync";
+import { initialSync, deltaSync, syncInitialChanges, type SyncProgress } from "./sync";
 import { getAccount, clearAccountHistoryId } from "../db/accounts";
 import { getSetting, setSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
@@ -65,19 +65,21 @@ async function syncGmailAccount(accountId: string): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err ?? "");
       if (message === "HISTORY_EXPIRED") {
-        // Fallback to full sync
+        // Clear the expired account cursor so subsequent cycles can poll live changes during backfill.
+        await clearAccountHistoryId(accountId);
         await initialSync(client, accountId, syncDays, (progress) => {
           statusCallback?.(accountId, "syncing", progress);
-        });
+        }, {maxThreads:10});
       } else {
         throw err;
       }
     }
   } else {
-    // First time — full initial sync
+    // New mail gets priority; a bounded backfill must not hold the queue for hours.
+    await syncInitialChanges(client, accountId);
     await initialSync(client, accountId, syncDays, (progress) => {
       statusCallback?.(accountId, "syncing", progress);
-    });
+    }, {maxThreads:10});
   }
 }
 

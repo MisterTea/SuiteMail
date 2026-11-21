@@ -190,7 +190,9 @@ export async function initialSync(
   accountId: string,
   daysBack = 365,
   onProgress?: SyncProgressCallback,
+  options: {maxThreads?: number} = {},
 ): Promise<void> {
+  let downloaded = 0;
   const key = `gmail_initial_sync:${accountId}`;
   type Checkpoint = {version:1; daysBack:number; query:string; historyId:string; pageToken?:string; completed:number; total:number; storedIds:string[]};
   let checkpoint: Checkpoint | undefined;
@@ -220,6 +222,7 @@ export async function initialSync(
     onProgress?.({phase:"messages",current:checkpoint.completed,total:checkpoint.total});
     for (const stub of stubs) {
       if (checkpoint.storedIds.includes(stub.id)) continue;
+      if (downloaded >= (options.maxThreads ?? Infinity)) return;
       try {
         const thread = await client.getThread(stub.id,"full");
         if (thread.messages?.length) {
@@ -230,6 +233,7 @@ export async function initialSync(
         if (!(error instanceof GmailApiError && error.status === 404)) throw error;
       }
       checkpoint.storedIds.push(stub.id);
+      downloaded++;
       checkpoint.completed++;
       await save();
       onProgress?.({phase:"messages",current:checkpoint.completed,total:checkpoint.total});
@@ -239,6 +243,7 @@ export async function initialSync(
     checkpoint.pageToken = response.nextPageToken;
     checkpoint.storedIds = [];
     await save();
+    if (downloaded >= (options.maxThreads ?? Infinity)) return;
   }
   await updateAccountSyncState(accountId,checkpoint.historyId);
   await setSetting(key,"",{skipNotify:true});
@@ -290,6 +295,7 @@ export async function deltaSync(
   client: GmailClient,
   accountId: string,
   lastHistoryId: string,
+  persistHistory: typeof updateAccountSyncState = updateAccountSyncState,
 ): Promise<void> {
   try {
     // Paginate through all history pages
@@ -336,7 +342,7 @@ export async function deltaSync(
     } while (pageToken);
 
     if (affectedThreadIds.size === 0) {
-      await updateAccountSyncState(accountId, latestHistoryId);
+      await persistHistory(accountId, latestHistoryId);
       return;
     }
 
@@ -350,7 +356,7 @@ export async function deltaSync(
     const vipSenders = smartNotifications ? await getVipSenders(accountId) : new Set<string>();
 
     // Re-fetch affected threads in parallel (max 5 concurrent)
-    const threadIds = [...affectedThreadIds];
+    const threadIds = [...affectedThreadIds].reverse();
     await parallelLimit(
       threadIds.map((threadId) => async () => {
         try {
@@ -375,6 +381,7 @@ export async function deltaSync(
 
           const parsedMessages = thread.messages.map(parseGmailMessage);
           await processAndStoreThread(thread, accountId, parsedMessages, client, autoArchiveCategories);
+          window.dispatchEvent(new Event("suitemail-sync-progress"));
 
           // Auto-archive muted threads that reappear in INBOX
           if (mutedThreadIds.has(threadId)) {
@@ -435,7 +442,7 @@ export async function deltaSync(
       10,
     );
 
-    await updateAccountSyncState(accountId, latestHistoryId);
+    await persistHistory(accountId, latestHistoryId);
 
     // Fire-and-forget AI categorization for new threads
     import("@/services/ai/categorizationManager")
@@ -454,5 +461,29 @@ export async function deltaSync(
       throw new Error("HISTORY_EXPIRED");
     }
     throw err;
+  }
+}
+
+
+/** Poll new mail during backfill without claiming the historical download is complete. */
+export async function syncInitialChanges(client: GmailClient, accountId: string): Promise<void> {
+  const key = `gmail_initial_sync:${accountId}`;
+  const raw = await getSetting(key);
+  if (!raw) return;
+  let state: {historyId?: string};
+  try { state = JSON.parse(raw); } catch { return; }
+  if (!state.historyId) return;
+  try {
+    await deltaSync(client, accountId, state.historyId, async (_id, historyId) => {
+      // The backfill runs after this poll, so the checkpoint cursor cannot be overwritten by a concurrent save.
+      await setSetting(key, JSON.stringify({...state,historyId}), {skipNotify:true});
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "HISTORY_EXPIRED") {
+      // Start a fresh listing from newest mail; keep all previously downloaded data.
+      await setSetting(key,"",{skipNotify:true});
+      return;
+    }
+    throw error;
   }
 }
