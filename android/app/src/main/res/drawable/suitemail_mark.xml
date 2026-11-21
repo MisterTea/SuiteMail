@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SuiteMail envelope mark; geometry from src/assets/logo.svg. Insets protect Android icon masks. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="1536" android:viewportHeight="1536">
+<group android:translateX="256" android:translateY="256"><path android:pathData="M32,247 Q32,32 247,32 L777,32 Q992,32 992,247 L992,777 Q992,992 777,992 L247,992 Q32,992 32,777 Z" android:fillColor="#28694f"/>
+<path android:pathData="M232,320 L792,320 Q844,320 844,372 L844,708 Q844,760 792,760 L232,760 Q180,760 180,708 L180,372 Q180,320 232,320 Z" android:fillColor="#f2f7ed"/>
+<path android:pathData="M180,330 C300,350 420,440 512,560 C604,440 724,350 844,330 M512,560 L512,760" android:fillColor="@android:color/transparent" android:strokeColor="#235c46" android:strokeWidth="36" android:strokeLineCap="round" android:strokeLineJoin="round"/>
+<path android:pathData="M410,390 L512,450 L614,390 M400,580 L512,650 L624,580" android:fillColor="@android:color/transparent" android:strokeColor="#a6cba5" android:strokeWidth="26" android:strokeLineCap="round" android:strokeLineJoin="round"/></group>
+</vector>
