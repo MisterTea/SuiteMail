@@ -9,11 +9,11 @@ const host = process.env.VITE_DEV_HOST;
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const gmailClientId = env.GMAIL_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID || "";
-  const gmailClientSecret = env.GMAIL_OAUTH_CLIENT_SECRET || process.env.GMAIL_OAUTH_CLIENT_SECRET || "";
+  const gmailClientId = mode === "android" ? "" : env.GMAIL_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID || "";
+  const gmailClientSecret = mode === "android" ? "" : env.GMAIL_OAUTH_CLIENT_SECRET || process.env.GMAIL_OAUTH_CLIENT_SECRET || "";
 
   return {
-    envPrefix: ["VITE_", "GMAIL_"],
+    envPrefix: mode === "android" ? ["VITE_"] : ["VITE_", "GMAIL_"],
     define: {
       "import.meta.env.GMAIL_OAUTH_CLIENT_ID": JSON.stringify(gmailClientId),
       "import.meta.env.GMAIL_OAUTH_CLIENT_SECRET": JSON.stringify(gmailClientSecret),

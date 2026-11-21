@@ -631,3 +631,14 @@ body {
   background: rgba(255, 255, 255, 0.1) !important;
   color: #e8eaed !important;
 }
+
+/* Android edge-to-edge layout: keep the inbox clear of system status icons. */
+.android-app #root {
+  padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+}
+.android-app #root > .h-screen {
+  height: calc(100dvh - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
+}
+.android-app [role="dialog"] {
+  padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+}

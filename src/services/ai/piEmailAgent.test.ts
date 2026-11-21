@@ -286,18 +286,14 @@ describe("piEmailAgent", () => {
       expect(mockCreateChatCompletion).toHaveBeenCalledTimes(3);
     });
 
-    it("uses the same iterative Pi runtime on Android", async () => {
+    it("uses the configured remote Pi runtime on Android", async () => {
       const userAgent = vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Android");
-      mockAiCoreComplete.mockReset()
-        .mockResolvedValueOnce(JSON.stringify({ tool: "search_emails", parameters: { query: "GitHub" } }))
-        .mockResolvedValueOnce(JSON.stringify({ tool: "suggest_filter", parameters: filter }))
-        .mockResolvedValueOnce(JSON.stringify({ tool: "suggest_filter", parameters: filter }));
+      search(); propose(); propose();
       try {
         const result = await suggestFilterWithPiAgent({ prompt: "Only automated notifications", accountId: "acc-1" });
         expect(result.filter).toEqual(filter);
-        expect(mockAiCoreComplete).toHaveBeenCalledTimes(3);
-        expect(mockCreateChatCompletion).not.toHaveBeenCalled();
-        expect(mockAiCoreComplete.mock.calls[2][0].userContent).toContain("workflow run completed");
+        expect(mockCreateChatCompletion).toHaveBeenCalledTimes(3);
+        expect(mockAiCoreComplete).not.toHaveBeenCalled();
       } finally { userAgent.mockRestore(); }
     });
 

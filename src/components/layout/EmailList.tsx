@@ -9,7 +9,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadsForLabels, getThreadsForOtherInbox, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadsForLabels, getThreadsForOtherInbox, getThreadLabelIds } from "@/services/db/threads";
 import { gmailNavSpec, gmailViewLabelIds } from "@/constants/gmailSidebar";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
@@ -23,7 +23,7 @@ import { getMessagesForThread } from "@/services/db/messages";
 import { peelDraftContract } from "@/services/contracts/contractMessage";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
-import { markThreadRead, starThread } from "@/services/emailActions";
+import { archiveThread, trashThread, permanentDeleteThread, spamThread, markThreadRead, starThread } from "@/services/emailActions";
 import { BatchActionBar } from "../email/BatchActionBar";
 import { MoveToFolderDialog } from "../email/MoveToFolderDialog";
 import { Trash2, X, Filter, ChevronRight, Package, FolderSearch, Pin, PenSquare, Menu, RotateCcw, Search, RefreshCw } from "lucide-react";
@@ -63,7 +63,6 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const isLoading = useThreadStore((s) => s.isLoading);
   const setThreads = useThreadStore((s) => s.setThreads);
   const setLoading = useThreadStore((s) => s.setLoading);
-  const removeThreads = useThreadStore((s) => s.removeThreads);
   const updateThread = useThreadStore((s) => s.updateThread);
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
@@ -176,15 +175,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || threads.length === 0) return;
     setIsEmptyingTrash(true);
     const ids = threads.map((t) => t.id);
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(
-        ids.map(async (id) => {
-          await client.deleteThread(id);
-          await deleteThreadFromDb(activeAccountId, id);
-        }),
-      );
+      await Promise.all(ids.map((id) => permanentDeleteThread(activeAccountId, id, [])));
     } catch (err) {
       console.error("Empty trash failed:", err);
     } finally {
@@ -197,17 +189,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || multiSelectCount === 0) return;
     const isTrashView = activeLabel === "trash";
     const ids = [...selectedThreadIds];
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map(async (id) => {
-        if (isTrashView) {
-          await client.deleteThread(id);
-          await deleteThreadFromDb(activeAccountId, id);
-        } else {
-          await client.modifyThread(id, ["TRASH"], ["INBOX"]);
-        }
-      }));
+      await Promise.all(ids.map((id) => isTrashView
+        ? permanentDeleteThread(activeAccountId, id, [])
+        : trashThread(activeAccountId, id, [])));
     } catch (err) {
       console.error("Bulk delete failed:", err);
     }
@@ -216,10 +201,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const handleBulkArchive = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map((id) => client.modifyThread(id, undefined, ["INBOX"])));
+      await Promise.all(ids.map((id) => archiveThread(activeAccountId, id, [])));
     } catch (err) {
       console.error("Bulk archive failed:", err);
     }
@@ -229,14 +212,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
     const isSpamView = activeLabel === "spam";
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map((id) =>
-        isSpamView
-          ? client.modifyThread(id, ["INBOX"], ["SPAM"])
-          : client.modifyThread(id, ["SPAM"], ["INBOX"]),
-      ));
+      await Promise.all(ids.map((id) => spamThread(activeAccountId, id, [], !isSpamView)));
     } catch (err) {
       console.error("Bulk spam failed:", err);
     }

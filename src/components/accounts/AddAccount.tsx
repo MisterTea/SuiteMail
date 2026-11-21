@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Capacitor } from "@capacitor/core";
 import { Mail, Calendar, Shield, Building2 } from "lucide-react";
 import { startOAuthFlow } from "@/services/gmail/auth";
 import { saveGmailAccount } from "@/services/db/accounts";
@@ -21,6 +22,7 @@ interface AddAccountProps {
 type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton" | "microsoft" | "ews";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
+  const androidPreview = Capacitor.getPlatform() === "android";
   const [view, setView] = useState<View>("select-provider");
   const [status, setStatus] = useState<
     "idle" | "checking" | "authenticating" | "error"
@@ -207,6 +209,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
         <div className="space-y-3">
           <button
+            disabled={androidPreview}
             onClick={() => {
               setView("gmail");
               handleAddGmailAccount();
@@ -238,12 +241,12 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Google (Gmail)
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                Connect via OAuth with full Gmail API support
+                {androidPreview ? "Google sign-in is not available in this Android preview. Use IMAP / SMTP with an app password." : "Connect via OAuth with full Gmail API support"}
               </div>
             </div>
           </button>
 
-          <button
+          {!androidPreview && <button
             onClick={() => setView("microsoft")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -258,7 +261,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Office 365 mail via Microsoft Graph
               </div>
             </div>
-          </button>
+          </button>}
 
           <button
             onClick={() => setView("ews")}
@@ -277,7 +280,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          <button
+          {!androidPreview && <button
             onClick={() => setView("proton")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -292,7 +295,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Connect via Proton Mail Bridge with end-to-end encryption
               </div>
             </div>
-          </button>
+          </button>}
 
           <button
             onClick={() => setView("imap")}

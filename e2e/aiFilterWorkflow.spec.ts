@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { FakeServer } from "./fakeServer";
 import { getElectronBridgeScript } from "./electronBridge";
 
@@ -14,12 +14,8 @@ test.afterAll(async () => {
   await fakeServer.stop();
 });
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async () => {
   fakeServer.reset();
-  // This fake server exercises the desktop local-model transport.
-  await page.addInitScript(() => Object.defineProperty(navigator, "userAgent", {
-    get: () => "SuiteMail Desktop",
-  }));
 });
 
 test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {

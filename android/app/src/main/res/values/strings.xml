@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SuiteMail</string>
+    <string name="title_activity_main">SuiteMail</string>
+    <string name="package_name">com.suitemail.app</string>
+    <string name="custom_url_scheme">com.suitemail.app</string>
+</resources>

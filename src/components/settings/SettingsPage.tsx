@@ -193,9 +193,7 @@ export function SettingsPage() {
       }
 
       const provider = await getSetting("ai_provider");
-      if (isAndroid && (provider === "pi" || provider === "ollama" || !provider)) {
-        setAiProvider("aicore");
-      } else if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") {
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") {
         setAiProvider(provider);
       }
       const aicoreModelVal = await getSetting("aicore_model");
@@ -1167,7 +1165,10 @@ export function SettingsPage() {
                         <option value="gemini">Gemini (Google)</option>
                         <option value="copilot">GitHub Copilot</option>
                         {isAndroidPlatform ? (
-                          <option value="aicore">Android AICore (Max AI Mode)</option>
+                          <>
+                            <option value="ollama">Remote Ollama / LMStudio</option>
+                            <option value="pi">Remote Pi Harness</option>
+                          </>
                         ) : (
                           <>
                             <option value="ollama">Local AI (Ollama / LMStudio)</option>

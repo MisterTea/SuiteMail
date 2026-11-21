@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { FakeServer } from "./fakeServer";
 import { getElectronBridgeScript } from "./electronBridge";
 
@@ -582,5 +582,13 @@ test.describe("Top 20 Email Workflows", () => {
     // Both threads removed from Inbox
     await expect(page.locator(`text=${threadA}`)).toHaveCount(0);
     await expect(page.locator(`text=${threadB}`)).toHaveCount(0);
+
+    // Verify provider-aware bulk actions persist, rather than only hiding cards.
+    await expect.poll(() => {
+      const row = fakeServer.db.prepare(
+        "SELECT COUNT(*) AS count FROM thread_labels WHERE account_id = 'acc-test-1' AND label_id = 'INBOX' AND thread_id IN (SELECT id FROM threads WHERE subject IN (?, ?))",
+      ).get(threadA, threadB) as { count: number };
+      return row.count;
+    }).toBe(0);
   });
 });

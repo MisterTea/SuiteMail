@@ -1,6 +1,7 @@
 use crate::ai_backend;
 use crate::commands;
 use crate::ews;
+#[cfg(feature = "graph")]
 use crate::msgraph;
 use crate::oauth;
 use serde_json::{json, Value};
@@ -389,16 +390,19 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             ews::ews_delete_folder(token, anchor, folder_id).await?;
             Ok(Value::Null)
         }
+        #[cfg(feature = "graph")]
         "msgraph_get_profile" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let res = msgraph::msgraph_get_profile(token).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_list_folders" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let res = msgraph::msgraph_list_folders(token).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_sync_page" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let link = args.get("link").and_then(|v| v.as_str()).map(String::from);
@@ -407,18 +411,21 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             let res = msgraph::msgraph_sync_page(token, link, received_after, limit).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_get_message" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let res = msgraph::msgraph_get_message(token, message_id).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_get_raw" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let res = msgraph::msgraph_get_raw(token, message_id).await?;
             Ok(json!(res))
         }
+        #[cfg(feature = "graph")]
         "msgraph_get_attachment" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -426,6 +433,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             let res = msgraph::msgraph_get_attachment(token, message_id, attachment_id).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_move_message" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -433,6 +441,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             let res = msgraph::msgraph_move_message(token, message_id, destination).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_update_flags" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -441,36 +450,42 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             msgraph::msgraph_update_flags(token, message_id, is_read, flagged).await?;
             Ok(Value::Null)
         }
+        #[cfg(feature = "graph")]
         "msgraph_delete_message" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             msgraph::msgraph_delete_message(token, message_id).await?;
             Ok(Value::Null)
         }
+        #[cfg(feature = "graph")]
         "msgraph_send_mime" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let raw_base64_url = args.get("rawBase64Url").or_else(|| args.get("raw_base64_url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let res = msgraph::msgraph_send_mime(token, raw_base64_url).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_create_draft_mime" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let raw_base64_url = args.get("rawBase64Url").or_else(|| args.get("raw_base64_url")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let res = msgraph::msgraph_create_draft_mime(token, raw_base64_url).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_send_draft" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let message_id = args.get("messageId").or_else(|| args.get("message_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
             let res = msgraph::msgraph_send_draft(token, message_id).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_create_folder" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let name = args["name"].as_str().unwrap_or("").to_string();
             let res = msgraph::msgraph_create_folder(token, name).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_rename_folder" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let folder_id = args.get("folderId").or_else(|| args.get("folder_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -478,6 +493,7 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             let res = msgraph::msgraph_rename_folder(token, folder_id, name).await?;
             serde_json::to_value(res).map_err(|e| e.to_string())
         }
+        #[cfg(feature = "graph")]
         "msgraph_delete_folder" => {
             let token = args["token"].as_str().unwrap_or("").to_string();
             let folder_id = args.get("folderId").or_else(|| args.get("folder_id")).and_then(|v| v.as_str()).unwrap_or("").to_string();

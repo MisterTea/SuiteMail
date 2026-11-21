@@ -125,6 +125,10 @@ Download the latest release for your platform:
 
 No build tools or programming knowledge required -- just download, install, and run.
 
+### Android preview
+
+An experimental Android APK can be built from the Android branch. See [Android build, emulator tests, and storyboard recordings](docs/android.md) for commands and current limitations.
+
 ### Account setup
 
 **Gmail:** Create OAuth credentials in [Google Cloud Console](https://console.cloud.google.com/) (enable Gmail API + Calendar API), then enter your Client ID in SuiteMail's Settings. No client secret needed (PKCE).
