@@ -14,6 +14,8 @@ export class GmailApiError extends Error {
   }
 }
 
+export type GoogleTokenProvider = (invalidToken?: string) => Promise<{accessToken: string; expiresAt: number}>;
+
 interface TokenInfo {
   accessToken: string;
   refreshToken: string;
@@ -30,7 +32,7 @@ export class GmailClient {
   private tokenInfo: TokenInfo;
   private refreshPromise: Promise<void> | null = null;
 
-  constructor(accountId: string, clientId: string, tokenInfo: TokenInfo, clientSecret?: string) {
+  constructor(accountId: string, clientId: string, tokenInfo: TokenInfo, clientSecret?: string, private tokenProvider?: GoogleTokenProvider) {
     this.accountId = accountId;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
@@ -52,7 +54,17 @@ export class GmailClient {
     return this.tokenInfo.accessToken;
   }
 
-  private async refreshToken(): Promise<void> {
+  private async refreshToken(invalidToken?: string): Promise<void> {
+    if (this.tokenProvider) {
+      const token = await this.tokenProvider(invalidToken);
+      this.tokenInfo = {...this.tokenInfo, ...token};
+      const db = await getDb();
+      await db.execute(
+        "UPDATE accounts SET access_token = $1, token_expires_at = $2, updated_at = unixepoch() WHERE id = $3",
+        [await encryptValue(token.accessToken), token.expiresAt, this.accountId],
+      );
+      return;
+    }
     const tokens: TokenResponse = await refreshAccessToken(
       this.tokenInfo.refreshToken,
       this.clientId,
@@ -122,7 +134,7 @@ export class GmailClient {
     if (response.status === 401) {
       // Token might have been revoked — force refresh through the mutex
       if (!this.refreshPromise) {
-        this.refreshPromise = this.refreshToken().finally(() => {
+        this.refreshPromise = this.refreshToken(token).finally(() => {
           this.refreshPromise = null;
         });
       }

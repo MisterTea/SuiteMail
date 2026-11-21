@@ -154,7 +154,9 @@ async function reconnectGmailAccount(account: {
   const encRefreshToken = await encryptValue(account.refreshToken);
   await db.execute(
     `UPDATE accounts
-     SET display_name = $1,
+     SET provider = 'gmail_api',
+         calendar_provider = 'google_api',
+         display_name = $1,
          avatar_url = $2,
          access_token = $3,
          refresh_token = $4,

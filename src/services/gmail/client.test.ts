@@ -152,3 +152,21 @@ describe("GmailClient.request", () => {
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 });
+
+describe('Android managed Gmail tokens',()=>{
+ afterEach(()=>vi.unstubAllGlobals());
+ it('shares native renewal across simultaneous requests without a refresh token',async()=>{
+  const native=vi.fn().mockResolvedValue({accessToken:'native-new',expiresAt:9999999999});
+  const client=new GmailClient('android','',{accessToken:'',refreshToken:'',expiresAt:0},undefined,native);
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(createMockFetchResponse({status:200,data:{id:'ok'}})));
+  await Promise.all([client.getProfile(),client.listLabels()]);
+  expect(native).toHaveBeenCalledOnce();expect(native).toHaveBeenCalledWith(undefined);
+  expect(fetch).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({headers:expect.objectContaining({Authorization:'Bearer native-new'})}));
+ });
+ it('invalidates a rejected native token on 401 and retries using its replacement',async()=>{
+  const native=vi.fn().mockResolvedValue({accessToken:'replacement',expiresAt:9999999999});
+  const client=new GmailClient('android','',{accessToken:'rejected',refreshToken:'',expiresAt:9999999999},undefined,native);
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(createMockFetchResponse({status:401})).mockResolvedValueOnce(createMockFetchResponse({status:200,data:{id:'ok'}})));
+  expect(await client.request('/profile')).toEqual({id:'ok'});expect(native).toHaveBeenCalledWith('rejected');
+ });
+});

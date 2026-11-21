@@ -52,7 +52,7 @@ Start an Android emulator in Android Studio, or use an existing configured AVD:
 npm run record:android
 ```
 
-The recording command installs the generated APK, runs all 20 email storyboards, all four AI/manual filter workflows, and a native backend smoke test. Set `ANDROID_SERIAL` if the emulator is not `emulator-5554`. No real email accounts, API keys, outgoing Internet emails, or paid AI requests are needed.
+The recording command installs the generated APK, runs all 20 email storyboards, all four AI/manual filter workflows, a native backend smoke test, and Android account setup checks. Set `ANDROID_SERIAL` if the emulator is not `emulator-5554`. No real email accounts, API keys, outgoing Internet emails, or paid AI requests are needed.
 
 Each scenario runs against the installed application's WebView at `https://localhost`, using its packaged production interface. Playwright connects directly to that app's debugging socket. Touch actions are dispatched as touch events to the real Android WebView. Android `screenrecord` records the emulator display as H.264 MP4, rather than recording a desktop browser resized to phone dimensions. The recorder signals only the screenrecord process it started.
 
@@ -80,7 +80,7 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 
 ## Preview limitations
 
-- Google sign-in needs an Android-specific OAuth implementation and credential setup. The Google choice opens IMAP/SMTP setup with app-password authentication selected. Use a Google app password where the account permits one; browser sign-in is not available in this preview.
+- Google (Gmail) now uses native device account authorization and Play services token renewal. The Android package/signing certificate must be registered in the Google Cloud project. See [Google account setup and validation](android-google.md). Actual live consent and mailbox access remain unverified pending project registration and a test account; IMAP app-password setup remains available.
 - Microsoft Graph's current dependency fails to compile on Android, so Graph is excluded from this build and hidden in the account chooser. The desktop integration remains enabled. EWS is compiled but has not been validated against a live Microsoft account on Android.
 - Proton Mail Bridge requires a desktop OS and is hidden on Android.
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.

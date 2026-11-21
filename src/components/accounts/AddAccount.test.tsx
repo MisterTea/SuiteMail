@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { authorizeAndroidGoogle } from "@/services/gmail/androidGoogleAuth";
 import { Capacitor } from "@capacitor/core";
 import { AddAccount } from "./AddAccount";
 import * as auth from "@/services/gmail/auth";
@@ -17,6 +18,8 @@ vi.mock("@/services/db/settings", () => ({
   getSetting: vi.fn().mockResolvedValue(null),
   getSecureSetting: vi.fn().mockResolvedValue(null),
 }));
+
+vi.mock("@/services/gmail/androidGoogleAuth", () => ({authorizeAndroidGoogle:vi.fn()}));
 
 describe("AddAccount - Gmail Flow", () => {
   const originalEnv = process.env.GMAIL_OAUTH_CLIENT_ID;
@@ -91,21 +94,23 @@ describe("AddAccount - Gmail Flow", () => {
 
 
 describe("Android Gmail entry", () => {
-  it("opens working password setup instead of a disabled Google choice or desktop OAuth", async () => {
+  it("uses native account authorization without desktop credentials or an app password", async () => {
     const previousMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockReturnValue({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()});
     const platform = vi.spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+    vi.mocked(authorizeAndroidGoogle).mockResolvedValue({
+      tokens:{access_token:"native-token",expires_in:600,token_type:"Bearer",scope:"gmail.modify"},
+      userInfo:{email:"native@gmail.com",name:"Native User",picture:""},
+    });
+    const success=vi.fn();
     try {
-      render(<AddAccount onClose={() => {}} onSuccess={() => {}} />);
-      const google = screen.getByRole("button", { name: /^Google \(Gmail\)/ });
-      expect(google).toBeEnabled();
-      fireEvent.click(google);
-      expect(await screen.findByRole("dialog", { name: "Add IMAP/SMTP Account" })).toBeInTheDocument();
-      fireEvent.change(screen.getByLabelText("Email Address"), { target: { value: "person@gmail.com" } });
-      fireEvent.blur(screen.getByLabelText("Email Address"));
-      await waitFor(() => expect(screen.getByText(/16-character App Password/)).toBeInTheDocument());
-      expect(screen.getByLabelText("Password")).toBeEnabled();
-      expect(screen.queryByRole("button", { name: "Sign in with Google" })).not.toBeInTheDocument();
+      render(<AddAccount onClose={() => {}} onSuccess={success} />);
+      fireEvent.click(screen.getByRole("button", { name: /^Google \(Gmail\)/ }));
+      await waitFor(()=>expect(success).toHaveBeenCalledOnce());
+      expect(authorizeAndroidGoogle).toHaveBeenCalledOnce();
+      const {saveGmailAccount}=await import("@/services/db/accounts");
+      expect(saveGmailAccount).toHaveBeenCalledWith(expect.objectContaining({email:"native@gmail.com",accessToken:"native-token",refreshToken:""}));
+      expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
     } finally {
       platform.mockRestore();
       window.matchMedia = previousMatchMedia;
