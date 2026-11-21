@@ -23,7 +23,8 @@
     "submodule:update": "git submodule update --init --recursive",
     "build:android": "node scripts/build-android.mjs",
     "record:android": "tsx scripts/record-android-emulator.ts",
-    "test:android": "playwright test --config=playwright.android.config.ts"
+    "test:android": "playwright test --config=playwright.android.config.ts",
+    "dev:android": "node scripts/dev-android.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

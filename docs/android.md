@@ -23,6 +23,26 @@ ANDROID_ABIS=arm64-v8a,x86_64 npm run build:android
 
 The Android build excludes both desktop Gmail environment credentials. Backups of app data are disabled. Production Capacitor configuration disallows mixed HTTP content; the debug build explicitly enables it for local fixtures and remote development AI servers. This APK is a development preview, not a Play Store release.
 
+## Live reload for day-to-day development
+
+Start an emulator (or connect an authorized USB Android device), then run:
+
+```sh
+npm run dev:android
+```
+
+The command starts Vite in Android mode, forwards port 1420 over adb, builds and installs a debug shell, and launches SuiteMail against the local development server. React and CSS edits update inside the actual Android app through Vite HMR. Native plugins and the Rust backend still run on the device. Some module changes require a full page reload; React Fast Refresh preserves component state when possible. The first run prepares missing native libraries and bundled assets automatically.
+
+No LAN IP or Wi-Fi setup is needed. Vite listens only on the computer's loopback interface. Port 1420 must be free. If multiple devices are connected, set `ANDROID_SERIAL`; set `ANDROID_ABIS=x86_64` for an Intel emulator. Desktop Gmail credentials remain excluded because Vite runs in Android mode.
+
+Kotlin/Java and Android resource changes take effect when restarting the command. For Rust changes, rebuild explicitly:
+
+```sh
+npm run dev:android -- --native
+```
+
+Ctrl+C stops the server, restores and reinstalls the bundled app, and launches it without the development server. Keep the device connected during shutdown. Bundled fallback assets are from the most recent normal build; use `npm run build:android` for a fresh packaged UI. Stopping forcibly (for example, killing the process without a signal) can leave the installed debug app expecting Vite; starting this command and stopping it normally restores it. The live URL is written only to ignored generated assets during debug assembly and restored immediately afterward. The source Capacitor configuration and distribution APK are not modified. Use `npm run record:android` for packaged-app verification, after stopping live reload.
+
 ## Emulator tests and MP4 recordings
 
 Start an Android emulator in Android Studio, or use an existing configured AVD:
