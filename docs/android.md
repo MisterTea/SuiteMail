@@ -80,7 +80,7 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 
 ## Preview limitations
 
-- Google (Gmail) now uses native device account authorization and Play services token renewal. The Android package/signing certificate must be registered in the Google Cloud project. See [Google account setup and validation](android-google.md). Actual live consent and mailbox access remain unverified pending project registration and a test account; IMAP app-password setup remains available.
+- Google (Gmail) now uses native device account authorization and Play services token renewal. The current debug package/signing certificate is registered in `bits-and-bytes`; a production certificate needs its own registration. See [Google account setup and validation](android-google.md). Actual live consent and mailbox access remain unverified pending a signed-in test account; IMAP app-password setup remains available.
 - Microsoft Graph's current dependency fails to compile on Android, so Graph is excluded from this build and hidden in the account chooser. The desktop integration remains enabled. EWS is compiled but has not been validated against a live Microsoft account on Android.
 - Proton Mail Bridge requires a desktop OS and is hidden on Android.
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.

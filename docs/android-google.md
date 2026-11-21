@@ -6,6 +6,19 @@ No Google password, desktop client secret, or Google refresh token is required o
 
 The requested permissions match SuiteMail's mail and calendar integration: Gmail modify (including read, send and label operations), Google profile/email, calendar read, and calendar events. Mail and calendar grants are checked before accepting an account, so declining them cannot create an account that immediately fails silent renewal. The selected identity is fetched from Google's userinfo endpoint; identity is not inferred from an arbitrary account name supplied by the frontend.
 
+## Current development registration
+
+Created and verified in Google Cloud Console on 2026-11-21:
+
+- Project: `bits-and-bytes` (Bits and Bytes).
+- Client name/type: **SuiteMail Android Debug**, Android.
+- Client ID: `650936081368-1d7sngg6b0dnu0p3os4qi3lkd5ffc0rp.apps.googleusercontent.com` (public identifier, not a secret; no need to embed it in the app).
+- Package: `com.suitemail.app`, restricted to the debug SHA-1 below.
+- Gmail and Calendar APIs: already enabled, verified in the Console.
+- Audience: already External / In production. The Console reports the existing unverified-sensitive-scope user cap; public distribution verification is still separate work. Existing project audience, branding, scope declarations, and other clients were not changed.
+
+Registration changes may take time to propagate. A production signing certificate needs a separate Android OAuth registration. This debug registration does not validate actual account consent or mailbox operations; see the validation limits below.
+
 ## Register the Android application with Google
 
 In the Google Cloud project used for SuiteMail:
@@ -46,6 +59,6 @@ Google configuration errors show the package/certificate registration requiremen
 
 The installed-APK emulator check opens the real Google authorization surface and cancels it, verifies no account was created, and verifies retry remains available. This emulator has no Google accounts. Unit tests cover selecting an account, verified profile lookup, cancellation, account mismatch, independent per-account renewal without refresh tokens, concurrent refresh, 401 invalidation/retry, and reconnection.
 
-A successful live consent, real Gmail sync/send, multiple actual device accounts, and consent revocation still require the project registration and test accounts. They are not claimed as validated by the cancellation smoke test. The API dependency is `com.google.android.gms:play-services-auth:22.0.0`; the implementation uses the current AuthorizationClient API, not the deprecated GoogleSignIn API. A separate Credential Manager app-login flow is unnecessary because SuiteMail is authorizing mailbox data access and reads the selected profile after authorization.
+A successful live consent, real Gmail sync/send, multiple actual device accounts, and consent revocation still require signed-in test accounts. They are not claimed as validated by the cancellation smoke test. The API dependency is `com.google.android.gms:play-services-auth:22.0.0`; the implementation uses the current AuthorizationClient API, not the deprecated GoogleSignIn API. A separate Credential Manager app-login flow is unnecessary because SuiteMail is authorizing mailbox data access and reads the selected profile after authorization.
 
 References: [Google Android authorization guide](https://developer.android.com/identity/authorization), [AuthorizationRequest account selection](https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationRequest.Builder).
