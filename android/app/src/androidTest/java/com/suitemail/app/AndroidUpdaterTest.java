@@ -92,14 +92,16 @@ public class AndroidUpdaterTest {
         ready.setAccessible(true); ready.set(updater, candidate);
         Method request = AndroidUpdaterPlugin.class.getDeclaredMethod("requestInstall", PluginCall.class);
         request.setAccessible(true);
+        CountDownLatch completed = new CountDownLatch(1);
         instrumentation.runOnMainSync(() -> {
             try {
                 request.invoke(updater, new PluginCall(null, "AndroidUpdater", "test-installer", "install", new JSObject()) {
-                    @Override public void resolve() {}
-                    @Override public void reject(String message, Exception exception) { throw new AssertionError(message, exception); }
+                    @Override public void resolve() { completed.countDown(); }
+                    @Override public void reject(String message, Exception exception) { completed.countDown(); throw new AssertionError(message, exception); }
                 });
             } catch (Exception e) { throw new AssertionError(e); }
         });
         instrumentation.waitForIdleSync();
+        assertTrue("Confirm or cancel the installer within 60 seconds", completed.await(60, TimeUnit.SECONDS));
     }
 }
