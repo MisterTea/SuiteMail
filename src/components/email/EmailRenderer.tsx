@@ -1,4 +1,5 @@
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { Capacitor } from "@capacitor/core";
 import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } from "react";
 import { ImageOff } from "lucide-react";
 import { platformOpenUrl as openUrl } from "@/platform";
@@ -33,6 +34,7 @@ export function EmailRenderer({
   onTrackersDetected,
 }: EmailRendererProps) {
   const androidMobile = useAndroidMobile();
+  const android = Capacitor.getPlatform() === "android";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const rafRef = useRef<number>(0);
@@ -157,8 +159,14 @@ export function EmailRenderer({
       -moz-text-size-adjust: 100%;
       text-size-adjust: 100%;
     }
+    ${android ? `
+    html { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #80868b #e8eaed; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #e8eaed; }
+    ::-webkit-scrollbar-thumb { background: #80868b; border-radius: 4px; }
+    ` : ""}
     body {
-      padding: ${isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
+      padding: ${android ? "0" : isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
       font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", system-ui, sans-serif;
       font-size: ${androidMobile ? 16 : 15}px;
       line-height: 1.65;
@@ -166,12 +174,12 @@ export function EmailRenderer({
       background: ${htmlDark ? "#f8f9fa" : "transparent"};
       word-wrap: break-word;
       overflow-wrap: break-word;
-      overflow-x: auto;
-      touch-action: pan-y pinch-zoom;
+      overflow-x: ${android ? "visible" : "auto"};
+      touch-action: ${android ? "pan-x pan-y pinch-zoom" : "pan-y pinch-zoom"};
     }
     @media (min-width: 640px) {
       body {
-        padding: ${isPlainText ? "8px 2px 14px 2px" : "16px"};
+        padding: ${android ? "0" : isPlainText ? "8px 2px 14px 2px" : "16px"};
         font-size: ${androidMobile ? 16 : 14}px;
         line-height: 1.6;
       }
@@ -220,11 +228,12 @@ export function EmailRenderer({
     // Calculate and set height synchronously before paint
     const applyHeight = () => {
       if (!doc.body) return;
-      const h = Math.max(
-        doc.body.scrollHeight,
-        doc.documentElement.scrollHeight,
-        doc.body.offsetHeight,
-      );
+      // Keep vertical scrolling in the thread. Reserve room for the horizontal
+      // scrollbar without including the iframe viewport's previous height.
+      const h = android
+        ? Math.max(doc.body.scrollHeight, doc.body.offsetHeight)
+          + (doc.documentElement.scrollWidth > doc.documentElement.clientWidth ? 8 : 0)
+        : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, doc.body.offsetHeight);
       if (h > 0) {
         iframe.style.height = h + "px";
       }
@@ -257,7 +266,7 @@ export function EmailRenderer({
       observerRef.current?.disconnect();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [bodyHtml, isDark, isPlainText]);
+  }, [bodyHtml, isDark, isPlainText, android, androidMobile]);
 
   const handleLoadImages = useCallback(() => {
     setOverrideShow(true);
@@ -271,7 +280,7 @@ export function EmailRenderer({
   }, [accountId, senderAddress]);
 
   return (
-    <div>
+    <div data-email-renderer className="min-w-0 max-w-full">
       {blocked && (
         <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
           <ImageOff size={14} className="text-text-tertiary shrink-0" />
@@ -297,8 +306,8 @@ export function EmailRenderer({
       <iframe
         ref={iframeRef}
         sandbox="allow-same-origin"
-        className={`w-full border-0 ${isDark && !isPlainText ? "rounded-md" : ""}`}
-        style={{ overflow: "hidden" }}
+        className={`block w-full max-w-full min-w-0 border-0 ${!android && isDark && !isPlainText ? "rounded-md" : ""}`}
+        style={{ overflow: android ? "auto" : "hidden" }}
         title="Email content"
       />
     </div>

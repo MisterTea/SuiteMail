@@ -25,7 +25,8 @@ export const test = isAndroid ? base.extend({
       await new Promise(r=>setTimeout(r,250));
     }
     if (!ready) throw new Error('SuiteMail WebView debugging endpoint did not start');
-    const browser = await chromium.connectOverCDP('http://127.0.0.1:9223');
+    // Android WebView does not implement browser-context download management.
+    const browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { noDefaults: true });
     const context = browser.contexts()[0]!;
     const page: Page = context.pages()[0] || await context.newPage();
     const cdp = await page.context().newCDPSession(page);

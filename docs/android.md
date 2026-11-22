@@ -81,6 +81,8 @@ Ctrl+C stops the server, restores and reinstalls the bundled app, and launches i
 
 ## Emulator tests and MP4 recordings
 
+Android messages render without an inset card or extra body padding. HTML content can scroll horizontally inside the message, while long threads retain vertical scrolling. `e2e/androidEmailLayout.spec.ts` checks full-width rendering, responsive content, fixed-width HTML, horizontal touch swipes, and vertical scrolling in the installed app. These scenarios passed on API 36 / WebView 133 on 2026-11-22. Use a current emulator image/WebView for the Playwright runner; older images can lack browser APIs required by the test tools and UI styles.
+
 Start an Android emulator in Android Studio, or use an existing configured AVD:
 
 ```sh

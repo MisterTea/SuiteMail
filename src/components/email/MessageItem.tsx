@@ -141,6 +141,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   return (
     <div
       ref={ref}
+      data-message-card
+      data-message-focused={focused || undefined}
       className={`rounded-xl border border-border-primary/60 bg-bg-primary/90 dark:bg-bg-secondary/40 shadow-xs overflow-hidden transition-all duration-150 ${
         isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""
       } ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`}
@@ -209,7 +211,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
       {/* Body — shown when expanded and image setting resolved */}
       {expanded && (
-        <div className="px-3.5 sm:px-5 pb-4 sm:pb-5 pt-2 border-t border-border-secondary/40">
+        <div data-message-body className="min-w-0 px-3.5 sm:px-5 pb-4 sm:pb-5 pt-2 border-t border-border-secondary/40">
           {!authBannerDismissed && (
             <AuthWarningBanner
               authResults={message.auth_results}
