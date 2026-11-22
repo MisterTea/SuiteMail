@@ -17,7 +17,7 @@ const javaHome = process.env.JAVA_HOME || (process.platform === 'darwin' ? '/App
 const cargoBin = path.join(os.homedir(), '.cargo/bin');
 const env = { ...process.env, ANDROID_HOME: sdk, ANDROID_NDK_HOME: ndkRoot, ...(javaHome ? {JAVA_HOME: javaHome} : {}), PATH: [cargoBin, ...(javaHome ? [path.join(javaHome,'bin')] : []), process.env.PATH].join(path.delimiter) };
 function run(command, args, extra = {}) {
-  const result = spawnSync(command, args, {cwd:root, env: {...env,...extra}, stdio:'inherit', shell: process.platform === 'win32'});
+  const result = spawnSync(command, args, {cwd:root, env: {...env,...extra}, stdio:'inherit'});
   if (result.status !== 0) throw new Error(`${command} failed (${result.status}): ${result.error || ''}`);
 }
 const abis = (process.env.ANDROID_ABIS || 'arm64-v8a').split(',');
@@ -38,15 +38,20 @@ for (const abi of abis) {
   fs.mkdirSync(destination,{recursive:true});
   fs.copyFileSync(path.join(root,'target',triple,'release/libsupermail_android.so'),path.join(destination,'libsupermail_android.so'));
 }
-run('npx',['tsc','--noEmit']);
-run('npx',['vite','build','--mode','android']);
-run('npx',['cap','sync','android']);
+run(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'--noEmit']);
+run(process.execPath,[path.join(root,'node_modules/vite/bin/vite.js'),'build','--mode','android']);
+run(process.execPath,[path.join(root,'node_modules/@capacitor/cli/bin/capacitor'),'sync','android']);
 // A debug APK can access the host fixture service through adb reverse. Release cannot.
 const configPath = path.join(root,'android/app/src/main/assets/capacitor.config.json');
 const config = JSON.parse(fs.readFileSync(configPath));
 config.android.allowMixedContent = !release;
 fs.writeFileSync(configPath,JSON.stringify(config));
-run(path.join(root, process.platform === 'win32' ? 'android/gradlew.bat' : 'android/gradlew'),['-p','android',`-PsuiteMailAbis=${abis.join(',')}`,...(release ? ['testDebugUnitTest', 'assembleRelease'] : ['assembleDebug'])]);
+const gradleArgs = ['-p','android',`-PsuiteMailAbis=${abis.join(',')}`,...(release ? ['testDebugUnitTest', 'assembleRelease'] : ['assembleDebug'])];
+if (process.platform === 'win32') {
+  run(javaHome ? path.join(javaHome, 'bin/java.exe') : 'java', ['-classpath',path.join(root,'android/gradle/wrapper/gradle-wrapper.jar'),'org.gradle.wrapper.GradleWrapperMain',...gradleArgs]);
+} else {
+  run(path.join(root,'android/gradlew'),gradleArgs);
+}
 const output = path.join(root,'dist-android');
 fs.mkdirSync(output,{recursive:true});
 const fileName = `SuiteMail-${version}-android${release ? '' : '-debug'}.apk`;

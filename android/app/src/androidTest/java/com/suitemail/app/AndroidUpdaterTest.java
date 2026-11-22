@@ -25,6 +25,9 @@ public class AndroidUpdaterTest {
         return new AndroidUpdaterPlugin() { @Override public Context getContext() { return context(); } };
     }
     private File fixture(String name) { return new File(context().getExternalFilesDir("updater-test"), name); }
+    @SuppressWarnings("deprecation") private long nextCode() throws Exception {
+        return context().getPackageManager().getPackageInfo(context().getPackageName(), 0).versionCode + 1L;
+    }
     private void verify(File file, long code) throws Exception {
         Method method = AndroidUpdaterPlugin.class.getDeclaredMethod("verify", File.class, long.class);
         method.setAccessible(true);
@@ -33,16 +36,18 @@ public class AndroidUpdaterTest {
     }
     @Test public void validatesSignedCandidateAndRejectsWrongCertificate() throws Exception {
         assertTrue("Push candidate.apk before running this test", fixture("candidate.apk").isFile());
-        verify(fixture("candidate.apk"), 1002);
-        try { verify(fixture("wrong-signer.apk"), 1002); fail("Accepted a different signing certificate"); }
+        File partial = new File(context().getCacheDir(), "test-update.part");
+        java.nio.file.Files.copy(fixture("candidate.apk").toPath(), partial.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        try { verify(partial, nextCode()); } finally { partial.delete(); }
+        try { verify(fixture("wrong-signer.apk"), nextCode()); fail("Accepted a different signing certificate"); }
         catch (Exception e) { assertTrue(e.getMessage(), e.getMessage().contains("certificate")); }
-        try { verify(fixture("candidate.apk"), 1003); fail("Accepted an unexpected version"); }
+        try { verify(fixture("candidate.apk"), nextCode() + 1); fail("Accepted an unexpected version"); }
         catch (Exception e) { assertTrue(e.getMessage(), e.getMessage().contains("version")); }
     }
     @Test public void rejectsMalformedApk() throws Exception {
         File file = new File(context().getCacheDir(), "invalid.apk");
         try (FileOutputStream output = new FileOutputStream(file)) { output.write(new byte[]{1, 2, 3}); }
-        try { verify(file, 1002); fail("Accepted a malformed APK"); }
+        try { verify(file, nextCode()); fail("Accepted a malformed APK"); }
         catch (Exception e) { assertTrue(e.getMessage(), e.getMessage().contains("not a SuiteMail")); }
         finally { file.delete(); }
     }
@@ -81,7 +86,7 @@ public class AndroidUpdaterTest {
     @Test public void opensInstallerForVerifiedCandidate() throws Exception {
         // Run this method separately when testing the permission and confirmation screens.
         org.junit.Assume.assumeTrue("true".equals(InstrumentationRegistry.getArguments().getString("openInstaller")));
-        verify(fixture("candidate.apk"), 1002);
+        verify(fixture("candidate.apk"), nextCode());
         android.app.Instrumentation instrumentation = InstrumentationRegistry.getInstrumentation();
         MainActivity activity = (MainActivity) instrumentation.startActivitySync(new Intent(context(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         AndroidUpdaterPlugin updater = (AndroidUpdaterPlugin) activity.getBridge().getPlugin("AndroidUpdater").getInstance();
