@@ -6,6 +6,7 @@ import com.getcapacitor.BridgeActivity;
 public class MainActivity extends BridgeActivity {
     @Override public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SuiteMailPlugin.class);
+        registerPlugin(AndroidUpdaterPlugin.class);
         registerPlugin(GoogleAccountsPlugin.class);
         registerPlugin(BackgroundMailPlugin.class);
         super.onCreate(savedInstanceState);

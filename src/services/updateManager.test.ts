@@ -50,6 +50,29 @@ describe("updateManager", () => {
     await expect(installUpdate()).rejects.toThrow("No update available");
   });
 
+  it("reports failed manual checks instead of treating them as up to date", async () => {
+    mockInvoke.mockRejectedValueOnce(new Error("Offline"));
+    await expect(checkForUpdateNow()).rejects.toThrow("Offline");
+    expect(mockInvoke).toHaveBeenCalledWith("check_for_updates", { manual: true });
+  });
+
+  it("clears an old available update after a successful empty check", async () => {
+    mockInvoke.mockResolvedValueOnce({ version: "0.5.0", body: null }).mockResolvedValueOnce(null);
+    await checkForUpdateNow();
+    expect(await checkForUpdateNow()).toBeNull();
+    expect(getAvailableUpdate()).toBeNull();
+  });
+
+  it("shares an in-flight check", async () => {
+    let resolve!: (value: unknown) => void;
+    mockInvoke.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const first = checkForUpdateNow();
+    const second = checkForUpdateNow();
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    resolve(null);
+    await Promise.all([first, second]);
+  });
+
   it("installs update when available", async () => {
     mockInvoke.mockResolvedValueOnce({
       version: "0.5.0",

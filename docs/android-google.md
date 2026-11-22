@@ -19,6 +19,18 @@ Created and verified in Google Cloud Console on 2026-11-21:
 
 Registration changes may take time to propagate. A production signing certificate needs a separate Android OAuth registration. Live Gmail downloads have now been verified for one emulator account; see the remaining validation limits below.
 
+## Direct-release certificate
+
+Signed GitHub APKs use a dedicated SuiteMail release key, separate from the debug key. Register an additional Android OAuth client in `bits-and-bytes` named **SuiteMail Android Release**, with package `com.suitemail.app` and SHA-1:
+
+```text
+AA:E9:58:45:36:43:75:03:45:88:07:AE:AD:CD:ED:BF:16:A6:30:9C
+```
+
+SHA-256: `38:BC:A7:B1:FE:75:F1:72:24:BC:71:43:85:CE:9E:3C:4C:91:62:51:44:F8:49:A5:64:80:8D:BE:74:D3:29:5B`.
+
+This registration is required before Gmail authentication can work in release-signed APKs. It has **not yet been completed or verified**. Keep the existing debug client for development. No OAuth secret is bundled in the APK.
+
 ## Register the Android application with Google
 
 In the Google Cloud project used for SuiteMail:

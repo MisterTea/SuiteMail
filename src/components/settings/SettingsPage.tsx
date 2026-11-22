@@ -1780,10 +1780,11 @@ function DeveloperTab() {
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [updateCheckDone, setUpdateCheckDone] = useState(false);
   const [installingUpdate, setInstallingUpdate] = useState(false);
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      setAppVersion("0.1.0");
+      setAppVersion(await window.supermail?.invoke?.<string>("get_app_version") ?? "0.1.0");
 
       // Extract WebView version from user agent
       const ua = navigator.userAgent;
@@ -1794,7 +1795,7 @@ function DeveloperTab() {
       const isMac = /macintosh|mac os x/i.test(ua);
       const isWin = /windows/i.test(ua);
       const isLinux = /linux/i.test(ua);
-      setPlatformLabel(isMac ? "macOS" : isWin ? "Windows" : isLinux ? "Linux" : "Desktop");
+      setPlatformLabel(/android/i.test(ua) ? "Android" : isMac ? "macOS" : isWin ? "Windows" : isLinux ? "Linux" : "Desktop");
 
       // Check if there's already a known update
       const { getAvailableUpdate } = await import("@/services/updateManager");
@@ -1806,6 +1807,7 @@ function DeveloperTab() {
 
   const handleCheckForUpdate = async () => {
     setCheckingForUpdate(true);
+    setUpdateError(null);
     setUpdateCheckDone(false);
     setUpdateVersion(null);
     try {
@@ -1818,7 +1820,7 @@ function DeveloperTab() {
       }
     } catch (err) {
       console.error("Update check failed:", err);
-      setUpdateCheckDone(true);
+      setUpdateError(err instanceof Error ? err.message : "Could not check for updates. Try again.");
     } finally {
       setCheckingForUpdate(false);
     }
@@ -1826,11 +1828,14 @@ function DeveloperTab() {
 
   const handleInstallUpdate = async () => {
     setInstallingUpdate(true);
+    setUpdateError(null);
     try {
       const { installUpdate } = await import("@/services/updateManager");
       await installUpdate();
     } catch (err) {
       console.error("Update install failed:", err);
+      setUpdateError(err instanceof Error ? err.message : "Update failed. Try again.");
+    } finally {
       setInstallingUpdate(false);
     }
   };
@@ -1839,7 +1844,7 @@ function DeveloperTab() {
     <>
       <Section title="App Info">
         <InfoRow label="App version" value={appVersion || "..."} />
-        <InfoRow label="Desktop framework" value="Electron" />
+        <InfoRow label="App framework" value={platformLabel === "Android" ? "Capacitor" : "Electron"} />
         <InfoRow label="WebView version" value={webviewVersion || "..."} />
         <InfoRow label="Platform" value={platformLabel} />
       </Section>
@@ -1848,6 +1853,7 @@ function DeveloperTab() {
         <div className="flex items-center justify-between">
           <div>
             <span className="text-sm text-text-secondary">Software updates</span>
+            {updateError && <p role="alert" className="text-xs text-danger mt-0.5">{updateError}</p>}
             {updateVersion && (
               <p className="text-xs text-accent mt-0.5">
                 v{updateVersion} available
@@ -1866,7 +1872,7 @@ function DeveloperTab() {
                 onClick={handleInstallUpdate}
                 disabled={installingUpdate}
               >
-                {installingUpdate ? "Updating..." : "Update & Restart"}
+                {installingUpdate ? "Updating..." : platformLabel === "Android" ? "Update Now" : "Update & Restart"}
               </Button>
             ) : (
               <Button

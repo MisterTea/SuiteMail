@@ -4,6 +4,26 @@ The `codex/android` branch adds an installable Android application using Capacit
 
 ## Build
 
+### Signed GitHub releases and app updates
+
+The release workflow builds a signed `SuiteMail-X.Y.Z-android.apk` containing ARM64 and x86_64 libraries alongside desktop artifacts. Version names come from `package.json`, and tag builds require a matching `vX.Y.Z` tag. Android version codes use `1 + major * 1000000 + minor * 1000 + patch`; minor and patch must each be at most 999, and major at most 2146. Always increase the version when publishing an update. Manual workflow runs upload artifacts without creating a release.
+
+The app checks public `MisterTea/SuiteMail` GitHub releases at startup, every four hours while running, and on resume when due. Automatic check times persist across restarts. Settings offers a manual check. Drafts, prereleases, old versions, and releases without the named APK are ignored. No GitHub credentials are shipped to devices. Checks do not run through a scheduled background worker.
+
+Tap **Update Now** to download into private cache. SuiteMail checks the APK's package ID, newer version code, and certificate against the installed app, then opens Android's installer. Android may first ask you to allow SuiteMail to install from this source. You must confirm installation. Updates preserve existing app data; cancelling leaves the current version installed and allows retry.
+
+**One-time migration:** the old preview APK is debug-signed and cannot be updated with the new release key. Uninstalling it erases local accounts, downloaded mail, settings, and drafts. Save anything needed before uninstalling, install the signed release APK manually, and reconnect accounts. Subsequent signed releases update in place. Gmail in release APKs requires the additional certificate registration described in [Google account setup](android-google.md#direct-release-certificate).
+
+Repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. CI restores the keystore only in runner temporary storage and removes it on exit. Release assembly fails when signing variables are missing. Never regenerate this identity for routine releases. The initial backup is in `C:\Users\JasonGauci\.suitemail-signing`, restricted to that Windows account; keep an additional secure backup because GitHub secrets cannot be downloaded later.
+
+For a local signed build, set those signing variables plus `ANDROID_KEYSTORE_PATH` (the local keystore file), use JDK 21, and run:
+
+```sh
+ANDROID_ABIS=arm64-v8a,x86_64 npm run build:android -- --release
+```
+
+The default command below remains a debug build for development. The direct APK updater must be removed or disabled before distributing a build through Google Play.
+
 Requirements: Node 24+, npm, a rustup-managed stable Rust toolchain, JDK 21 (Android Studio's bundled JDK works), Android SDK platform 36, and an Android NDK installed under the SDK's `ndk/` directory.
 
 On macOS, the script finds the SDK at `~/Library/Android/sdk` and Android Studio's bundled JDK automatically. On other systems set `ANDROID_HOME` and `JAVA_HOME`. Set `ANDROID_NDK_HOME` to choose a specific installed NDK.

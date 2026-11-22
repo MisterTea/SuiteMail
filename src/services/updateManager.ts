@@ -13,26 +13,35 @@ let availableUpdate: { info: UpdateInfo; raw: unknown } | null = null;
 let callback: UpdateCallback | null = null;
 let unsubscribeAvailable: (() => void) | null = null;
 
-async function performCheck(): Promise<void> {
+let pendingCheck: Promise<void> | null = null;
+
+async function performCheck(manual = false): Promise<void> {
   if (typeof window !== "undefined" && window.supermail?.invoke) {
-    try {
-      const update = await window.supermail.invoke<{ version: string; body: string | null } | null>("check_for_updates");
-      if (update) {
-        availableUpdate = {
-          info: { version: update.version, body: update.body ?? null },
-          raw: update,
-        };
-        callback?.(availableUpdate.info);
-      }
-    } catch {}
+    const update = await window.supermail.invoke<{ version: string; body: string | null } | null>("check_for_updates", { manual });
+    if (update) {
+      availableUpdate = {
+        info: { version: update.version, body: update.body ?? null },
+        raw: update,
+      };
+      callback?.(availableUpdate.info);
+    } else availableUpdate = null;
   }
+}
+
+function check(manual: boolean): Promise<void> {
+  if (!pendingCheck) pendingCheck = performCheck(manual).finally(() => { pendingCheck = null; });
+  return pendingCheck;
+}
+
+export async function checkForUpdateAutomatically(): Promise<void> {
+  try { await check(false); } catch (error) { console.warn("Update check failed:", error); }
 }
 
 const FOUR_HOURS = 4 * 60 * 60 * 1000;
 
 export function startUpdateChecker(): void {
   if (checker) return;
-  checker = createBackgroundChecker("update-checker", performCheck, FOUR_HOURS);
+  checker = createBackgroundChecker("update-checker", checkForUpdateAutomatically, FOUR_HOURS);
   checker.start();
 
   if (typeof window !== "undefined" && window.supermail?.on) {
@@ -60,7 +69,7 @@ export function stopUpdateChecker(): void {
 }
 
 export async function checkForUpdateNow(): Promise<UpdateInfo | null> {
-  await performCheck();
+  await check(true);
   return availableUpdate?.info ?? null;
 }
 
