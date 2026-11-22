@@ -40,11 +40,13 @@ export const useAccountStore = create<AccountState>((set) => ({
     set({ activeAccountId });
   },
 
-  addAccount: (account) =>
+  addAccount: (account) => {
+    setSetting("active_account_id", account.id).catch(() => {});
     set((state) => ({
       accounts: [...state.accounts, account],
-      activeAccountId: state.activeAccountId ?? account.id,
-    })),
+      activeAccountId: account.id,
+    }));
+  },
 
   removeAccount: (id) =>
     set((state) => {

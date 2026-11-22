@@ -4,11 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["node", "graph"]
+graph = ["dep:io-msgraph"]
+node = ["dep:napi", "dep:napi-derive", "dep:napi-build"]
 
 [dependencies]
-napi = { version = "2.16", default-features = false, features = ["async", "tokio_rt", "serde-json"] }
-napi-derive = "2.16"
+napi = { version = "2.16", optional = true, default-features = false, features = ["async", "tokio_rt", "serde-json"] }
+napi-derive = { version = "2.16", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
@@ -27,7 +32,7 @@ utf7-imap = "0.3"
 socket2 = "0.5"
 rusqlite = { version = "0.32", features = ["bundled"] }
 quick-xml = "0.37"
-io-msgraph = "0.9.3"
+io-msgraph = { version = "0.9.3", optional = true }
 
 [build-dependencies]
-napi-build = "2"
+napi-build = { version = "2", optional = true }

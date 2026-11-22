@@ -1,3 +1,6 @@
+import { openThreadDraft } from "@/services/draft/openThreadDraft";
+import { mapDbThread } from "@/services/db/mapThread";
+import { useToastStore } from "@/stores/toastStore";
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { ThreadCard } from "../email/ThreadCard";
@@ -9,21 +12,18 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadsForLabels, getThreadsForOtherInbox, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadsForLabels, getThreadsForOtherInbox } from "@/services/db/threads";
 import { gmailNavSpec, gmailViewLabelIds } from "@/constants/gmailSidebar";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
-import { getGmailClient } from "@/services/gmail/tokenManager";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
-import { getMessagesForThread } from "@/services/db/messages";
-import { peelDraftContract } from "@/services/contracts/contractMessage";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
-import { markThreadRead, starThread } from "@/services/emailActions";
+import { archiveThread, trashThread, permanentDeleteThread, spamThread, markThreadRead, starThread } from "@/services/emailActions";
 import { BatchActionBar } from "../email/BatchActionBar";
 import { MoveToFolderDialog } from "../email/MoveToFolderDialog";
 import { Trash2, X, Filter, ChevronRight, Package, FolderSearch, Pin, PenSquare, Menu, RotateCcw, Search, RefreshCw } from "lucide-react";
@@ -63,7 +63,6 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const isLoading = useThreadStore((s) => s.isLoading);
   const setThreads = useThreadStore((s) => s.setThreads);
   const setLoading = useThreadStore((s) => s.setLoading);
-  const removeThreads = useThreadStore((s) => s.removeThreads);
   const updateThread = useThreadStore((s) => s.updateThread);
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
@@ -104,7 +103,6 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const multiSelectCount = selectedThreadIds.size;
 
-  const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
@@ -112,62 +110,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     openMenu("thread", { x: e.clientX, y: e.clientY }, { threadId });
   }, [openMenu]);
 
-  const handleDraftClick = useCallback(async (thread: Thread) => {
-    if (!activeAccountId) return;
-    try {
-      const messages = await getMessagesForThread(activeAccountId, thread.id);
-      // Get the last message (the draft)
-      const draftMsg = messages[messages.length - 1];
-      if (!draftMsg) return;
-
-      // Look up the Gmail draft ID so auto-save can update the existing draft
-      let draftId: string | null = null;
-      try {
-        const client = await getGmailClient(activeAccountId);
-        const drafts = await client.listDrafts();
-        const match = drafts.find((d) => d.message.id === draftMsg.id);
-        if (match) draftId = match.id;
-      } catch {
-        // If we can't get draft ID, composer will create a new draft on save
-      }
-
-      const to = draftMsg.to_addresses
-        ? draftMsg.to_addresses.split(",").map((a) => a.trim()).filter(Boolean)
-        : [];
-      const cc = draftMsg.cc_addresses
-        ? draftMsg.cc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
-        : [];
-      const bcc = draftMsg.bcc_addresses
-        ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
-        : [];
-
-      const peeled = peelDraftContract(draftMsg.body_html ?? draftMsg.body_text ?? "");
-      openComposer({
-        mode: "new",
-        to,
-        cc,
-        bcc,
-        subject: draftMsg.subject ?? "",
-        bodyHtml: peeled.html,
-        threadId: thread.id,
-        draftId,
-        contractActive: peeled.contractText != null,
-        contractText: peeled.contractText ?? "",
-      });
-      // Set initial saved timestamp so resumed draft immediately shows "Saved" status
-      useComposerStore.getState().setLastSavedAt(draftMsg.date ? draftMsg.date * 1000 : Date.now());
-    } catch (err) {
-      console.error("Failed to open draft:", err);
-    }
-  }, [activeAccountId, openComposer]);
 
   const handleThreadClick = useCallback((thread: Thread) => {
     if (activeLabel === "drafts" || thread.labelIds.includes("DRAFT")) {
-      handleDraftClick(thread);
+      void openThreadDraft(thread);
     } else {
       navigateToThread(thread.id);
     }
-  }, [activeLabel, handleDraftClick]);
+  }, [activeLabel]);
 
   const [showEmptyTrashConfirm, setShowEmptyTrashConfirm] = useState(false);
   const [isEmptyingTrash, setIsEmptyingTrash] = useState(false);
@@ -176,15 +126,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || threads.length === 0) return;
     setIsEmptyingTrash(true);
     const ids = threads.map((t) => t.id);
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(
-        ids.map(async (id) => {
-          await client.deleteThread(id);
-          await deleteThreadFromDb(activeAccountId, id);
-        }),
-      );
+      await Promise.all(ids.map((id) => permanentDeleteThread(activeAccountId, id, [])));
     } catch (err) {
       console.error("Empty trash failed:", err);
     } finally {
@@ -197,17 +140,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || multiSelectCount === 0) return;
     const isTrashView = activeLabel === "trash";
     const ids = [...selectedThreadIds];
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map(async (id) => {
-        if (isTrashView) {
-          await client.deleteThread(id);
-          await deleteThreadFromDb(activeAccountId, id);
-        } else {
-          await client.modifyThread(id, ["TRASH"], ["INBOX"]);
-        }
-      }));
+      await Promise.all(ids.map((id) => isTrashView
+        ? permanentDeleteThread(activeAccountId, id, [])
+        : trashThread(activeAccountId, id, [])));
     } catch (err) {
       console.error("Bulk delete failed:", err);
     }
@@ -216,10 +152,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const handleBulkArchive = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map((id) => client.modifyThread(id, undefined, ["INBOX"])));
+      const results = await Promise.all(ids.map((id) => archiveThread(activeAccountId, id, [])));
+      const completed = results.filter(result=>result.success).length;
+      useToastStore.getState().showToast({message:completed === ids.length ? `${completed} conversations archived` : `${completed} of ${ids.length} archived. Some actions need retry.`,duration:7000});
     } catch (err) {
       console.error("Bulk archive failed:", err);
     }
@@ -229,14 +165,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
     const isSpamView = activeLabel === "spam";
-    removeThreads(ids);
     try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map((id) =>
-        isSpamView
-          ? client.modifyThread(id, ["INBOX"], ["SPAM"])
-          : client.modifyThread(id, ["SPAM"], ["INBOX"]),
-      ));
+      await Promise.all(ids.map((id) => spamThread(activeAccountId, id, [], !isSpamView)));
     } catch (err) {
       console.error("Bulk spam failed:", err);
     }
@@ -319,30 +249,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   );
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
-    const filteredDbThreads = dbThreads.filter((t) => t.is_filtered === undefined || t.is_filtered === null || t.is_filtered === 1);
-    return Promise.all(
-      filteredDbThreads.map(async (t) => {
-        const labelIds = await getThreadLabelIds(t.account_id, t.id);
-        return {
-          id: t.id,
-          accountId: t.account_id,
-          subject: t.subject,
-          snippet: t.snippet,
-          lastMessageAt: t.last_message_at ?? 0,
-          messageCount: t.message_count,
-          isRead: t.is_read === 1,
-          isStarred: t.is_starred === 1,
-          isPinned: t.is_pinned === 1,
-          isMuted: t.is_muted === 1,
-          hasAttachments: t.has_attachments === 1,
-          labelIds,
-          fromName: t.from_name,
-          fromAddress: t.from_address,
-          toAddresses: t.to_addresses ?? null,
-          isFiltered: t.is_filtered !== undefined && t.is_filtered !== null ? t.is_filtered === 1 : true,
-        };
-      }),
-    );
+    return Promise.all(dbThreads.filter((thread) => thread.is_filtered == null || thread.is_filtered === 1).map(mapDbThread));
   }, []);
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
@@ -576,8 +483,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       timer = setTimeout(() => loadThreads(), 500);
     };
     window.addEventListener("suitemail-sync-done", handler);
+    window.addEventListener("suitemail-sync-progress", handler);
     return () => {
       window.removeEventListener("suitemail-sync-done", handler);
+      window.removeEventListener("suitemail-sync-progress", handler);
       if (timer) clearTimeout(timer);
     };
   }, [loadThreads, activeAccountId, activeLabel]);
@@ -734,7 +643,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       {/* Thread list */}
       <div
         ref={scrollContainerRef}
-        className={`flex-1 overflow-y-auto ${multiSelectCount > 0 ? "pb-20" : ""}`}
+        data-email-scroll className={`flex-1 overflow-y-auto ${multiSelectCount > 0 ? "pb-20" : ""}`}
       >
         {isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
@@ -879,7 +788,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       >
         <div
           ref={multiSelectBarRef}
-          className="absolute bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto"
+          data-bulk-anchor className="absolute bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-5 left-1/2 -translate-x-1/2 z-30 pointer-events-auto"
         >
           <BatchActionBar
             selectedCount={multiSelectCount}

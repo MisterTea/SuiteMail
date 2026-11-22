@@ -1,3 +1,5 @@
+import { readAttachmentBytes } from "@/services/attachments/readAttachmentBytes";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { platformSaveFile } from "@/platform";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
@@ -26,6 +28,8 @@ interface AttachmentListProps {
 }
 
 export function AttachmentList({ accountId, messageId, attachments, referencedCids }: AttachmentListProps) {
+  const android = useAndroidMobile();
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<DbAttachment | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
@@ -46,6 +50,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
     e?.stopPropagation();
     if (!att.gmail_attachment_id || downloadingId === att.id) return;
     setDownloadingId(att.id);
+    setDownloadError(null);
     try {
       const provider = await getEmailProvider(accountId);
       const response = await provider.fetchAttachment(messageId, att.gmail_attachment_id);
@@ -58,6 +63,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
       await platformSaveFile(att.filename ?? "attachment", bytes);
     } catch (err) {
       console.error("Failed to save attachment:", err);
+      setDownloadError("Couldn’t download the attachment. Try Download again.");
     } finally {
       setDownloadingId(null);
     }
@@ -76,6 +82,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
   return (
     <>
       <div className="mt-3 pt-3 border-t border-border-secondary">
+        {downloadError && <p role="alert" className="text-sm text-danger">{downloadError}</p>}
         {/* Header bar */}
         <div className="flex items-center justify-between gap-2 mb-2.5">
           <div className="flex items-center gap-1.5 text-xs text-text-tertiary">
@@ -92,6 +99,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
 
           {fileAttachments.length > 1 && (
             <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
               onClick={handleDownloadAll}
               className="inline-flex items-center gap-1 text-[11px] font-medium text-text-tertiary hover:text-accent transition-colors py-0.5 px-1.5 rounded hover:bg-bg-hover"
               title="Download all attachments"
@@ -111,6 +119,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
             return (
               <div
                 key={att.id}
+                style={android ? { flexWrap: "wrap" } : undefined}
                 onClick={() => setPreview(att)}
                 role="button"
                 tabIndex={0}
@@ -128,7 +137,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                 {/* File details */}
                 <div className="flex flex-col min-w-0 flex-1">
                   <span
-                    className="text-xs font-medium text-text-primary truncate"
+                    className={android ? "text-base font-medium text-text-primary break-all" : "text-xs font-medium text-text-primary truncate"}
                     title={att.filename ?? undefined}
                   >
                     {att.filename ?? "Unnamed"}
@@ -145,9 +154,10 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                 </div>
 
                 {/* Touch/hover action buttons */}
-                <div className="flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                <div className={android ? "flex flex-wrap gap-2 w-full" : "flex items-center gap-1 shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity"}>
                   {isPreviewable && (
                     <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -157,10 +167,11 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                       title="Preview"
                       aria-label={`Preview ${att.filename ?? "file"}`}
                     >
-                      <Eye size={14} />
+                      <Eye size={14} />{android && <span>Open</span>}
                     </button>
                   )}
                   <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                     type="button"
                     onClick={(e) => handleDownloadAttachment(att, e)}
                     disabled={downloadingId === att.id}
@@ -168,7 +179,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                     title="Download"
                     aria-label={`Download ${att.filename ?? "file"}`}
                   >
-                    <Download size={14} />
+                    <Download size={14} />{android && <span>{downloadingId === att.id ? "Downloading…" : "Download"}</span>}
                   </button>
                 </div>
               </div>
@@ -200,6 +211,7 @@ export function AttachmentPreview({
   messageId: string;
   onClose: () => void;
 }) {
+  const android = useAndroidMobile();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
@@ -211,22 +223,14 @@ export function AttachmentPreview({
   const fetchData = useCallback(async (): Promise<Uint8Array> => {
     if (bytesRef.current) return bytesRef.current;
 
-    const provider = await getEmailProvider(accountId);
-    const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id!);
-
-    // Normalize URL-safe base64 (Gmail API) to standard base64
-    const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-    const binaryStr = atob(base64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
+    const bytes = await readAttachmentBytes({ ...attachment, account_id: accountId, message_id: messageId });
+    if (!bytes) throw new Error("Attachment is unavailable");
     bytesRef.current = bytes;
     return bytes;
-  }, [accountId, messageId, attachment.gmail_attachment_id]);
+  }, [accountId, messageId, attachment]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if (!attachment.gmail_attachment_id || !isPreviewable || blobUrl) return;
+    if (!isPreviewable || blobUrl) return;
 
     setLoading(true);
     try {
@@ -252,7 +256,7 @@ export function AttachmentPreview({
   }, [isPreviewable, blobUrl, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
-    if (!attachment.gmail_attachment_id || saving) return;
+    if (saving) return;
 
     setSaving(true);
     try {
@@ -293,6 +297,7 @@ export function AttachmentPreview({
       </div>
       <div className="flex items-center gap-2 shrink-0 ml-4">
         <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
           onClick={handleDownload}
           disabled={saving}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50 shadow-2xs"
@@ -301,6 +306,7 @@ export function AttachmentPreview({
           {saving ? "Saving..." : "Download"}
         </button>
         <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
           onClick={handleClose}
           className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors text-lg leading-none"
           title="Close"

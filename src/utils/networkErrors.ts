@@ -87,6 +87,9 @@ export function classifyError(error: unknown): ClassifiedError {
 export function formatSyncError(rawError: string): string {
   const lower = rawError.toLowerCase();
 
+  if (lower.includes("ratelimitexceeded") || lower.includes("rate_limit_exceeded") || lower.includes("quota exceeded")) {
+    return "Gmail is temporarily limiting downloads. Saved mail is available; sync will retry automatically.";
+  }
   if (AUTH_PATTERNS.some((p) => lower.includes(p))) {
     return "Authentication failed \u2014 check your password";
   }

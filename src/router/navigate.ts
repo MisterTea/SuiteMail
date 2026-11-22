@@ -4,7 +4,7 @@ import { GMAIL_NAV_SPECS } from "@/constants/gmailSidebar";
 /** Known system labels that map to /mail/$label */
 const SYSTEM_LABELS = new Set([
   "inbox", "starred", "snoozed", "sent", "drafts", "trash", "spam", "all",
-  "focused", "other",
+  "focused", "other", "unified",
   ...GMAIL_NAV_SPECS.map((spec) => spec.id),
 ]);
 

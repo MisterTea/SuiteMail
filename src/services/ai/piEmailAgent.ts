@@ -144,34 +144,6 @@ function extractTextToolCall(content: string): { toolName: string; args: Record<
 export async function runPiEmailAgent(options: PiAgentOptions): Promise<PiAgentResult> {
   const { question, accountId, maxSteps = 5 } = options;
 
-  // On Android, use AICore with Max AI mode instead of running a local Llama server.
-  // For desktop, continue to use local Llama server.
-  let isAndroid = false;
-  try {
-    isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
-  } catch {}
-
-  if (isAndroid) {
-    const { createAiCoreProvider } = await import("./providers/aicoreProvider");
-    const aicoreModel = (await getSetting("aicore_model")) ?? "gemma-4-26b";
-    const provider = createAiCoreProvider(aicoreModel);
-    const content = await provider.complete({
-      systemPrompt: PI_AGENT_SYSTEM_PROMPT,
-      userContent: question,
-    });
-    return {
-      answer: content.trim(),
-      sourceMessages: [],
-      toolCallsExecuted: [
-        {
-          tool: "aicore_generate",
-          args: { model: aicoreModel, mode: "max" },
-          output: "Processed on-device via Android AICore (Max AI Mode)",
-        },
-      ],
-    };
-  }
-
   let serverUrl = options.serverUrl ?? DEFAULT_PI_SERVER_URL;
   let client: OpenAI;
   let model: string;
@@ -567,18 +539,7 @@ export async function suggestFilterWithPiAgent(
 
   let complete: Parameters<typeof runPiFilterRuntime>[0]["complete"];
   let model: string;
-  if (typeof navigator !== "undefined" && /android/i.test(navigator.userAgent)) {
-    const { createAiCoreProvider } = await import("./providers/aicoreProvider");
-    model = (await getSetting("aicore_model")) ?? "gemma-4-26b";
-    const provider = createAiCoreProvider(model);
-    complete = async (messages) => ({
-      role: "assistant", refusal: null,
-      content: await provider.complete({
-        systemPrompt: `${PI_FILTER_AGENT_SYSTEM_PROMPT}\nAvailable tools: ${JSON.stringify(tools.map(({ name, description, parameters }) => ({ name, description, parameters })))}\nUse JSON text tool calls.`,
-        userContent: JSON.stringify(messages),
-      }),
-    });
-  } else {
+  {
     let serverUrl = options.serverUrl ?? DEFAULT_PI_SERVER_URL;
     let client: OpenAI;
     try { ({ client, model, serverUrl } = await openPiClient(options)); }

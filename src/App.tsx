@@ -1,3 +1,4 @@
+import { startAttachmentIndex, stopAttachmentIndex } from "@/services/attachments/attachmentIndex";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Outlet } from "@tanstack/react-router";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -23,6 +24,8 @@ import {
   triggerSync,
   onSyncStatus,
 } from "./services/gmail/syncManager";
+import { App as AndroidApp } from "@capacitor/app";
+import { hasAndroidBackgroundSync, importBackgroundMail } from "./services/gmail/androidBackgroundSync";
 import { initializeClients } from "./services/gmail/tokenManager";
 import {
   startSnoozeChecker,
@@ -357,6 +360,8 @@ export default function App() {
 
         // Initialize Gmail clients for existing accounts
         await initializeClients();
+        await initNotifications();
+        await importBackgroundMail();
 
         // Fetch send-as aliases in background for active Gmail accounts
         const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
@@ -386,9 +391,7 @@ export default function App() {
         startBundleChecker();
         startQueueProcessor();
         startPreCacheManager();
-
-        // Initialize notifications
-        await initNotifications();
+        startAttachmentIndex();
 
         // Initialize global compose shortcut
         await initGlobalShortcut();
@@ -426,6 +429,7 @@ export default function App() {
       stopBundleChecker();
       stopQueueProcessor();
       stopPreCacheManager();
+    stopAttachmentIndex();
       stopUpdateChecker();
       unregisterComposeShortcut();
       deepLinkCleanupRef.current?.();
@@ -467,6 +471,22 @@ export default function App() {
       cancelled = true;
     };
   }, [initialized, accountCount]);
+
+  useEffect(() => {
+    if (!initialized || !hasAndroidBackgroundSync()) return;
+    let disposed=false;
+    let foreground=true;
+    const onStateChange=({isActive}:{isActive:boolean})=>{
+      foreground=isActive;
+      if(!isActive){stopBackgroundSync();return;}
+      importBackgroundMail().catch(error=>console.warn("Background mail import failed:",error)).finally(()=>{
+        if(!disposed && foreground)startBackgroundSync(useAccountStore.getState().accounts.filter(account=>account.isActive).map(account=>account.id));
+      });
+    };
+    const listener=AndroidApp.addListener("appStateChange",onStateChange);
+    AndroidApp.getState().then(state=>{if(!disposed && !state.isActive)onStateChange(state);}).catch(()=>{});
+    return ()=>{disposed=true;listener.then(handle=>handle.remove());};
+  },[initialized]);
 
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
@@ -564,14 +584,15 @@ export default function App() {
 
   const handleAddAccountSuccess = useCallback(async () => {
     setShowAddAccount(false);
+    const addedAccountId = useAccountStore.getState().activeAccountId;
     const dbAccounts = await getAllAccounts();
     const mapped = toStoreAccounts(dbAccounts);
-    useAccountStore.getState().setAccounts(mapped);
+    useAccountStore.getState().setAccounts(mapped, addedAccountId);
 
     // Re-initialize clients for the new account
     await initializeClients();
 
-    const newest = mapped[mapped.length - 1];
+    const newest = mapped.find((account) => account.id === addedAccountId);
     if (newest) {
       // Sync the new account immediately — before restarting the background
       // timer so it doesn't queue behind delta syncs for existing accounts.
@@ -617,7 +638,7 @@ export default function App() {
         <div className="blob" />
       </div>
       <TitleBar />
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div data-app-content className="flex flex-1 min-w-0 overflow-hidden">
         <DndProvider>
           <ErrorBoundary name="Sidebar">
             <Sidebar

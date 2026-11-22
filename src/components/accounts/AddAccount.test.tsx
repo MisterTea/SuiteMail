@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { authorizeAndroidGoogle } from "@/services/gmail/androidGoogleAuth";
+import { Capacitor } from "@capacitor/core";
 import { AddAccount } from "./AddAccount";
 import * as auth from "@/services/gmail/auth";
 import * as tokenManager from "@/services/gmail/tokenManager";
@@ -13,9 +15,12 @@ vi.mock("@/services/db/accounts", () => ({
 }));
 
 vi.mock("@/services/db/settings", () => ({
+  setSetting: vi.fn().mockResolvedValue(undefined),
   getSetting: vi.fn().mockResolvedValue(null),
   getSecureSetting: vi.fn().mockResolvedValue(null),
 }));
+
+vi.mock("@/services/gmail/androidGoogleAuth", () => ({authorizeAndroidGoogle:vi.fn()}));
 
 describe("AddAccount - Gmail Flow", () => {
   const originalEnv = process.env.GMAIL_OAUTH_CLIENT_ID;
@@ -85,5 +90,31 @@ describe("AddAccount - Gmail Flow", () => {
     const setupTitle = await screen.findByText("Google API Setup");
     expect(setupTitle).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Paste your Client ID here...")).toBeInTheDocument();
+  });
+});
+
+
+describe("Android Gmail entry", () => {
+  it("uses native account authorization without desktop credentials or an app password", async () => {
+    const previousMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockReturnValue({matches:true,addEventListener:vi.fn(),removeEventListener:vi.fn()});
+    const platform = vi.spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+    vi.mocked(authorizeAndroidGoogle).mockResolvedValue({
+      tokens:{access_token:"native-token",expires_in:600,token_type:"Bearer",scope:"gmail.modify"},
+      userInfo:{email:"native@gmail.com",name:"Native User",picture:""},
+    });
+    const success=vi.fn();
+    try {
+      render(<AddAccount onClose={() => {}} onSuccess={success} />);
+      fireEvent.click(screen.getByRole("button", { name: /^Google \(Gmail\)/ }));
+      await waitFor(()=>expect(success).toHaveBeenCalledOnce());
+      expect(authorizeAndroidGoogle).toHaveBeenCalledOnce();
+      const {saveGmailAccount}=await import("@/services/db/accounts");
+      expect(saveGmailAccount).toHaveBeenCalledWith(expect.objectContaining({email:"native@gmail.com",accessToken:"native-token",refreshToken:""}));
+      expect(screen.queryByLabelText("Password")).not.toBeInTheDocument();
+    } finally {
+      platform.mockRestore();
+      window.matchMedia = previousMatchMedia;
+    }
   });
 });

@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { deltaSync } from "./sync";
+import { initialSync, deltaSync, syncInitialChanges } from "./sync";
 import { GmailApiError, GmailClient } from "./client";
 
 import { deleteThread } from "../db/threads";
+import { getSetting, setSetting } from "../db/settings";
+import { upsertMessage } from "../db/messages";
 import { updateAccountSyncState } from "../db/accounts";
 
+vi.mock("../db/labels",()=>({upsertLabel:vi.fn()}));
+vi.mock("@/services/ai/embeddingIndexer",()=>({indexBatchForAccount:vi.fn()}));
 // Mock all DB modules
 vi.mock("../db/threads", () => ({
   deleteThread: vi.fn(),
@@ -23,6 +27,7 @@ vi.mock("../db/accounts", () => ({
 }));
 vi.mock("../db/settings", () => ({
   getSetting: vi.fn().mockResolvedValue(null),
+  setSetting: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../db/threadCategories", () => ({
   getThreadCategoryWithManual: vi.fn().mockResolvedValue(null),
@@ -217,11 +222,59 @@ describe("deltaSync missing threads", () => {
     vi.mocked(client.getThread).mockRejectedValue(error);
     const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await deltaSync(client, "account-1", "99");
+      await expect(deltaSync(client, "account-1", "99")).rejects.toThrow("Forbidden");
+      expect(updateAccountSyncState).not.toHaveBeenCalled();
       expect(deleteThread).not.toHaveBeenCalled();
       expect(errorLog).toHaveBeenCalledWith("Failed to re-sync thread thread:", error);
     } finally {
       errorLog.mockRestore();
     }
   });
+});
+
+
+describe("initialSync streaming and recovery",()=>{
+ beforeEach(()=>vi.clearAllMocks());
+ function client(){
+  return {getProfile:vi.fn().mockResolvedValue({historyId:"100"}),listLabels:vi.fn().mockResolvedValue({labels:[]}),listThreads:vi.fn(),getThread:vi.fn().mockImplementation(async(id:string)=>({id,historyId:"999",messages:[{id:"m-"+id,threadId:id,labelIds:["INBOX"]}]}))} as unknown as GmailClient;
+ }
+ it("stores the first page before listing the next, publishes progress, and retains the pre-download history cursor",async()=>{
+  const c=client();vi.mocked(c.listThreads).mockResolvedValueOnce({threads:[{id:"first",snippet:""}],nextPageToken:"page2",resultSizeEstimate:2}).mockImplementationOnce(async()=>{
+   expect(upsertMessage).toHaveBeenCalledWith(expect.objectContaining({id:"m-first"}));return {threads:[{id:"second",snippet:""}]};
+  });
+  const progress=vi.fn();const event=vi.spyOn(window,"dispatchEvent");await initialSync(c,"initial",365,progress);
+  expect(updateAccountSyncState).toHaveBeenCalledWith("initial","100");
+  expect(progress).toHaveBeenLastCalledWith({phase:"done",current:2,total:2});
+  expect(event).toHaveBeenCalledWith(expect.objectContaining({type:"suitemail-sync-progress"}));event.mockRestore();
+ });
+ it("does not skip a failed thread or mark a partially downloaded mailbox complete; resumes completed work",async()=>{
+  const c=client();vi.mocked(c.listThreads).mockResolvedValue({threads:[{id:"first",snippet:""},{id:"second",snippet:""}]});
+  const fetchThread=vi.mocked(c.getThread).getMockImplementation()!;
+  vi.mocked(c.getThread).mockImplementation(async(id,...args)=>{if(id==="second")throw new GmailApiError(403,"quota");return fetchThread(id,...args);});
+  await expect(initialSync(c,"resume")).rejects.toThrow("quota");expect(updateAccountSyncState).not.toHaveBeenCalled();
+  const checkpoint=vi.mocked(setSetting).mock.calls.filter(([key])=>key==="gmail_initial_sync:resume").at(-1)![1];
+  expect(JSON.parse(checkpoint).storedIds).toEqual(["first"]);
+  vi.mocked(getSetting).mockImplementation(async(key)=>key==="gmail_initial_sync:resume"?checkpoint:null);
+  vi.mocked(c.getThread).mockClear().mockImplementation(fetchThread);
+  await initialSync(c,"resume");expect(c.getThread).toHaveBeenCalledExactlyOnceWith("second","full");expect(updateAccountSyncState).toHaveBeenCalledWith("resume","100");
+  vi.mocked(getSetting).mockResolvedValue(null);
+ });
+ it("polls newly arrived mail between bounded initial-sync chunks without skipping older mail",async()=>{
+  const saved=new Map<string,string>();
+  vi.mocked(getSetting).mockImplementation(async key=>saved.get(key) || null);
+  vi.mocked(setSetting).mockImplementation(async(key,value)=>{saved.set(key,value);});
+  const c=client();vi.mocked(c.listThreads).mockResolvedValue({threads:[{id:"older-first",snippet:""},{id:"older-second",snippet:""}]});
+  c.getHistory=vi.fn().mockResolvedValue({historyId:"200",history:[{messagesAdded:[{message:{id:"new-message",threadId:"new-thread",labelIds:["INBOX"]}}]}]});
+  await initialSync(c,"interleave",365,undefined,{maxThreads:1});
+  expect(updateAccountSyncState).not.toHaveBeenCalled();
+  await syncInitialChanges(c,"interleave");
+  expect(c.getThread).toHaveBeenNthCalledWith(2,"new-thread","full");
+  expect(updateAccountSyncState).not.toHaveBeenCalled();
+  expect(JSON.parse(saved.get("gmail_initial_sync:interleave")!).historyId).toBe("200");
+  await initialSync(c,"interleave",365,undefined,{maxThreads:1});
+  expect(c.getThread).toHaveBeenNthCalledWith(3,"older-second","full");
+  expect(updateAccountSyncState).toHaveBeenCalledWith("interleave","200");
+  vi.mocked(getSetting).mockResolvedValue(null);vi.mocked(setSetting).mockResolvedValue(undefined);
+ });
+
 });

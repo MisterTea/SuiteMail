@@ -1,6 +1,9 @@
+import { useUIStore } from "@/stores/uiStore";
+import { useActiveLabel } from "@/hooks/useRouteNavigation";
+import { navigateToLabel } from "@/router/navigate";
 import { useState, useRef, useCallback } from "react";
 import { useAccountStore, type Account } from "@/stores/accountStore";
-import { ChevronDown, Check, Plus, UserPlus, Calendar, Shield } from "lucide-react";
+import { Inbox, ChevronDown, Check, Plus, UserPlus, Calendar, Shield } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { isProtonEmail } from "@/services/proton/protonBridgeService";
 
@@ -19,14 +22,19 @@ export function AccountSwitcher({
 
   useClickOutside(dropdownRef, () => setOpen(false));
 
+  const label = useActiveLabel();
+  const unified = label === "unified";
+  const canUnify = accounts.filter((account) => account.provider !== "caldav").length >= 2;
   const activeAccount = accounts.find((a) => a.id === activeAccountId);
 
   const handleSwitch = useCallback(
     (id: string) => {
       setActiveAccount(id);
+      if (unified) navigateToLabel("inbox");
+      useUIStore.getState().setMobileSidebarOpen(false);
       setOpen(false);
     },
-    [setActiveAccount],
+    [setActiveAccount, unified],
   );
 
   const handleAdd = useCallback(() => {
@@ -62,15 +70,15 @@ export function AccountSwitcher({
           collapsed ? "justify-center" : "gap-2.5"
         } ${open ? "bg-sidebar-hover" : ""}`}
       >
-        <ActiveAvatar account={activeAccount} />
-        {!collapsed && activeAccount && (
+        {unified ? <Inbox size={22} className="text-accent shrink-0" /> : <ActiveAvatar account={activeAccount} />}
+        {!collapsed && (unified || activeAccount) && (
           <>
             <div className="flex-1 min-w-0 text-left">
               <div className="text-sm font-medium text-sidebar-text truncate leading-tight">
-                {activeAccount.displayName || activeAccount.email.split("@")[0]}
+                {unified ? "All Accounts" : activeAccount?.displayName || activeAccount?.email.split("@")[0]}
               </div>
               <div className="text-xs text-sidebar-text/50 truncate leading-tight">
-                {activeAccount.email}
+                {unified ? "Unified mailbox" : activeAccount?.email}
               </div>
             </div>
             <ChevronDown
@@ -95,8 +103,20 @@ export function AccountSwitcher({
               Accounts
             </div>
           )}
+          {canUnify && (
+            <button type="button" onClick={() => {
+                navigateToLabel("unified");
+                useUIStore.getState().setMobileSidebarOpen(false);
+                setOpen(false);
+              }}
+              className="flex items-center gap-2.5 w-full px-3 py-2 text-left text-sm font-medium hover:bg-bg-hover">
+              <span className="w-7 h-7 rounded-full bg-accent/12 text-accent flex items-center justify-center"><Inbox size={16} /></span>
+              <span className="flex-1">All Accounts</span>
+              {unified && <Check size={14} className="text-accent" />}
+            </button>
+          )}
           {accounts.map((account) => {
-            const isActive = account.id === activeAccountId;
+            const isActive = !unified && account.id === activeAccountId;
             return (
               <button
                 key={account.id}

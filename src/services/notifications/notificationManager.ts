@@ -1,17 +1,47 @@
-import { getSetting } from "../db/settings";
+import { addSettingChangeListener, getSetting } from "../db/settings";
 import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
+import { Capacitor } from "@capacitor/core";
+import { LocalNotifications } from "@capacitor/local-notifications";
+import { getDb } from "../db/connection";
+import { getVipSenders } from "../db/notificationVips";
+import { useAccountStore } from "@/stores/accountStore";
+import { getAccountNotificationPreferences, isDuringQuietHours } from "./notificationPreferences";
+import { createBackgroundChecker } from "../backgroundCheckers";
 import { normalizeEmail } from "@/utils/emailUtils";
 
-async function notifyPlatform(title: string, body: string): Promise<void> {
-  if (typeof Notification !== "undefined") {
-    if (Notification.permission === "granted") {
-      new Notification(title, { body });
-    } else if (Notification.permission !== "denied") {
-      Notification.requestPermission().then((permission) => {
-        if (permission === "granted") new Notification(title, { body });
-      });
+let nextNotificationId = Date.now() % 1_000_000_000;
+
+export async function requestMailNotificationPermission(): Promise<boolean> {
+  if (Capacitor.getPlatform() === "android") {
+    const current = await LocalNotifications.checkPermissions();
+    return (current.display === "granted" ? current : await LocalNotifications.requestPermissions()).display === "granted";
+  }
+  if (typeof Notification === "undefined") return false;
+  return Notification.permission === "granted" || (Notification.permission === "default" && await Notification.requestPermission() === "granted");
+}
+
+async function notifyPlatform(title: string, body: string, context?: NotificationContext): Promise<void> {
+  if (!notificationsEnabled) return;
+  try {
+    if (Capacitor.getPlatform() === "android") {
+      if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
+      await LocalNotifications.schedule({ notifications: [
+        {
+          id: ++nextNotificationId,
+          title,
+          body,
+          smallIcon: "ic_launcher_foreground",
+          isExactNotification: false,
+          extra: context ?? {},
+        },
+      ] });
+    } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const notification = new Notification(title, { body });
+      notification.onclick = () => openNotification(context);
     }
+  } catch (error) {
+    console.warn("Could not show a mail notification", error);
   }
 }
 
@@ -41,13 +71,18 @@ export async function initNotifications(): Promise<void> {
   if (initialized) return;
   initialized = true;
 
-  const setting = await getSetting("notifications_enabled");
-  notificationsEnabled = setting !== "false";
-  if (!notificationsEnabled) return;
-
-  if (typeof Notification !== "undefined" && Notification.permission !== "granted" && Notification.permission !== "denied") {
-    Notification.requestPermission().catch(() => {});
+  notificationsEnabled = (await getSetting("notifications_enabled")) !== "false";
+  addSettingChangeListener(({ key, value }) => {
+    if (key === "notifications_enabled") notificationsEnabled = value !== "false";
+  });
+  if (Capacitor.getPlatform() === "android") {
+    await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
+      openNotification(notification.extra as NotificationContext | undefined);
+    }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
+  } else if (notificationsEnabled) {
+    void requestMailNotificationPermission().catch(() => {});
   }
+  digestChecker.start();
 }
 
 export async function sendEmailNotification(
@@ -69,7 +104,7 @@ export async function sendEmailNotification(
     }
   }
 
-  await notifyPlatform(title, body);
+  await notifyPlatform(title, body, context);
 }
 
 /**
@@ -87,25 +122,39 @@ export function queueNewEmailNotification(
   fromAddress?: string,
 ): void {
   if (!notificationsEnabled) return;
-
-  pendingCount++;
-
-  // Store context for action handling
-  const ctx = { threadId, accountId, fromAddress, subject };
-  lastNotificationContext = ctx;
-  if (threadId) recentContexts.set(threadId, ctx);
-
-  // Debounce: wait 2s before showing, to batch during sync
-  if (notifyTimer) clearTimeout(notifyTimer);
-  notifyTimer = setTimeout(() => {
-    if (pendingCount === 1) {
-      notifyPlatform(from, subject || "(No subject)");
-    } else if (pendingCount > 1) {
-      notifyPlatform("SuiteMail", `${pendingCount} new emails`);
+  void (async () => {
+    if (accountId) {
+      const preferences = await getAccountNotificationPreferences(accountId);
+      if (!preferences.enabled) return;
+      if (isDuringQuietHours(preferences)) {
+        const vip = preferences.vipBypass && fromAddress
+          && (await getVipSenders(accountId)).has(normalizeEmail(fromAddress));
+        if (!vip) {
+          if (preferences.digest) {
+            const db = await getDb();
+            await db.execute(`INSERT INTO quiet_mail_digest (account_id, count) VALUES ($1, 1)
+              ON CONFLICT(account_id) DO UPDATE SET count = count + 1`, [accountId]);
+          }
+          return;
+        }
+      }
     }
-    pendingCount = 0;
-    notifyTimer = null;
-  }, 2000);
+    if (!notificationsEnabled) return;
+
+    pendingCount++;
+    const ctx = { threadId, accountId, fromAddress, subject };
+    lastNotificationContext = ctx;
+
+    if (!notifyTimer) notifyTimer = setTimeout(() => {
+      if (pendingCount === 1) {
+        void notifyPlatform(from, subject || "(No subject)", ctx);
+      } else if (pendingCount > 1) {
+        void notifyPlatform("SuiteMail", `${pendingCount} new emails`);
+      }
+      pendingCount = 0;
+      notifyTimer = null;
+    }, 2000);
+  })().catch((error) => console.warn("Could not queue a mail notification", error));
 }
 
 /**
@@ -137,7 +186,7 @@ export function notifyFollowUpDue(
   const ctx = { threadId, accountId, subject };
   lastNotificationContext = ctx;
   if (threadId) recentContexts.set(threadId, ctx);
-  notifyPlatform("Follow up needed", subject || "(No subject)");
+  void notifyPlatform("Follow up needed", subject || "(No subject)", ctx);
 }
 
 /**
@@ -147,6 +196,41 @@ export function notifySnoozeReturn(subject: string): void {
   if (!notificationsEnabled) return;
   notifyPlatform("Snoozed email returned", subject || "(No subject)");
 }
+
+function openNotification(context?: NotificationContext) {
+  void showAndFocusMainWindow();
+  if (context?.accountId) {
+    const accounts = useAccountStore.getState();
+    if (!accounts.accounts.some((account) => account.id === context.accountId)) return;
+    accounts.setActiveAccount(context.accountId);
+  }
+  if (context?.threadId) navigateToLabel("all", { threadId: context.threadId });
+  else if (context?.accountId) navigateToLabel("inbox");
+}
+
+let flushingDigest = false;
+const digestChecker = createBackgroundChecker("QuietMailDigest", async () => {
+  if (flushingDigest || !notificationsEnabled) return;
+  flushingDigest = true;
+  try {
+    const db = await getDb();
+    const rows = await db.select<{ account_id: string; count: number; email: string }[]>(
+      "SELECT d.account_id, d.count, a.email FROM quiet_mail_digest d JOIN accounts a ON a.id = d.account_id",
+    );
+    for (const row of rows) {
+      const preferences = await getAccountNotificationPreferences(row.account_id);
+      if (preferences.enabled && preferences.digest && isDuringQuietHours(preferences)) continue;
+      if (preferences.enabled && preferences.digest) {
+        await notifyPlatform(row.email, `${row.count} ${row.count === 1 ? "email" : "emails"} arrived during quiet hours`, { accountId: row.account_id });
+      }
+      // Preserve any messages queued after this digest was read.
+      await db.execute("UPDATE quiet_mail_digest SET count = count - $2 WHERE account_id = $1", [row.account_id, row.count]);
+      await db.execute("DELETE FROM quiet_mail_digest WHERE account_id = $1 AND count <= 0", [row.account_id]);
+    }
+  } finally {
+    flushingDigest = false;
+  }
+}, 30_000);
 
 export function handleNotificationAction(actionId: string, threadId?: string): void {
   const ctx = (threadId ? recentContexts.get(threadId) : null) ?? lastNotificationContext;

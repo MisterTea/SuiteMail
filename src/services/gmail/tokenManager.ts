@@ -1,9 +1,16 @@
+import { authorizeAndroidGoogle, getAndroidGoogleToken, isAndroidGoogle } from "./androidGoogleAuth";
 import { GmailClient } from "./client";
 import { startOAuthFlow } from "./auth";
 import { getAllAccounts, getAccount, updateAccountAllTokens } from "../db/accounts";
 import { getSetting, getSecureSetting } from "../db/settings";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { normalizeEmail } from "@/utils/emailUtils";
+
+function androidClient(account: {id: string; email: string}): GmailClient {
+  // Reconfirm device authorization after restart, even when an imported token is still cached in SQLite.
+  return new GmailClient(account.id, "", {accessToken:"",refreshToken:"",expiresAt:0}, undefined,
+    invalidToken => getAndroidGoogleToken(account.email, invalidToken));
+}
 
 // In-memory cache of active GmailClient instances per account
 const clients = new Map<string, GmailClient>();
@@ -17,12 +24,17 @@ export async function getGmailClient(
   const existing = clients.get(accountId);
   if (existing) return existing;
 
-  const clientId = await getClientId();
-  const clientSecret = await getClientSecret();
   const accounts = await getAllAccounts();
   const account = accounts.find((a) => a.id === accountId);
 
   if (!account) throw new Error(`Account ${accountId} not found`);
+  if (isAndroidGoogle()) {
+    const client = androidClient(account);
+    clients.set(accountId, client);
+    return client;
+  }
+  const clientId = await getClientId();
+  const clientSecret = await getClientSecret();
   if (!account.access_token || !account.refresh_token) {
     throw new Error(`Account ${accountId} has no tokens`);
   }
@@ -133,6 +145,12 @@ export async function getClientSecret(): Promise<string | undefined> {
  */
 export async function initializeClients(): Promise<void> {
   const accounts = await getAllAccounts();
+  if (isAndroidGoogle()) {
+    for (const account of accounts) {
+      if (account.is_active && account.provider === "gmail_api") clients.set(account.id, androidClient(account));
+    }
+    return;
+  }
   let clientId: string;
   let clientSecret: string | undefined;
   try {
@@ -169,10 +187,13 @@ export async function reauthorizeAccount(
   const account = await getAccount(accountId);
   if (!account) throw new Error(`Account ${accountId} not found`);
 
-  const clientId = await getClientId();
-  const clientSecret = await getClientSecret();
+  const android = isAndroidGoogle();
+  const clientId = android ? "" : await getClientId();
+  const clientSecret = android ? undefined : await getClientSecret();
 
-  const { tokens, userInfo } = await startOAuthFlow(clientId, clientSecret);
+  const { tokens, userInfo } = android
+    ? await authorizeAndroidGoogle(expectedEmail)
+    : await startOAuthFlow(clientId, clientSecret);
 
   if (normalizeEmail(userInfo.email) !== normalizeEmail(expectedEmail)) {
     throw new Error(
@@ -180,20 +201,20 @@ export async function reauthorizeAccount(
     );
   }
 
-  if (!tokens.refresh_token) {
+  if (!android && !tokens.refresh_token) {
     throw new Error(
       "Google did not return a refresh token. Please revoke app access at https://myaccount.google.com/permissions and try again.",
     );
   }
 
   const expiresAt = getCurrentUnixTimestamp() + tokens.expires_in;
-  await updateAccountAllTokens(accountId, tokens.access_token, tokens.refresh_token, expiresAt);
+  await updateAccountAllTokens(accountId, tokens.access_token, tokens.refresh_token ?? "", expiresAt);
 
   // Evict stale client and create a fresh one
   clients.delete(accountId);
-  const client = new GmailClient(accountId, clientId, {
+  const client = android ? androidClient(account) : new GmailClient(accountId, clientId, {
     accessToken: tokens.access_token,
-    refreshToken: tokens.refresh_token,
+    refreshToken: tokens.refresh_token!,
     expiresAt,
   }, clientSecret);
   clients.set(accountId, client);

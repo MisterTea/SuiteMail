@@ -530,6 +530,7 @@ export async function syncGeneralSettings(
 export async function syncFilterSettings(
   accountId: string,
   config: ImapConfig,
+  options?: { strict?: boolean },
 ): Promise<FilterRulePayload[] | null> {
   const folders = await imapListFolders(config);
   const filtersFolder = folders.find(
@@ -544,10 +545,13 @@ export async function syncFilterSettings(
   const latestUid = Math.max(...uids);
   const fetchResult = await imapFetchMessages(config, folderPath, [latestUid]);
   const msg = fetchResult.messages[0];
-  if (!msg) return null;
+  if (!msg) {
+    if (options?.strict) throw new Error("Filter settings could not be downloaded");
+    return null;
+  }
 
   const rawText = msg.body_text || msg.body_html || "";
-  if (!rawText.trim()) return null;
+  if (!rawText.trim() && !options?.strict) return null;
 
   try {
     const payload = JSON.parse(rawText.trim()) as FiltersSettingsPayload;
@@ -577,9 +581,11 @@ export async function syncFilterSettings(
       return payload.filters;
     }
   } catch (err) {
+    if (options?.strict) throw err;
     console.warn(`[settingsSidecarSync] Failed to parse filters settings payload:`, err);
   }
 
+  if (options?.strict) throw new Error("Invalid filter settings payload");
   return null;
 }
 

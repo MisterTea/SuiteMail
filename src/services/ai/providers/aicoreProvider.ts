@@ -4,24 +4,25 @@ import type { AiProviderClient, AiCompletionRequest } from "../types";
 export interface AiCoreStatus {
   available: boolean;
   supported_models: string[];
+  status?: "available" | "downloadable" | "downloading" | "unavailable";
+  message?: string;
 }
 
 let instance: AiProviderClient | null = null;
-let currentModel: string = "gemma-4-26b";
 
-export function createAiCoreProvider(model: string = "gemma-4-26b"): AiProviderClient {
-  if (instance && currentModel === model) {
+export function createAiCoreProvider(_legacyModel: string = "full"): AiProviderClient {
+  if (instance) {
     return instance;
   }
 
-  currentModel = model;
   instance = {
     async complete(req: AiCompletionRequest): Promise<string> {
       try {
         const response = await invoke<string>("aicore_generate", {
           systemPrompt: req.systemPrompt,
           prompt: req.userContent,
-          model,
+          model: "full",
+          ...(req.maxTokens ? { maxTokens: req.maxTokens } : {}),
         });
         return response;
       } catch (err) {

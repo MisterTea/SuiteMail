@@ -29,7 +29,7 @@ export function ActionFeedbackToast() {
         ref={toastRef}
         role="status"
         aria-live="polite"
-        className="fixed bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-4 py-2 sm:py-2.5 max-w-[calc(100vw-1.5rem)] rounded-full shadow-2xl bg-zinc-900/95 dark:bg-zinc-100/95 text-zinc-100 dark:text-zinc-900 border border-zinc-700/60 dark:border-zinc-300/60 backdrop-blur-md text-xs sm:text-sm select-none"
+        data-action-feedback className="fixed bottom-[calc(max(5.25rem,4.25rem+env(safe-area-inset-bottom,0px)))] md:bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2.5 sm:gap-3 px-3.5 sm:px-4 py-2 sm:py-2.5 max-w-[calc(100vw-1.5rem)] rounded-full shadow-2xl bg-zinc-900/95 dark:bg-zinc-100/95 text-zinc-100 dark:text-zinc-900 border border-zinc-700/60 dark:border-zinc-300/60 backdrop-blur-md text-xs sm:text-sm select-none"
       >
         <div className="flex items-center gap-2 font-medium min-w-0">
           {currentToast?.icon ?? (

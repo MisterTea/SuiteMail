@@ -1,0 +1,18 @@
+# Storyboard 20 — Multi-select and bulk actions
+
+## Evidence
+
+The supplied Android storyboard shows the inbox, avatar initials and unread dots, followed by a singular “Conversation archived” snackbar. It does not visibly demonstrate selection mode, a selected count, or a bulk result. Do not infer a successful bulk archive from this frame.
+
+`ThreadCard.tsx` supports avatar selection and modifier-key selection, but its unselected check affordance depends on hover; touch handlers implement swiping without long-press selection. `BatchActionBar.tsx` puts icon-only actions in a horizontally scrolling strip alongside a small Select all and icon-only cancel. `EmailList.tsx` supplies the filtered count but delegates Select all to the store, and its bulk handlers use per-thread actions with console-only error handling.
+
+## Three exact mobile-touch changes
+
+1. **Make selection entry explicit and safe (`ThreadCard.tsx`, `EmailList.tsx`).** Add a visible “Select” entry in the Android list header and a persistent 48 × 48 px avatar/checkbox target labeled “Select conversation from [sender]”. A 500 ms stationary row long press selects that conversation; movement beyond 10 px, touch cancel, scrolling, or a secondary control cancels the timer. Suppress the release click after a successful long press. In selection mode, every row tap toggles selection and shows a checked/unchecked control; it never opens the message or fires a swipe action.
+   - Acceptance: Select entry and long press both produce “1 selected”; tap another row produces “2 selected”; a vertical scroll never selects or archives; releasing a long press never opens a thread. TalkBack exposes checkbox state and the selection entry without hover.
+
+2. **Give selection a stable, scoped header (`EmailList.tsx`, `BatchActionBar.tsx`).** On Android, render “N selected”, “Select all N”, and “Cancel” in a dedicated, non-scrolling header row. Give both controls at least 48 px touch height. Select all must select exactly the current eligible filtered list used for N, with no unrelated messages from another filter/account. Cancel clears selection and restores normal row behavior; Android Back first exits selection.
+   - Acceptance: At 360 px width and enlarged text all three elements remain legible and reachable. A filtered list of three conversations selects exactly three. Cancel and Back leave zero selected without changing mail. Announce count changes politely.
+
+3. **Replace the scrolling icon strip with labeled, truthful actions (`BatchActionBar.tsx`, `EmailList.tsx`).** Use a bottom panel above navigation and the gesture inset, with visible icon-and-text actions in a wrapping grid: Archive, Move to Trash, Mark read/unread, Star/Unstar, Move, and Spam/Not spam. Use at least 48 px touch targets; no horizontal scrolling or clipped destructive controls. In Trash use the explicit label “Delete forever” and confirm the count before execution. Disable repeat submission while pending. Aggregate completion into one result, such as “3 conversations archived”; partial failure says “2 archived · 1 failed” and retains failed selections for retry. Restore optimistic read/star state for failed items. Only offer Undo when it reverses the complete reported operation.
+   - Acceptance: At 360 px width every action has a readable label and is reachable without horizontal gestures; the last list row can scroll above the panel. Three successful archives yield one plural result. One simulated failure yields an accurate success/failure count and one selected failed item, with no false all-success snackbar. Permanent delete requires the count-specific confirmation and offers no unsupported Undo.

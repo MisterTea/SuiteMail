@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { Capacitor } from "@capacitor/core";
+import { hostAiFetch } from "../androidHostAi";
 import { platformFetch as fetch } from "@/platform";
 import type { AiProviderClient, AiCompletionRequest } from "../types";
 
@@ -12,7 +14,7 @@ function getClient(serverUrl: string, model: string): OpenAI {
       baseURL: `${serverUrl.replace(/\/+$/, "")}/v1`,
       apiKey: "ollama",
       dangerouslyAllowBrowser: true,
-      fetch,
+      fetch: Capacitor.getPlatform() === "android" && new URL(serverUrl).hostname === "10.0.2.2" ? hostAiFetch : fetch,
     });
     cachedKey = cacheKey;
   }

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 import { FakeServer } from "./fakeServer";
 import { getElectronBridgeScript } from "./electronBridge";
 
@@ -36,11 +36,23 @@ test.describe("Top 20 Email Workflows", () => {
   async function tapSidebarFolder(page: any, folderName: string) {
     const navBtn = page.locator(`aside button:has-text("${folderName}")`).first();
     if (!(await navBtn.isVisible())) {
-      const menuBtn = page.locator('[data-testid="mobile-menu-button"]:visible').first();
+      const menuBtn = page.locator('[data-testid="mobile-menu-button"]:visible, [data-testid="mobile-nav-menu"]:visible').first();
       await menuBtn.tap();
       await expect(navBtn).toBeVisible();
     }
     await navBtn.tap();
+  }
+
+  const messageActionsRoot = (page: any) => process.env.SUITEMAIL_ANDROID === "1"
+    ? page.getByRole("dialog",{name:"Message actions",exact:true}) : page;
+
+  async function openMobileActions(page: any) {
+    const more = page.getByRole("button", {name:"More message actions",exact:true});
+    if (process.env.SUITEMAIL_ANDROID === "1") {
+      await expect(more).toBeVisible();
+      await more.tap();
+      await expect(messageActionsRoot(page)).toBeVisible();
+    } else if (await more.isVisible()) await more.tap();
   }
 
   // Storyboard 1: Read & Browse Inbox
@@ -56,6 +68,16 @@ test.describe("Top 20 Email Workflows", () => {
 
     // Verify reading pane displays the subject heading
     await expect(page.locator('h1:has-text("Team Welcome & Onboarding Guide")').first()).toBeVisible({ timeout: 10_000 });
+
+    if (process.env.SUITEMAIL_ANDROID === "1") {
+      const controls = page.getByTestId("android-message-actions").getByRole("button");
+      expect(await controls.count()).toBe(5);
+      for (const control of await controls.all()) {
+        const bounds = await control.boundingBox();
+        expect(bounds!.width).toBeGreaterThanOrEqual(48);
+        expect(bounds!.height).toBeGreaterThanOrEqual(48);
+      }
+    }
 
     // Verify sender info in reading pane
     await expect(page.locator("text=SuperMail Team >> visible=true").first()).toBeVisible();
@@ -95,7 +117,7 @@ test.describe("Top 20 Email Workflows", () => {
     await editor.fill("Hi Dave, here is the milestone breakdown for our review.");
 
     // Tap Send button
-    const sendBtn = page.locator('button:has-text("Send")').first();
+    const sendBtn = page.getByRole('button', {name:'Send',exact:true});
     await expect(sendBtn).toBeEnabled();
     await sendBtn.tap();
 
@@ -116,8 +138,9 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator('button[aria-label*="Sprint Retrospective Notes"]').first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Tap Reply button in ActionBar
-    const replyBtn = page.locator('button[title*="Reply (r)"]').first();
+    const replyBtn = messageActionsRoot(page).locator('button[title*="Reply (r)"]').first();
     await expect(replyBtn).toBeVisible();
     await replyBtn.tap();
 
@@ -131,7 +154,7 @@ test.describe("Top 20 Email Workflows", () => {
     await editor.fill("Thanks Sarah, looks great! I will review the action items.");
 
     // Tap Send
-    const sendBtn = page.locator('button:has-text("Send")').first();
+    const sendBtn = page.getByRole('button', {name:'Send',exact:true});
     await sendBtn.tap();
 
     // Composer closes
@@ -149,14 +172,15 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator('button[aria-label*="Quarterly Planning Sync"]').first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Tap Reply All button in ActionBar
-    const replyAllBtn = page.locator('button[title*="Reply All (a)"]').first();
+    const replyAllBtn = messageActionsRoot(page).locator('button[title*="Reply All (a)"]').first();
     await expect(replyAllBtn).toBeVisible();
     await replyAllBtn.tap();
 
     // Verify Reply All composer title and recipients
     await expect(page.locator(".slide-up-panel")).toBeVisible();
-    await expect(page.locator("span:has-text('sarah@workplace.org')").first()).toBeVisible();
+    await expect(page.locator(".slide-up-panel").locator("span:has-text('sarah@workplace.org')").first()).toBeVisible();
 
     // Type reply body
     const editor = page.locator(".tiptap.ProseMirror");
@@ -164,7 +188,7 @@ test.describe("Top 20 Email Workflows", () => {
     await editor.fill("Confirmed, see everyone at the sync.");
 
     // Send
-    const sendBtn = page.locator('button:has-text("Send")').first();
+    const sendBtn = page.getByRole('button', {name:'Send',exact:true});
     await sendBtn.tap();
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
     expect(fakeServer.state.sentEmails.length).toBeGreaterThanOrEqual(1);
@@ -180,8 +204,9 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator('button[aria-label*="Quarterly Client Growth Report"]').first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Tap Forward button
-    const forwardBtn = page.locator('button[title*="Forward (f)"]').first();
+    const forwardBtn = messageActionsRoot(page).locator('button[title*="Forward (f)"]').first();
     await expect(forwardBtn).toBeVisible();
     await forwardBtn.tap();
 
@@ -195,7 +220,7 @@ test.describe("Top 20 Email Workflows", () => {
     await toInput.press("Enter");
 
     // Tap Send
-    const sendBtn = page.locator('button:has-text("Send")').first();
+    const sendBtn = page.getByRole('button', {name:'Send',exact:true});
     await sendBtn.tap();
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
     expect(fakeServer.state.sentEmails.length).toBeGreaterThanOrEqual(1);
@@ -281,13 +306,17 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Tap Pin button in ActionBar
-    const pinBtn = page.locator('button[title*="Pin (p)"]').first();
+    const pinBtn = messageActionsRoot(page).locator('button[title*="Pin (p)"]').first();
     await expect(pinBtn).toBeVisible();
     await pinBtn.tap();
 
     // Verify pin state toggles to 'Unpin (p)'
-    await expect(page.locator('button[title*="Unpin (p)"]').first()).toBeVisible();
+    await openMobileActions(page);
+    await expect(messageActionsRoot(page).locator('button[title*="Unpin (p)"]').first()).toBeVisible();
+    const actionsDialog = page.getByRole('dialog',{name:'Message actions',exact:true});
+    if (await actionsDialog.isVisible()) await actionsDialog.getByRole('button',{name:'Close',exact:true}).tap();
 
     // On mobile single-pane, tap Back to list to see the pinned section
     const backBtn = page.locator('button[title="Back to list"]:visible').first();
@@ -340,8 +369,9 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Tap Move to folder button in ActionBar
-    const moveBtn = page.locator('button[title*="Move to folder (v)"]').first();
+    const moveBtn = messageActionsRoot(page).locator('button[title*="Move to folder (v)"]').first();
     await expect(moveBtn).toBeVisible();
     await moveBtn.tap();
 
@@ -366,13 +396,15 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Thread is read; tap 'Mark unread' button in ActionBar
-    const markUnreadBtn = page.locator('button[title="Mark unread"]').first();
+    const markUnreadBtn = messageActionsRoot(page).locator('button[title="Mark unread"]').first();
     await expect(markUnreadBtn).toBeVisible();
     await markUnreadBtn.tap();
 
     // Verify button switches to 'Mark read'
-    await expect(page.locator('button[title="Mark read"]').first()).toBeVisible();
+    await openMobileActions(page);
+    await expect(messageActionsRoot(page).locator('button[title="Mark read"]').first()).toBeVisible();
   });
 
   // Storyboard 13: Snooze Email
@@ -385,8 +417,9 @@ test.describe("Top 20 Email Workflows", () => {
     const threadCard = page.locator(`button[aria-label*="${threadTitle}"]`).first();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Tap Snooze button
-    const snoozeBtn = page.locator('button[title*="Snooze (h)"]').first();
+    const snoozeBtn = messageActionsRoot(page).locator('button[title*="Snooze (h)"]').first();
     await expect(snoozeBtn).toBeVisible();
     await snoozeBtn.tap();
 
@@ -422,7 +455,7 @@ test.describe("Top 20 Email Workflows", () => {
     await subjectInput.fill("Morning Standup Agenda");
 
     // Tap Schedule Send trigger button
-    const scheduleTrigger = page.locator('button[title="Schedule send"]').first();
+    const scheduleTrigger = process.env.SUITEMAIL_ANDROID === "1" ? page.getByRole("button",{name:"Send later",exact:true}) : page.locator('button[title="Schedule send"]').first();
     await expect(scheduleTrigger).toBeVisible();
     await scheduleTrigger.tap();
 
@@ -455,8 +488,11 @@ test.describe("Top 20 Email Workflows", () => {
     await expect(page.locator("span:has-text('marketing@workplace.org')").first()).toBeVisible();
 
     // Discard draft cleanly
+    if (process.env.SUITEMAIL_ANDROID === "1") await page.locator(".slide-up-panel").getByRole("button",{name:"More",exact:true}).tap();
     const discardBtn = page.locator('button:has-text("Discard")').first();
     await discardBtn.tap();
+    const confirmDiscard = page.getByRole("dialog",{name:"Discard this draft?",exact:true});
+    if (await confirmDiscard.isVisible()) await confirmDiscard.getByRole("button",{name:"Discard draft",exact:true}).tap();
     await expect(page.locator(".slide-up-panel")).toHaveCount(0);
   });
 
@@ -513,8 +549,9 @@ test.describe("Top 20 Email Workflows", () => {
     await expect(threadCard).toBeVisible();
     await threadCard.tap();
 
+    await openMobileActions(page);
     // Verify Unsubscribe action in ActionBar
-    const unsubBtn = page.locator('button[title*="Unsubscribe"]').first();
+    const unsubBtn = messageActionsRoot(page).locator('button[title*="Unsubscribe"]').first();
     await expect(unsubBtn).toBeVisible();
     await unsubBtn.tap();
 
@@ -536,10 +573,11 @@ test.describe("Top 20 Email Workflows", () => {
     await threadCard.tap();
 
     // AuthWarningBanner displayed due to SPF/DKIM/DMARC failure
-    await expect(page.locator("text=Authentication failed").first()).toBeVisible();
+    await expect(page.getByRole("heading",{name:process.env.SUITEMAIL_ANDROID === "1" ? "Sender couldn’t be verified" : "Authentication failed",exact:true})).toBeVisible();
 
+    await openMobileActions(page);
     // Tap Report Spam button
-    const spamBtn = page.locator('button[title*="Report Spam (!)"]').first();
+    const spamBtn = messageActionsRoot(page).locator('button[title*="Report Spam (!)"]').first();
     await expect(spamBtn).toBeVisible();
     await spamBtn.tap();
 
@@ -582,5 +620,13 @@ test.describe("Top 20 Email Workflows", () => {
     // Both threads removed from Inbox
     await expect(page.locator(`text=${threadA}`)).toHaveCount(0);
     await expect(page.locator(`text=${threadB}`)).toHaveCount(0);
+
+    // Verify provider-aware bulk actions persist, rather than only hiding cards.
+    await expect.poll(() => {
+      const row = fakeServer.db.prepare(
+        "SELECT COUNT(*) AS count FROM thread_labels WHERE account_id = 'acc-test-1' AND label_id = 'INBOX' AND thread_id IN (SELECT id FROM threads WHERE subject IN (?, ?))",
+      ).get(threadA, threadB) as { count: number };
+      return row.count;
+    }).toBe(0);
   });
 });

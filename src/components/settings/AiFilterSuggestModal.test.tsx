@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AiFilterSuggestModal } from "./AiFilterSuggestModal";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+
+vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: vi.fn(() => false) }));
+
 import { useAccountStore } from "@/stores/accountStore";
 
 // Mock services
@@ -42,6 +46,7 @@ describe("AiFilterSuggestModal", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useAndroidMobile).mockReturnValue(false);
     useAccountStore.setState({ activeAccountId: "test-acc-1" });
   });
 
@@ -121,9 +126,9 @@ describe("AiFilterSuggestModal", () => {
     });
 
     // Verify "Apply this new filter to whole inbox" checkbox is present and checked by default
-    const wholeInboxCheckbox = screen.getByLabelText(/Apply this new filter to whole inbox/i);
+    const wholeInboxCheckbox = screen.getByLabelText(/Also apply to matching existing emails/i);
     expect(wholeInboxCheckbox).toBeInTheDocument();
-    expect(wholeInboxCheckbox).toBeChecked();
+    expect(wholeInboxCheckbox).not.toBeChecked();
 
     // Verify "Add Filter (Highest Priority)" and "Discard" choices are presented
     expect(
@@ -184,6 +189,7 @@ describe("AiFilterSuggestModal", () => {
     });
 
     const addBtn = screen.getByRole("button", { name: /Add Filter \(Highest Priority\)/i });
+    fireEvent.click(screen.getByLabelText(/Also apply to matching existing emails/i));
     fireEvent.click(addBtn);
 
     await waitFor(() => {
@@ -258,8 +264,7 @@ describe("AiFilterSuggestModal", () => {
     });
 
     // Uncheck "Apply this new filter to whole inbox"
-    const wholeInboxCheckbox = screen.getByLabelText(/Apply this new filter to whole inbox/i);
-    fireEvent.click(wholeInboxCheckbox);
+    const wholeInboxCheckbox = screen.getByLabelText(/Also apply to matching existing emails/i);
     expect(wholeInboxCheckbox).not.toBeChecked();
 
     const addBtn = screen.getByRole("button", { name: /Add Filter \(Highest Priority\)/i });
@@ -411,11 +416,12 @@ describe("AiFilterSuggestModal", () => {
       expect(screen.getByText(/Creates new folder: "Legal"/i)).toBeInTheDocument();
       expect(screen.getByText("Star email")).toBeInTheDocument();
       expect(screen.getByText(/Contract Agreement/i)).toBeInTheDocument();
-      expect(screen.getByLabelText(/Apply this new filter to whole inbox/i)).toBeInTheDocument();
+      expect(screen.getByLabelText(/Also apply to matching existing emails/i)).toBeInTheDocument();
       expect(screen.getByText("Add this filter to your rules or discard?")).toBeInTheDocument();
     });
 
-    // User agrees to add the filter
+    // User explicitly includes existing messages.
+    fireEvent.click(screen.getByLabelText(/Also apply to matching existing emails/i));
     fireEvent.click(screen.getByRole("button", { name: /Add Filter \(Highest Priority\)/i }));
 
     await waitFor(() => {
@@ -437,4 +443,41 @@ describe("AiFilterSuggestModal", () => {
       expect(onClose).toHaveBeenCalled();
     });
   });
+  it("uses a readable Android sheet and labeled fields with native Back dismissal", async () => {
+    vi.mocked(useAndroidMobile).mockReturnValue(true);
+    render(<AiFilterSuggestModal isOpen onClose={onClose} initialMode="manual" />);
+    expect(screen.getByRole("dialog")).toHaveStyle({ height: "var(--android-viewport-height, 100dvh)" });
+    await screen.findByRole("option", { name: "Work" });
+    expect(screen.getByLabelText("From contains")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manual" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("fetches all matches, caps the rendered preview, and applies all after explicit consent", async () => {
+    vi.mocked(suggestFilterWithPiAgent).mockResolvedValueOnce({ filter: { name: "Many matches", criteria: { from: "example.com" }, actions: { archive: true }, explanation: "Archive" } } as Awaited<ReturnType<typeof suggestFilterWithPiAgent>>);
+    const matches = Array.from({ length: 51 }, (_, index) => ({ id: `email-${index}`, threadId: `thread-${index}`, fromAddress: "sender@example.com", subject: `Subject ${index}`, date: 1, actionChanges: ["Archive"] }));
+    vi.mocked(getAffectedEmailsForFilter).mockResolvedValueOnce(matches);
+    render(<AiFilterSuggestModal isOpen onClose={onClose} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Archive example" } });
+    fireEvent.click(screen.getByRole("button", { name: /Generate Filter/i }));
+    await screen.findByText(/Showing 50 of 51/);
+    expect(getAffectedEmailsForFilter).toHaveBeenCalledWith("test-acc-1", { from: "example.com" }, { archive: true }, Number.POSITIVE_INFINITY);
+    expect(screen.queryByText("Subject 50")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText(/Also apply to matching existing emails/));
+    fireEvent.click(screen.getByRole("button", { name: /Add Filter \(Highest Priority\)/ }));
+    await waitFor(() => expect(applyFilterActionsToThreads).toHaveBeenCalledWith("test-acc-1", { archive: true }, matches.map((match) => match.threadId)));
+  });
+
+  it("blocks creation after preview failure without reporting zero matches", async () => {
+    vi.mocked(suggestFilterWithPiAgent).mockResolvedValueOnce({ filter: { name: "Failed preview", criteria: { from: "example.com" }, actions: { archive: true }, explanation: "Archive" } } as Awaited<ReturnType<typeof suggestFilterWithPiAgent>>);
+    vi.mocked(getAffectedEmailsForFilter).mockRejectedValueOnce(new Error("Preview unavailable"));
+    render(<AiFilterSuggestModal isOpen onClose={onClose} />);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Archive example" } });
+    fireEvent.click(screen.getByRole("button", { name: /Generate Filter/i }));
+    await screen.findByRole("alert");
+    expect(screen.getByRole("button", { name: /Add Filter \(Highest Priority\)/ })).toBeDisabled();
+    expect(screen.queryByText(/No existing emails match/)).not.toBeInTheDocument();
+  });
+
 });

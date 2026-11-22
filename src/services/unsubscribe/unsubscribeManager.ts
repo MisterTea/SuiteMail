@@ -119,7 +119,7 @@ export async function executeUnsubscribe(
     fromName,
     method,
     parsed.httpUrl ?? parsed.mailtoAddress ?? listUnsubscribe,
-    success ? "unsubscribed" : "failed",
+    success ? (method === "browser" ? "pending" : "unsubscribed") : "failed",
   );
 
   return { method, success };

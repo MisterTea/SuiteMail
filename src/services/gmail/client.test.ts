@@ -2,6 +2,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { GmailClient } from "./client";
 import { createMockFetchResponse } from "@/test/mocks";
 
+vi.mock("./quota", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./quota")>(),
+  waitForGmailQuota:vi.fn().mockResolvedValue(undefined), pauseGmailQuota:vi.fn(),
+}));
+
 // Mock dependencies so the constructor works
 vi.mock("./auth", () => ({
   refreshAccessToken: vi.fn(),
@@ -151,4 +156,36 @@ describe("GmailClient.request", () => {
     expect(result).toEqual({ id: "after-429" });
     expect(mockFetch).toHaveBeenCalledTimes(3);
   });
+});
+
+describe('Android managed Gmail tokens',()=>{
+ afterEach(()=>vi.unstubAllGlobals());
+ it('shares native renewal across simultaneous requests without a refresh token',async()=>{
+  const native=vi.fn().mockResolvedValue({accessToken:'native-new',expiresAt:9999999999});
+  const client=new GmailClient('android','',{accessToken:'',refreshToken:'',expiresAt:0},undefined,native);
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(createMockFetchResponse({status:200,data:{id:'ok'}})));
+  await Promise.all([client.getProfile(),client.listLabels()]);
+  expect(native).toHaveBeenCalledOnce();expect(native).toHaveBeenCalledWith(undefined);
+  expect(fetch).toHaveBeenCalledWith(expect.any(String),expect.objectContaining({headers:expect.objectContaining({Authorization:'Bearer native-new'})}));
+ });
+ it('invalidates a rejected native token on 401 and retries using its replacement',async()=>{
+  const native=vi.fn().mockResolvedValue({accessToken:'replacement',expiresAt:9999999999});
+  const client=new GmailClient('android','',{accessToken:'rejected',refreshToken:'',expiresAt:9999999999},undefined,native);
+  vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(createMockFetchResponse({status:401})).mockResolvedValueOnce(createMockFetchResponse({status:200,data:{id:'ok'}})));
+  expect(await client.request('/profile')).toEqual({id:'ok'});expect(native).toHaveBeenCalledWith('rejected');
+ });
+});
+
+describe('Gmail 403 quota retries',()=>{
+ afterEach(()=>vi.unstubAllGlobals());
+ it('retries quota 403s rather than treating them as permanent permission failures',async()=>{
+  const client=new GmailClient('quota403','',{accessToken:'valid',refreshToken:'',expiresAt:9999999999});
+  const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({error:{errors:[{reason:'rateLimitExceeded'}]}}),{status:403,headers:{'Retry-After':'0'}})).mockResolvedValueOnce(createMockFetchResponse({status:200,data:{ok:true}}));
+  vi.stubGlobal('fetch',fetcher);expect(await client.request('/profile')).toEqual({ok:true});expect(fetcher).toHaveBeenCalledTimes(2);
+ });
+ it('does not retry genuine missing permissions',async()=>{
+  const client=new GmailClient('denied','',{accessToken:'valid',refreshToken:'',expiresAt:9999999999});
+  const fetcher=vi.fn().mockResolvedValue(new Response(JSON.stringify({error:{errors:[{reason:'insufficientPermissions'}]}}),{status:403}));
+  vi.stubGlobal('fetch',fetcher);await expect(client.request('/profile')).rejects.toThrow('403');expect(fetcher).toHaveBeenCalledOnce();
+ });
 });

@@ -1,3 +1,11 @@
+import { AccountNotificationSettings } from "./AccountNotificationSettings";
+import { requestMailNotificationPermission } from "@/services/notifications/notificationManager";
+import { SEND_CHECKS } from "../composer/SendChecks";
+import { isAndroidEmulator, resolveOllamaServerUrl } from "@/services/ai/androidHostAi";
+import { SandboxAccountSettings } from "./SandboxAccountSettings";
+import { AiCoreSettings } from "./AiCoreSettings";
+import { AndroidBackgroundSyncSettings } from "./AndroidBackgroundSyncSettings";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
@@ -77,6 +85,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
 ];
 
 export function SettingsPage() {
+  const androidMobile = useAndroidMobile();
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
@@ -103,6 +112,9 @@ export function SettingsPage() {
   const activeTab = (tab && tabs.some((t) => t.id === tab) ? tab : "general") as SettingsTab;
   const setActiveTab = (t: SettingsTab) => navigateToSettings(t);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationPermissionMessage, setNotificationPermissionMessage] = useState("");
+  const notificationAccountId = useAccountStore((state) => state.activeAccountId);
+  const [sendChecks, setSendChecks] = useState<Record<string, boolean>>({});
   const [undoSendDelay, setUndoSendDelay] = useState("5");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -118,11 +130,11 @@ export function SettingsPage() {
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
+  const [androidEmulator, setAndroidEmulator] = useState(false);
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.2");
   const [piServerUrl, setPiServerUrl] = useState(DEFAULT_PI_SERVER_URL);
   const [piModel, setPiModel] = useState("gemma-4-e4b");
-  const [aicoreModel, setAicoreModel] = useState("gemma-4-26b");
   const [isAndroidPlatform, setIsAndroidPlatform] = useState(false);
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
@@ -147,8 +159,6 @@ export function SettingsPage() {
   const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
-  const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
-  const [newVipEmail, setNewVipEmail] = useState("");
   const [pgpIdentity, setPgpIdentity] = useState<{ publicKey: string; fingerprint: string } | null>(null);
   const [pgpCopied, setPgpCopied] = useState(false);
 
@@ -192,16 +202,15 @@ export function SettingsPage() {
         setIsAndroidPlatform(true);
       }
 
-      const provider = await getSetting("ai_provider");
-      if (isAndroid && (provider === "pi" || provider === "ollama" || !provider)) {
-        setAiProvider("aicore");
-      } else if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") {
+      const emulator = await isAndroidEmulator();
+      setAndroidEmulator(emulator);
+      const savedProvider = await getSetting("ai_provider");
+      const provider = isAndroid && (savedProvider === "pi" || (savedProvider === "ollama" && !emulator)) ? "aicore" : savedProvider;
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") {
         setAiProvider(provider);
       }
-      const aicoreModelVal = await getSetting("aicore_model");
-      if (aicoreModelVal) setAicoreModel(aicoreModelVal);
       const ollamaUrl = await getSetting("ollama_server_url");
-      if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
+      setOllamaServerUrl(await resolveOllamaServerUrl(ollamaUrl));
       const ollamaModelVal = await getSetting("ollama_model");
       if (ollamaModelVal) setOllamaModel(ollamaModelVal);
       setPiServerUrl(await loadPiServerUrl());
@@ -244,19 +253,14 @@ export function SettingsPage() {
       const smartNotif = await getSetting("smart_notifications");
       setSmartNotifications(smartNotif !== "false");
       const notifCats = await getSetting("notify_categories");
-      if (notifCats) {
+      if (notifCats !== null) {
         setNotifyCategories(new Set(notifCats.split(",").map((s) => s.trim()).filter(Boolean)));
       }
-      try {
-        const { getAllVipSenders } = await import("@/services/db/notificationVips");
-        const activeId = accounts.find((a) => a.isActive)?.id;
-        if (activeId) {
-          const vips = await getAllVipSenders(activeId);
-          setVipSenders(vips.map((v) => ({ email_address: v.email_address, display_name: v.display_name })));
-        }
-      } catch {
-        // VIP table may not exist yet
-      }
+      const checks = await Promise.all(SEND_CHECKS.map(async (check) => {
+        const saved = await getSetting(check.key);
+        return [check.key, saved == null ? check.defaultOn : saved === "true"] as const;
+      }));
+      setSendChecks(Object.fromEntries(checks));
 
       // Load cache settings
       const cacheMax = await getSetting("attachment_cache_max_mb");
@@ -290,6 +294,7 @@ export function SettingsPage() {
     const newVal = !notificationsEnabled;
     setNotificationsEnabled(newVal);
     await setSetting("notifications_enabled", newVal ? "true" : "false");
+    if (newVal) await requestMailNotificationPermission().catch(() => false);
   }, [notificationsEnabled]);
 
   const handleUndoDelayChange = useCallback(async (value: string) => {
@@ -418,7 +423,8 @@ export function SettingsPage() {
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <button
           onClick={() => navigateToLabel("inbox")}
-          className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
+          className={`${androidMobile ? "min-h-12 min-w-12 flex items-center justify-center" : "p-1.5 -ml-1"} rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors`}
+          aria-label="Back to Inbox"
           title="Back to Inbox"
         >
           <ArrowLeft size={18} />
@@ -427,9 +433,9 @@ export function SettingsPage() {
       </div>
 
       {/* Body: sidebar nav + content */}
-      <div className="flex flex-1 min-h-0">
+      <div className={`flex flex-1 min-h-0 ${androidMobile ? "flex-col" : ""}`}>
         {/* Vertical tab sidebar */}
-        <nav className="w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30">
+        <nav aria-label="Settings categories" className={androidMobile ? "flex overflow-x-auto shrink-0 border-b border-border-primary p-2 gap-2" : "w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30"}>
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -437,7 +443,8 @@ export function SettingsPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2.5 w-full px-4 py-2 text-[0.8125rem] transition-colors ${
+                aria-current={isActive ? "page" : undefined}
+                className={`flex items-center gap-2.5 ${androidMobile ? "min-h-12 shrink-0 whitespace-nowrap px-4 text-sm rounded-lg" : "w-full px-4 py-2 text-[0.8125rem]"} transition-colors ${
                   isActive
                     ? "bg-bg-selected text-accent font-medium"
                     : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -452,7 +459,7 @@ export function SettingsPage() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl px-8 py-6">
+          <div className={androidMobile ? "min-w-0 px-4 py-5" : "max-w-2xl px-8 py-6"}>
             {/* Tab title */}
             {activeTabDef && (
               <div className="mb-6">
@@ -521,8 +528,8 @@ export function SettingsPage() {
                         <option value="xlarge">Extra Large</option>
                       </select>
                     </SettingRow>
-                    <SettingRow label="Accent color">
-                      <div className="flex items-center gap-2">
+                    <SettingRow label="Accent color" stacked={androidMobile}>
+                      <div className="flex flex-wrap items-center gap-2">
                         {COLOR_THEMES.map((t) => {
                           const isSelected = colorTheme === t.id;
                           return (
@@ -530,21 +537,27 @@ export function SettingsPage() {
                               key={t.id}
                               onClick={() => setColorTheme(t.id)}
                               title={t.name}
-                              className={`relative w-7 h-7 rounded-full transition-all ${
-                                isSelected
-                                  ? "ring-2 ring-offset-2 ring-offset-bg-primary scale-110"
-                                  : "hover:scale-105"
-                              }`}
-                              style={{
-                                backgroundColor: t.swatch,
-                                boxShadow: isSelected
-                                  ? `0 0 0 2px var(--color-bg-primary), 0 0 0 4px ${t.swatch}`
-                                  : undefined,
-                              }}
+                              aria-label={t.name}
+                              aria-pressed={isSelected}
+                              className="flex w-7 h-7 shrink-0 items-center justify-center"
                             >
-                              {isSelected && (
-                                <Check size={14} className="absolute inset-0 m-auto text-white drop-shadow-sm" />
-                              )}
+                              <span
+                                className={`relative w-7 h-7 rounded-full transition-all ${
+                                  isSelected
+                                    ? "ring-2 ring-offset-2 ring-offset-bg-primary scale-110"
+                                    : "hover:scale-105"
+                                }`}
+                                style={{
+                                  backgroundColor: t.swatch,
+                                  boxShadow: isSelected
+                                    ? `0 0 0 2px var(--color-bg-primary), 0 0 0 4px ${t.swatch}`
+                                    : undefined,
+                                }}
+                              >
+                                {isSelected && (
+                                  <Check size={14} className="absolute inset-0 m-auto text-white drop-shadow-sm" />
+                                )}
+                              </span>
                             </button>
                           );
                         })}
@@ -717,17 +730,26 @@ export function SettingsPage() {
                         await setSetting("smart_notifications", newVal ? "true" : "false");
                       }}
                     />
+                    {notificationsEnabled && (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button variant="secondary" onClick={async () => {
+                          const allowed = await requestMailNotificationPermission().catch(() => false);
+                          setNotificationPermissionMessage(allowed ? "Notifications are allowed on this device." : "Allow SuiteMail notifications in your device settings.");
+                        }}>Check notification permission</Button>
+                        {notificationPermissionMessage && <p role="status" className="text-xs text-text-tertiary">{notificationPermissionMessage}</p>}
+                      </div>
+                    )}
                   </Section>
 
-                  {smartNotifications && (
-                    <>
-                      <Section title="Category Filters">
+                  {notificationsEnabled && smartNotifications && (
+                    <Section title="Category Filters">
                         <div>
                           <span className="text-sm text-text-secondary">Notify for categories</span>
                           <div className="flex flex-wrap gap-2 mt-2">
                             {(["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const).map((cat) => (
                               <button
                                 key={cat}
+                                aria-pressed={notifyCategories.has(cat)}
                                 onClick={async () => {
                                   const next = new Set(notifyCategories);
                                   if (next.has(cat)) next.delete(cat);
@@ -746,68 +768,12 @@ export function SettingsPage() {
                             ))}
                           </div>
                         </div>
-                      </Section>
-
-                      <Section title="VIP Senders">
-                        <p className="text-xs text-text-tertiary mb-2">
-                          These senders always trigger notifications regardless of category
-                        </p>
-                        <div className="space-y-1.5">
-                          {vipSenders.map((vip) => (
-                            <div key={vip.email_address} className="flex items-center justify-between py-1.5 px-3 bg-bg-secondary rounded-md">
-                              <span className="text-xs text-text-primary truncate">
-                                {vip.display_name ? `${vip.display_name} (${vip.email_address})` : vip.email_address}
-                              </span>
-                              <button
-                                onClick={async () => {
-                                  const activeId = accounts.find((a) => a.isActive)?.id;
-                                  if (!activeId) return;
-                                  const { removeVipSender } = await import("@/services/db/notificationVips");
-                                  await removeVipSender(activeId, vip.email_address);
-                                  setVipSenders((prev) => prev.filter((v) => v.email_address !== vip.email_address));
-                                }}
-                                className="text-xs text-danger hover:text-danger/80 ml-2 shrink-0"
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                        <div className="flex gap-2 mt-2">
-                          <input
-                            type="email"
-                            value={newVipEmail}
-                            onChange={(e) => setNewVipEmail(e.target.value)}
-                            placeholder="email@example.com"
-                            className="flex-1 px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-md text-xs text-text-primary outline-none focus:border-accent"
-                            onKeyDown={async (e) => {
-                              if (e.key !== "Enter" || !newVipEmail.trim()) return;
-                              const activeId = accounts.find((a) => a.isActive)?.id;
-                              if (!activeId) return;
-                              const { addVipSender } = await import("@/services/db/notificationVips");
-                              await addVipSender(activeId, newVipEmail.trim());
-                              setVipSenders((prev) => [...prev, { email_address: newVipEmail.trim().toLowerCase(), display_name: null }]);
-                              setNewVipEmail("");
-                            }}
-                          />
-                          <Button
-                            variant="primary"
-                            onClick={async () => {
-                              if (!newVipEmail.trim()) return;
-                              const activeId = accounts.find((a) => a.isActive)?.id;
-                              if (!activeId) return;
-                              const { addVipSender } = await import("@/services/db/notificationVips");
-                              await addVipSender(activeId, newVipEmail.trim());
-                              setVipSenders((prev) => [...prev, { email_address: newVipEmail.trim().toLowerCase(), display_name: null }]);
-                              setNewVipEmail("");
-                            }}
-                            disabled={!newVipEmail.trim()}
-                          >
-                            Add
-                          </Button>
-                        </div>
-                      </Section>
-                    </>
+                    </Section>
+                  )}
+                  {notificationsEnabled && (
+                    <Section title="Account notifications">
+                      <AccountNotificationSettings accounts={accounts} activeAccountId={notificationAccountId} />
+                    </Section>
                   )}
                 </>
               )}
@@ -832,6 +798,19 @@ export function SettingsPage() {
                       checked={sendAndArchive}
                       onToggle={() => setSendAndArchive(!sendAndArchive)}
                     />
+                  </Section>
+
+                  <Section title="Send checks">
+                    {SEND_CHECKS.map((check) => (
+                      <ToggleRow key={check.key} label={check.label} description={check.description}
+                        checked={sendChecks[check.key] ?? check.defaultOn}
+                        onToggle={async () => {
+                          const checked = !(sendChecks[check.key] ?? check.defaultOn);
+                          await setSetting(check.key, String(checked));
+                          setSendChecks((previous) => ({ ...previous, [check.key]: checked }));
+                        }}
+                      />
+                    ))}
                   </Section>
 
                   <Section title="Behavior">
@@ -939,6 +918,8 @@ export function SettingsPage() {
 
               {activeTab === "accounts" && (
                 <>
+                  <SandboxAccountSettings />
+                  <AndroidBackgroundSyncSettings />
                   <Section title="Mail Accounts">
                     {accounts.filter((a) => a.provider !== "caldav").length === 0 ? (
                       <p className="text-sm text-text-tertiary">
@@ -947,7 +928,7 @@ export function SettingsPage() {
                     ) : (
                       <div className="space-y-2">
                         {accounts.filter((a) => a.provider !== "caldav").map((account) => {
-                          const providerLabel = account.provider === "imap" ? "IMAP" : "Gmail";
+                          const providerLabel = account.provider === "sandbox" ? "Sandbox" : account.provider === "ews" ? "EWS" : account.provider === "msgraph" ? "Microsoft 365" : account.provider === "imap" ? "IMAP" : "Gmail";
                           return (
                             <div
                               key={account.id}
@@ -1167,7 +1148,10 @@ export function SettingsPage() {
                         <option value="gemini">Gemini (Google)</option>
                         <option value="copilot">GitHub Copilot</option>
                         {isAndroidPlatform ? (
-                          <option value="aicore">Android AICore (Max AI Mode)</option>
+                          <>
+                            <option value="aicore">AiCore</option>
+                            {androidEmulator && <option value="ollama">Host AI (Ollama / LMStudio)</option>}
+                          </>
                         ) : (
                           <>
                             <option value="ollama">Local AI (Ollama / LMStudio)</option>
@@ -1183,7 +1167,7 @@ export function SettingsPage() {
                       {aiProvider === "ollama" && "Connect to a local Ollama or LMStudio server. No API key required."}
                       {aiProvider === "copilot" && `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
                       {aiProvider === "pi" && `Uses ${PROVIDER_MODELS.pi.find((m) => m.id === piModel)?.label ?? piModel} loaded via local Llama server & Pi harness. No cloud API key required.`}
-                      {aiProvider === "aicore" && `Uses on-device ${PROVIDER_MODELS.aicore.find((m) => m.id === aicoreModel)?.label ?? aicoreModel} through Android AICore in Max AI mode. Zero cloud latency and fully private.`}
+                      {aiProvider === "aicore" && `Uses Android’s on-device AI. Availability depends on your device.`}
                     </p>
                   </Section>
 
@@ -1273,72 +1257,21 @@ export function SettingsPage() {
                       </div>
                     </Section>
                   ) : aiProvider === "aicore" ? (
-                    <Section title="Android AICore (Max AI Mode)">
-                      <div className="space-y-3">
-                        <SettingRow label="On-Device Model">
-                          <select
-                            value={aicoreModel}
-                            onChange={(e) => setAicoreModel(e.target.value)}
-                            className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
-                          >
-                            {PROVIDER_MODELS.aicore.map((m) => (
-                              <option key={m.id} value={m.id}>{m.label}</option>
-                            ))}
-                          </select>
-                        </SettingRow>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="primary"
-                            size="md"
-                            onClick={async () => {
-                              await setSetting("aicore_model", aicoreModel.trim());
-                              const { clearProviderClients } = await import("@/services/ai/providerManager");
-                              clearProviderClients();
-                              setAiKeySaved(true);
-                              setTimeout(() => setAiKeySaved(false), 2000);
-                            }}
-                          >
-                            {aiKeySaved ? "Saved!" : "Save"}
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="md"
-                            onClick={async () => {
-                              setAiTesting(true);
-                              setAiTestResult(null);
-                              try {
-                                const { testConnection } = await import("@/services/ai/aiService");
-                                const ok = await testConnection();
-                                setAiTestResult(ok ? "success" : "fail");
-                              } catch {
-                                setAiTestResult("fail");
-                              } finally {
-                                setAiTesting(false);
-                              }
-                            }}
-                            disabled={aiTesting}
-                            className="bg-bg-tertiary text-text-primary border border-border-primary"
-                          >
-                            {aiTesting ? "Testing..." : "Test Connection"}
-                          </Button>
-                          {aiTestResult === "success" && (
-                            <span className="text-xs text-success">AICore Active!</span>
-                          )}
-                          {aiTestResult === "fail" && (
-                            <span className="text-xs text-danger">AICore unavailable</span>
-                          )}
-                        </div>
-                      </div>
+                    <Section title="Android AiCore">
+                      <AiCoreSettings />
                     </Section>
                   ) : aiProvider === "ollama" ? (
-                    <Section title="Local Server">
+                    <Section title={androidEmulator ? "Host AI server" : "Local Server"}>
                       <div className="space-y-3">
+                        {androidEmulator && <p className="text-xs text-text-secondary">
+                          Connects to AI running on your computer. Use port 11434 for Ollama or 1234 for LM Studio, and enter a model loaded on that server.
+                        </p>}
                         <TextField
                           label="Server URL"
                           size="md"
                           value={ollamaServerUrl}
                           onChange={(e) => setOllamaServerUrl(e.target.value)}
-                          placeholder="http://localhost:11434"
+                          placeholder={androidEmulator ? "http://10.0.2.2:11434" : "http://localhost:11434"}
                         />
                         <TextField
                           label="Model Name"
@@ -2331,21 +2264,27 @@ function SidebarNavEditor() {
               <span className="flex-1 truncate">{nav.label}</span>
               <button
                 onClick={() => toggleItem(index)}
+                role="switch"
+                aria-checked={item.visible}
+                aria-label={`${nav.label} visibility`}
                 disabled={isInbox}
-                className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
+                className="inline-flex shrink-0 items-center justify-center"
+                title={isInbox ? "Inbox is always visible" : item.visible ? "Hide" : "Show"}
+              >
+                <span aria-hidden="true" className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${
                   isInbox
                     ? "bg-accent/40 cursor-not-allowed"
                     : item.visible
                       ? "bg-accent cursor-pointer"
                       : "bg-bg-tertiary cursor-pointer"
-                }`}
-                title={isInbox ? "Inbox is always visible" : item.visible ? "Hide" : "Show"}
-              >
-                <span
-                  className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                    item.visible ? "translate-x-5" : ""
-                  }`}
-                />
+                }`}>
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      item.visible ? "translate-x-5" : ""
+                    }`}
+                  />
+
+                </span>
               </button>
             </div>
           );
@@ -2384,12 +2323,14 @@ function Section({
 function SettingRow({
   label,
   children,
+  stacked = false,
 }: {
   label: string;
   children: React.ReactNode;
+  stacked?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className={stacked ? "flex flex-col items-start gap-2" : "flex items-center justify-between"}>
       <label className="text-sm text-text-secondary">{label}</label>
       {children}
     </div>
@@ -2533,15 +2474,21 @@ function ToggleRow({
       </div>
       <button
         onClick={onToggle}
-        className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ml-4 ${
-          checked ? "bg-accent" : "bg-bg-tertiary"
-        }`}
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        className="inline-flex shrink-0 items-center justify-center ml-4"
       >
-        <span
-          className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow ${
-            checked ? "translate-x-5" : ""
-          }`}
-        />
+        <span aria-hidden="true" className={`w-10 h-5 rounded-full transition-colors relative shrink-0 ${
+          checked ? "bg-accent" : "bg-bg-tertiary"
+        }`}>
+          <span
+            className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform shadow ${
+              checked ? "translate-x-5" : ""
+            }`}
+          />
+
+        </span>
       </button>
     </div>
   );

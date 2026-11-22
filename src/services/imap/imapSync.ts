@@ -34,7 +34,7 @@ import {
 import { getPendingOpsForResource } from "../db/pendingOperations";
 import { syncSidecarMetadata, syncBatchConversationLabelsToRemote } from "./metadataSidecarSync";
 import { syncSettingsForAccount } from "./settingsSidecarSync";
-import { addEmail } from "../filters/filterEngine";
+import { prepareFilterBatch, retryUnfilteredEmails } from "../filters/filterEngine";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -213,8 +213,8 @@ async function storeThreadsAndMessages(
   threadGroups: ThreadGroup[],
   parsedByLocalId: Map<string, ParsedMessage>,
   imapMsgByLocalId: Map<string, ImapMessage>,
-  labelsByRfcId?: Map<string, Set<string>>,
-  config?: ImapConfig,
+  labelsByRfcId: Map<string, Set<string>> | undefined,
+  config: ImapConfig,
 ): Promise<ParsedMessage[]> {
   const storedMessages: ParsedMessage[] = [];
 
@@ -231,6 +231,10 @@ async function storeThreadsAndMessages(
   // Process in batches within transactions to avoid long-held locks
   for (let i = 0; i < threadGroups.length; i += THREAD_BATCH_SIZE) {
     const batch = threadGroups.slice(i, i + THREAD_BATCH_SIZE);
+    const filterBatch = await prepareFilterBatch(accountId, config).catch((err) => {
+      console.warn("[imapSync] Deferring filters until metadata and rules refresh succeeds:", err);
+      return undefined;
+    });
 
     await withTransaction(async () => {
       for (const group of batch) {
@@ -358,7 +362,7 @@ async function storeThreadsAndMessages(
 
         // Apply client-side filters if thread has not been filtered
         try {
-          await addEmail(accountId, group.threadId, messages, config);
+          if (filterBatch) await filterBatch(group.threadId, messages);
         } catch (filterErr) {
           console.error(
             `[imapSync] Failed to apply client-side filters to thread ${group.threadId}:`,
@@ -742,6 +746,10 @@ export async function imapInitialSync(
 
   for (let batchStart = 0; batchStart < threadGroups.length; batchStart += THREAD_BATCH_SIZE) {
     const batch = threadGroups.slice(batchStart, batchStart + THREAD_BATCH_SIZE);
+    const filterBatch = await prepareFilterBatch(accountId, config).catch((err) => {
+      console.warn("[imapSync] Deferring filters until metadata and rules refresh succeeds:", err);
+      return undefined;
+    });
 
     // Pre-check pending ops OUTSIDE the transaction to avoid nested DB issues
     const skippedThreadIds = new Set<string>();
@@ -840,7 +848,7 @@ export async function imapInitialSync(
               authResults: dbMsg.auth_results,
             };
           });
-          await addEmail(accountId, group.threadId, parsedMsgs, config, { skipSidecarPush: true });
+          if (filterBatch) await filterBatch(group.threadId, parsedMsgs);
         } catch (filterErr) {
           console.error(
             `[imapSync] Failed to apply filters to thread ${group.threadId}:`,
@@ -1187,6 +1195,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   if (allThreadable.length === 0 && deltaFolderErrors.length > 0) {
     throw new Error(`All folders failed to sync: ${deltaFolderErrors[0]}`);
   }
+
+  await retryUnfilteredEmails(accountId, config);
 
   if (allThreadable.length === 0) {
     return { messages: [] };

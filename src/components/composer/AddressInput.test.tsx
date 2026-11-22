@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, act } from "@testing-library/react";
 import { AddressInput } from "./AddressInput";
 
 // Mock the contacts search
@@ -41,7 +41,7 @@ describe("AddressInput debounce behavior", () => {
     fireEvent.change(input, { target: { value: "jo" } });
 
     // Advance past 200ms debounce
-    await vi.advanceTimersByTimeAsync(250);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(mockSearchContacts).toHaveBeenCalledWith("jo", 5);
   });
 
@@ -54,7 +54,7 @@ describe("AddressInput debounce behavior", () => {
     const input = getByRole("textbox", { name: "To" });
     fireEvent.change(input, { target: { value: "j" } });
 
-    await vi.advanceTimersByTimeAsync(250);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(mockSearchContacts).not.toHaveBeenCalled();
   });
 
@@ -77,8 +77,36 @@ describe("AddressInput debounce behavior", () => {
     expect(mockSearchContacts).not.toHaveBeenCalled();
 
     // Now advance past debounce from last keystroke
-    await vi.advanceTimersByTimeAsync(250);
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     expect(mockSearchContacts).toHaveBeenCalledTimes(1);
     expect(mockSearchContacts).toHaveBeenCalledWith("john", 5);
   });
+  it("commits on blur without stealing focus from Subject", () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(<><AddressInput label="To" addresses={[]} onChange={onChange} /><input aria-label="Subject" /></>);
+    const recipient = getByRole("textbox", { name: "To" });
+    const subject = getByRole("textbox", { name: "Subject" });
+    act(() => { recipient.focus(); });
+    fireEvent.change(recipient, { target: { value: "person@example.com" } });
+    act(() => { subject.focus(); });
+    expect(onChange).toHaveBeenCalledWith(["person@example.com"]);
+    expect(document.activeElement).toBe(subject);
+  });
+
+  it("leaves an invalid recipient editable and announces the error", () => {
+    const onChange = vi.fn();
+    const { getByRole } = render(<AddressInput label="To" addresses={[]} onChange={onChange} />);
+    const recipient = getByRole("textbox", { name: "To" });
+    fireEvent.change(recipient, { target: { value: "invalid" } });
+    fireEvent.keyDown(recipient, { key: "Enter" });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(getByRole("alert").textContent).toBe("Enter a valid email address");
+    expect(recipient).toHaveValue("invalid");
+  });
+
+  it("allows Tab traversal when the recipient field is empty", () => {
+    const { getByRole } = render(<AddressInput label="To" addresses={[]} onChange={vi.fn()} />);
+    expect(fireEvent.keyDown(getByRole("textbox", { name: "To" }), { key: "Tab" })).toBe(true);
+  });
+
 });

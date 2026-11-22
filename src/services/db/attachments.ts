@@ -1,6 +1,7 @@
 import { getDb } from "./connection";
 
 export interface DbAttachment {
+  imap_part_id?: string | null;
   id: string;
   message_id: string;
   account_id: string;
@@ -61,6 +62,8 @@ export interface AttachmentWithContext {
   date: number | null;
   subject: string | null;
   thread_id: string | null;
+  imap_part_id?: string | null;
+  content_match?: string;
 }
 
 export async function getAttachmentsForAccount(

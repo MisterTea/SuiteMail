@@ -5,6 +5,7 @@ export interface DbScheduledEmail {
   id: string;
   account_id: string;
   to_addresses: string;
+  from_address: string | null;
   cc_addresses: string | null;
   bcc_addresses: string | null;
   subject: string | null;
@@ -41,6 +42,7 @@ export async function getScheduledEmailsForAccount(
 export async function insertScheduledEmail(email: {
   accountId: string;
   toAddresses: string;
+  fromAddress?: string | null;
   ccAddresses: string | null;
   bccAddresses: string | null;
   subject: string | null;
@@ -55,8 +57,8 @@ export async function insertScheduledEmail(email: {
   const db = await getDb();
   const id = crypto.randomUUID();
   await db.execute(
-    `INSERT INTO scheduled_emails (id, account_id, to_addresses, cc_addresses, bcc_addresses, subject, body_html, reply_to_message_id, thread_id, scheduled_at, signature_id, attachment_paths, recurrence_rule)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+    `INSERT INTO scheduled_emails (id, account_id, to_addresses, cc_addresses, bcc_addresses, subject, body_html, reply_to_message_id, thread_id, scheduled_at, signature_id, attachment_paths, recurrence_rule, from_address)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
     [
       id,
       email.accountId,
@@ -71,6 +73,7 @@ export async function insertScheduledEmail(email: {
       email.signatureId,
       email.attachmentPaths ?? null,
       email.recurrenceRule ?? null,
+      email.fromAddress ?? null,
     ],
   );
   return id;

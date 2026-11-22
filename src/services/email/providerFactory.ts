@@ -1,3 +1,4 @@
+import { SandboxProvider } from "./sandboxProvider";
 import type { EmailProvider } from "./types";
 import { GmailApiProvider } from "./gmailProvider";
 import { ImapSmtpProvider } from "./imapSmtpProvider";
@@ -23,7 +24,9 @@ export async function getEmailProvider(
 
   let provider: EmailProvider;
 
-  if (account.provider === "msgraph") {
+  if (account.provider === "sandbox") {
+    provider = new SandboxProvider();
+  } else if (account.provider === "msgraph") {
     provider = new MsGraphProvider(accountId);
   } else if (account.provider === "ews") {
     provider = new EwsProvider(accountId);

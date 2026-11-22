@@ -2,7 +2,6 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
-import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import type { Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
@@ -49,7 +48,7 @@ async function handlePopOut(thread: Thread) {
 }
 
 export function ThreadView({ thread }: ThreadViewProps) {
-  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccountId = thread.accountId;
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
@@ -119,7 +118,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
     if (thread.isRead || markAsReadBehavior === "manual") return;
 
+    let explicitlyUnread = false;
+    const preserveUnread = (event: Event) => {
+      if ((event as CustomEvent).detail === thread.id) explicitlyUnread = true;
+    };
+    window.addEventListener("suitemail-explicit-unread", preserveUnread);
     const markRead = () => {
+      if (explicitlyUnread) return;
       markThreadRead(activeAccountId, thread.id, [], true).catch((err) => {
         console.error("Failed to mark thread as read:", err);
       });
@@ -127,11 +132,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
     if (markAsReadBehavior === "2s") {
       const timer = setTimeout(markRead, 2000);
-      return () => clearTimeout(timer);
+      return () => { clearTimeout(timer); window.removeEventListener("suitemail-explicit-unread", preserveUnread); };
     }
 
     // instant
     markRead();
+    return () => window.removeEventListener("suitemail-explicit-unread", preserveUnread);
   }, [activeAccountId, thread.id, markAsReadBehavior]);
 
   const openComposer = useComposerStore((s) => s.openComposer);
@@ -144,6 +150,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
     const contract = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
     openComposer({
+      accountId: activeAccountId,
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${lastMessage.subject ?? ""}`,
@@ -154,7 +161,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       contractActive: contract.contractActive,
       contractText: contract.contractText,
     });
-  }, [lastMessage, openComposer]);
+  }, [lastMessage, activeAccountId, openComposer]);
 
   const handleReplyAll = useCallback(async () => {
     if (!lastMessage) return;
@@ -170,6 +177,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
     }
     const contract = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
     openComposer({
+      accountId: activeAccountId,
       mode: "replyAll",
       to: Array.from(allRecipients),
       cc: ccList,
@@ -181,7 +189,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       contractActive: contract.contractActive,
       contractText: contract.contractText,
     });
-  }, [lastMessage, openComposer]);
+  }, [lastMessage, activeAccountId, openComposer]);
 
   const handleForward = useCallback(async () => {
     if (!lastMessage) return;
@@ -207,6 +215,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
     const cleanSub = rawSub.startsWith("Fwd:") ? rawSub : `Fwd: ${rawSub}`;
 
     openComposer({
+      accountId: activeAccountId,
       mode: "forward",
       to: [],
       subject: cleanSub,

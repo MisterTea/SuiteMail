@@ -5,6 +5,8 @@ import {
   applyFiltersToMessages,
   addEmail,
   downloadEmail,
+  prepareFilterBatch,
+  retryUnfilteredEmails,
   isEmailFiltered,
   markEmailFiltered,
 } from "./filterEngine";
@@ -50,6 +52,10 @@ vi.mock("../imap/metadataSidecarSync", () => ({
     mockEnsureMetadataDownloadedForEmail(...args)
   ),
   pushSidecarMetadata: vi.fn((...args) => mockPushSidecarMetadata(...args)),
+}));
+
+vi.mock("../imap/settingsSidecarSync", () => ({
+  syncFilterSettings: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock("../db/accounts", () => ({
@@ -217,6 +223,7 @@ describe("computeFilterActions", () => {
 describe("applyFiltersToMessages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnsureMetadataDownloadedForEmail.mockReset();
     mockFilters.mockResolvedValue([]);
   });
 
@@ -259,6 +266,7 @@ describe("applyFiltersToMessages", () => {
 describe("addEmail with client-side filters", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnsureMetadataDownloadedForEmail.mockReset();
     mockFilters.mockReset();
     mockFilters.mockResolvedValue([]);
     for (const k of Object.keys(mockCrdtDocs)) delete mockCrdtDocs[k];
@@ -359,6 +367,7 @@ describe("addEmail with client-side filters", () => {
 describe("downloadEmail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockEnsureMetadataDownloadedForEmail.mockReset();
     mockFilters.mockReset();
     mockFilters.mockResolvedValue([]);
     for (const k of Object.keys(mockCrdtDocs)) delete mockCrdtDocs[k];
@@ -412,6 +421,66 @@ describe("downloadEmail", () => {
     // it did NOT assume an empty metadata item or apply filters again
     expect(result.filtered).toBe(false);
     expect(mockEmailActions.addThreadLabel).not.toHaveBeenCalled();
+  });
+
+  it("refreshes once per batch and rechecks remote completion markers", async () => {
+    mockEnsureMetadataDownloadedForEmail.mockImplementationOnce(async () => {
+      await markEmailFiltered("acc-1", "remote-complete", true);
+    });
+    const filter = await prepareFilterBatch("acc-1", testImapConfig);
+    expect((await filter("remote-complete", createMockParsedMessage({ threadId: "remote-complete" }))).filtered).toBe(false);
+    await filter("new-in-batch", createMockParsedMessage({ threadId: "new-in-batch" }));
+    expect(mockEnsureMetadataDownloadedForEmail).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not run filters if refreshing rules fails", async () => {
+    const { syncFilterSettings } = await import("../imap/settingsSidecarSync");
+    vi.mocked(syncFilterSettings).mockRejectedValueOnce(new Error("rules unavailable"));
+    await expect(prepareFilterBatch("acc-1", testImapConfig)).rejects.toThrow("rules unavailable");
+    expect(mockFilters).not.toHaveBeenCalled();
+    expect(mockEnsureMetadataDownloadedForEmail).not.toHaveBeenCalled();
+  });
+
+  it("retries saved unfiltered mail without requiring newly downloaded mail", async () => {
+    const connection = await import("../db/connection");
+    const messagesDb = await import("../db/messages");
+    const operations = await import("../db/pendingOperations");
+    const select = vi.fn().mockResolvedValueOnce([{ id: "saved-thread" }]).mockResolvedValue([]);
+    const dbSpy = vi.spyOn(connection, "getDb").mockResolvedValue({ select, execute: vi.fn().mockResolvedValue({}) } as any);
+    const messagesSpy = vi.spyOn(messagesDb, "getMessagesForThread").mockResolvedValue([{
+      id: "saved-message", thread_id: "saved-thread", account_id: "acc-1", date: 123,
+      subject: "Saved mail", is_read: 0, is_starred: 0,
+    } as any]);
+    const opsSpy = vi.spyOn(operations, "getPendingOpsForResource").mockResolvedValue([]);
+    try {
+      await retryUnfilteredEmails("acc-1", testImapConfig);
+      expect(messagesSpy).toHaveBeenCalledWith("acc-1", "saved-thread");
+      expect(await isEmailFiltered("acc-1", "saved-thread")).toBe(true);
+      expect(mockPushSidecarMetadata).toHaveBeenCalled();
+    } finally {
+      dbSpy.mockRestore();
+      messagesSpy.mockRestore();
+      opsSpy.mockRestore();
+    }
+  });
+
+  it("defers filtering when metadata refresh fails", async () => {
+    mockEnsureMetadataDownloadedForEmail.mockRejectedValueOnce(new Error("offline"));
+    await expect(downloadEmail("acc-1", "deferred", createMockParsedMessage({ threadId: "deferred" }), testImapConfig)).rejects.toThrow("offline");
+    expect(mockFilters).not.toHaveBeenCalled();
+    expect(await isEmailFiltered("acc-1", "deferred")).toBe(false);
+    expect(mockPushSidecarMetadata).not.toHaveBeenCalled();
+  });
+
+  it("leaves failed actions unfiltered and retries successfully", async () => {
+    mockFilters.mockResolvedValue([{ criteria_json: '{}', actions_json: '{"applyLabel":"VIP"}' }]);
+    mockEmailActions.addThreadLabel.mockRejectedValueOnce(new Error("provider unavailable"));
+    const msg = createMockParsedMessage({ threadId: "retry-actions" });
+    await expect(downloadEmail("acc-1", msg.threadId, msg, testImapConfig)).rejects.toThrow("provider unavailable");
+    expect(await isEmailFiltered("acc-1", msg.threadId)).toBe(false);
+    expect(mockPushSidecarMetadata).not.toHaveBeenCalled();
+    await downloadEmail("acc-1", msg.threadId, msg, testImapConfig);
+    expect(await isEmailFiltered("acc-1", msg.threadId)).toBe(true);
   });
 
   it("applies filter rules and marks metadata when no remote metadata exists to download", async () => {

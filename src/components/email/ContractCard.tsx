@@ -74,6 +74,7 @@ export function ContractCard({ message }: ContractCardProps) {
   const handleRevise = () => {
     const replyTo = message.reply_to ?? message.from_address;
     openComposer({
+      accountId: message.account_id,
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${message.subject ?? ""}`,

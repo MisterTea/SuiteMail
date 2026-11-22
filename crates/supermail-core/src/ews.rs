@@ -10,7 +10,7 @@ use quick_xml::events::Event;
 use quick_xml::Reader;
 use serde::{Deserialize, Serialize};
 
-use crate::msgraph::{
+use crate::graph_types::{
     GraphAttachmentDto, GraphFolderDto, GraphHeader, GraphMessageDto, GraphMoveResult, GraphParty,
 };
 

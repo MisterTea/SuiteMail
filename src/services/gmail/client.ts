@@ -1,3 +1,4 @@
+import { gmailRequestCost, waitForGmailQuota, pauseGmailQuota, isGmailRateLimit, retryAfterMs } from "./quota";
 import { refreshAccessToken, type TokenResponse } from "./auth";
 import { getDb } from "../db/connection";
 import { encryptValue } from "@/utils/crypto";
@@ -13,6 +14,8 @@ export class GmailApiError extends Error {
     this.name = "GmailApiError";
   }
 }
+
+export type GoogleTokenProvider = (invalidToken?: string) => Promise<{accessToken: string; expiresAt: number}>;
 
 interface TokenInfo {
   accessToken: string;
@@ -30,7 +33,7 @@ export class GmailClient {
   private tokenInfo: TokenInfo;
   private refreshPromise: Promise<void> | null = null;
 
-  constructor(accountId: string, clientId: string, tokenInfo: TokenInfo, clientSecret?: string) {
+  constructor(accountId: string, clientId: string, tokenInfo: TokenInfo, clientSecret?: string, private tokenProvider?: GoogleTokenProvider) {
     this.accountId = accountId;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
@@ -52,7 +55,17 @@ export class GmailClient {
     return this.tokenInfo.accessToken;
   }
 
-  private async refreshToken(): Promise<void> {
+  private async refreshToken(invalidToken?: string): Promise<void> {
+    if (this.tokenProvider) {
+      const token = await this.tokenProvider(invalidToken);
+      this.tokenInfo = {...this.tokenInfo, ...token};
+      const db = await getDb();
+      await db.execute(
+        "UPDATE accounts SET access_token = $1, token_expires_at = $2, updated_at = unixepoch() WHERE id = $3",
+        [await encryptValue(token.accessToken), token.expiresAt, this.accountId],
+      );
+      return;
+    }
     const tokens: TokenResponse = await refreshAccessToken(
       this.tokenInfo.refreshToken,
       this.clientId,
@@ -77,7 +90,7 @@ export class GmailClient {
   }
 
   /**
-   * Fetch with automatic retry on 429 (rate limit) responses.
+   * Pace requests and retry both Gmail quota 403s and HTTP 429 responses.
    * Uses Retry-After header when available, otherwise exponential backoff.
    */
   private async fetchWithRetry(
@@ -86,16 +99,15 @@ export class GmailClient {
   ): Promise<Response> {
     let lastResponse: Response | undefined;
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
+      await waitForGmailQuota(this.accountId, gmailRequestCost(url, options.method || "GET"));
       const response = await fetch(url, options);
-      if (response.status !== 429) return response;
+      if (!(await isGmailRateLimit(response))) return response;
 
       lastResponse = response;
+      const retryAfter = retryAfterMs(response.headers.get("Retry-After"));
+      const delayMs = retryAfter ?? (response.status === 403 ? 60_000 : INITIAL_BACKOFF_MS) * Math.pow(2, attempt);
+      pauseGmailQuota(this.accountId, delayMs);
       if (attempt === MAX_RETRY_ATTEMPTS - 1) break;
-
-      const retryAfter = response.headers.get("Retry-After");
-      const delayMs = retryAfter
-        ? parseInt(retryAfter, 10) * 1000
-        : INITIAL_BACKOFF_MS * Math.pow(2, attempt);
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
     return lastResponse!;
@@ -122,7 +134,7 @@ export class GmailClient {
     if (response.status === 401) {
       // Token might have been revoked — force refresh through the mutex
       if (!this.refreshPromise) {
-        this.refreshPromise = this.refreshToken().finally(() => {
+        this.refreshPromise = this.refreshToken(token).finally(() => {
           this.refreshPromise = null;
         });
       }

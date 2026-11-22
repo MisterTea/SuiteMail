@@ -35,11 +35,17 @@ export async function searchContacts(
   const pattern = `%${query}%`;
   return db.select<DbContact[]>(
     `SELECT * FROM contacts
-     WHERE email LIKE $1 OR display_name LIKE $1
+     WHERE (email LIKE $1 OR display_name LIKE $1)
+       AND NOT EXISTS (SELECT 1 FROM hidden_recipient_suggestions h WHERE h.email = contacts.email COLLATE NOCASE)
      ORDER BY frequency DESC, display_name ASC
      LIMIT $2`,
     [pattern, limit],
   );
+}
+
+export async function hideRecipientSuggestion(email: string): Promise<void> {
+  const db = await getDb();
+  await db.execute("INSERT OR IGNORE INTO hidden_recipient_suggestions (email) VALUES ($1)", [normalizeEmail(email)]);
 }
 
 /**

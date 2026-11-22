@@ -73,6 +73,7 @@ async function followPages(
     onProgress?.("messages", count, 0);
     checkpoint = page.checkpoint;
     await updateAccountSyncState(accountId, checkpoint);
+    window.dispatchEvent(new Event("suitemail-sync-progress"));
     if (page.caughtUp) break;
   }
 }

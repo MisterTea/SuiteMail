@@ -326,7 +326,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const [labelsExpanded, setLabelsExpanded] = useState(false);
   const [isManualSyncing, setIsSyncing] = useState(false);
   const isAccountSyncing = useUIStore((s) =>
-    activeAccountId !== null && s.syncingAccountIds.includes(activeAccountId),
+    activeLabel === "unified" ? s.syncingAccountIds.length > 0 : activeAccountId !== null && s.syncingAccountIds.includes(activeAccountId),
   );
   const isSyncing = isManualSyncing || isAccountSyncing;
 
@@ -441,10 +441,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     };
 
     window.addEventListener("suitemail-sync-done", handler);
+    window.addEventListener("suitemail-sync-progress", handler);
     window.addEventListener("draft-count-changed", draftHandler);
     window.addEventListener("unread-count-changed", unreadHandler);
     return () => {
       window.removeEventListener("suitemail-sync-done", handler);
+      window.removeEventListener("suitemail-sync-progress", handler);
       window.removeEventListener("draft-count-changed", draftHandler);
       window.removeEventListener("unread-count-changed", unreadHandler);
       if (timer) clearTimeout(timer);
@@ -473,10 +475,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     };
     load();
     window.addEventListener("suitemail-sync-done", load);
+    window.addEventListener("suitemail-sync-progress", load);
     window.addEventListener("unread-count-changed", load);
     return () => {
       cancelled = true;
       window.removeEventListener("suitemail-sync-done", load);
+      window.removeEventListener("suitemail-sync-progress", load);
       window.removeEventListener("unread-count-changed", load);
     };
   }, [activeAccountId, isGmailAccount]);
@@ -526,7 +530,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     setIsSyncing(true);
     useUIStore.getState().setSyncingFolder(activeLabel);
     try {
-      await triggerSync([activeAccountId]);
+      const accountIds = activeLabel === "unified"
+        ? useAccountStore.getState().accounts.filter((account) => account.isActive && account.provider !== "caldav").map((account) => account.id)
+        : [activeAccountId];
+      await triggerSync(accountIds);
     } catch (err) {
       console.error("Manual sync failed:", err);
     } finally {
@@ -553,6 +560,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             : "hidden md:flex"
         } ${collapsed && !mobileSidebarOpen ? "md:w-16" : "md:w-60"}`}
       >
+      {mobileSidebarOpen && <div className="flex items-center justify-between px-4 pt-3 md:hidden">
+        <h2 className="text-lg font-semibold">Mail folders</h2>
+        <button data-testid="close-mobile-folders" aria-label="Close folders" onClick={()=>setMobileSidebarOpen(false)} className="flex h-12 w-12 items-center justify-center rounded-full text-xl">×</button>
+      </div>}
       <AccountSwitcher collapsed={collapsed && !mobileSidebarOpen} onAddAccount={onAddAccount} />
 
       {/* Compose and sync */}

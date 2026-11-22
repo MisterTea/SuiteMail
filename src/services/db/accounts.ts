@@ -82,7 +82,7 @@ async function decryptAccountTokens(account: DbAccount): Promise<DbAccount> {
 export async function getAllAccounts(): Promise<DbAccount[]> {
   const db = await getDb();
   const accounts = await db.select<DbAccount[]>(
-    "SELECT * FROM accounts ORDER BY created_at ASC",
+    "SELECT * FROM accounts WHERE provider != 'sandbox' OR is_active = 1 ORDER BY created_at ASC",
   );
   return Promise.all(accounts.map(decryptAccountTokens));
 }
@@ -154,7 +154,9 @@ async function reconnectGmailAccount(account: {
   const encRefreshToken = await encryptValue(account.refreshToken);
   await db.execute(
     `UPDATE accounts
-     SET display_name = $1,
+     SET provider = 'gmail_api',
+         calendar_provider = 'google_api',
+         display_name = $1,
          avatar_url = $2,
          access_token = $3,
          refresh_token = $4,

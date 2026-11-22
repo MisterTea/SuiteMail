@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { CSSTransition } from "react-transition-group";
@@ -121,8 +122,9 @@ export function getSnoozePresets(): SnoozePreset[] {
 }
 
 export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogProps) {
+  const android = useAndroidMobile();
   const overlayRef = useRef<HTMLDivElement>(null);
-  const presets = useMemo(() => getSnoozePresets(), []);
+  const presets = useMemo(() => getSnoozePresets(), [isOpen]);
   const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [customDate, setCustomDate] = useState("");
   const [customTime, setCustomTime] = useState("09:00");
@@ -144,6 +146,7 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
   const handleCustomSubmit = () => {
     if (!customDate) return;
     const dt = new Date(`${customDate}T${customTime}`);
+    if (!Number.isFinite(dt.getTime()) || dt.getTime() <= Date.now()) return;
     onSnooze(Math.floor(dt.getTime() / 1000));
   };
 
@@ -267,6 +270,7 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
               </div>
             </div>
             <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
               type="button"
               onClick={onClose}
               className="min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 w-11 h-11 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-text-tertiary hover:text-text-primary hover:bg-bg-hover active:bg-bg-tertiary active:scale-95 transition-all"
@@ -282,6 +286,7 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
               const Icon = preset.icon;
               return (
                 <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                   key={preset.label}
                   type="button"
                   onClick={() => handlePresetClick(preset.timestamp)}
@@ -293,11 +298,11 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
                     <Icon size={18} />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors leading-tight">
+                    <div className={android ? "text-base font-medium text-text-primary leading-snug" : "text-sm font-medium text-text-primary group-hover:text-accent transition-colors leading-tight"}>
                       {preset.label}
                     </div>
-                    <div className="text-xs text-text-tertiary mt-0.5 truncate">
-                      {preset.detail}
+                    <div className={android ? "text-sm text-text-tertiary mt-1 whitespace-normal" : "text-xs text-text-tertiary mt-0.5 truncate"}>
+                      {android ? new Date(preset.timestamp * 1000).toLocaleString(undefined, { weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }) : preset.detail}
                     </div>
                   </div>
                   {preset.shortcut && (
@@ -311,6 +316,7 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
 
             {/* Custom date & time row */}
             <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
               type="button"
               onClick={() => setIsCustomOpen((prev) => !prev)}
               aria-expanded={isCustomOpen}
@@ -328,10 +334,10 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
                 <CalendarClock size={18} />
               </div>
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors leading-tight">
+                <div className={android ? "text-base font-medium text-text-primary leading-snug" : "text-sm font-medium text-text-primary group-hover:text-accent transition-colors leading-tight"}>
                   Custom date & time
                 </div>
-                <div className="text-xs text-text-tertiary mt-0.5 truncate">
+                <div className={android ? "text-sm text-text-tertiary mt-1 whitespace-normal" : "text-xs text-text-tertiary mt-0.5 truncate"}>
                   {customDate ? `${customDate} • ${customTime}` : "Pick date and exact time"}
                 </div>
               </div>
@@ -350,6 +356,8 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
                   <div className="col-span-3">
                     <label className="block text-[11px] font-medium text-text-secondary mb-1">Date</label>
                     <input
+                      style={android ? { minHeight: 48 } : undefined}
+                      aria-label="Snooze date"
                       type="date"
                       min={todayStr}
                       value={customDate}
@@ -360,6 +368,8 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
                   <div className="col-span-2">
                     <label className="block text-[11px] font-medium text-text-secondary mb-1">Time</label>
                     <input
+                      style={android ? { minHeight: 48 } : undefined}
+                      aria-label="Snooze time"
                       type="time"
                       value={customTime}
                       onChange={(e) => setCustomTime(e.target.value)}
@@ -378,6 +388,7 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
                     { label: "8:00 PM", value: "20:00" },
                   ].map((slot) => (
                     <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                       key={slot.value}
                       type="button"
                       onClick={() => setCustomTime(slot.value)}
@@ -392,10 +403,11 @@ export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogP
                   ))}
                 </div>
 
+                {android && <p className="text-sm text-text-secondary">Choose a future date and time · {Intl.DateTimeFormat().resolvedOptions().timeZone}</p>}
                 <Button
                   variant="primary"
                   onClick={handleCustomSubmit}
-                  disabled={!customDate}
+                  disabled={!customDate || !customTime || !Number.isFinite(new Date(`${customDate}T${customTime}`).getTime()) || new Date(`${customDate}T${customTime}`).getTime() <= Date.now()}
                   className="w-full min-h-[48px] sm:min-h-[40px] rounded-xl font-medium text-sm shadow-xs hover:shadow-md transition-all flex items-center justify-center gap-2"
                 >
                   <Clock size={15} />

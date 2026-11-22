@@ -1,3 +1,4 @@
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState } from "react";
 import { ShieldAlert, X, Ban, FolderMinus, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
 import type { AuthResult } from "@/services/gmail/authParser";
@@ -17,6 +18,8 @@ export function AuthWarningBanner({
   onReportSpam,
   onTrustSender,
 }: AuthWarningBannerProps) {
+  const android = useAndroidMobile();
+  const [confirmTrust, setConfirmTrust] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 
   if (!authResults) return null;
@@ -45,20 +48,21 @@ export function AuthWarningBanner({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <h4 className="text-sm font-semibold text-danger tracking-tight">
-              Authentication failed
+              {android ? "Sender couldn’t be verified" : "Authentication failed"}
             </h4>
             <span className="inline-flex items-center text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-danger/15 text-danger border border-danger/25">
               Phishing Risk
             </span>
           </div>
 
-          <p className="text-xs text-text-secondary leading-relaxed">
-            This message from <span className="font-mono font-medium text-text-primary px-1 py-0.5 rounded bg-bg-surface/80 border border-border/40 text-[11px] break-all sm:break-normal">{sender}</span> failed email authentication checks (SPF/DKIM/DMARC). It may be spoofed to steal credentials, account passwords, or sensitive personal data. Be cautious with any links or attachments.
+          <p className={android ? "text-base text-text-secondary leading-relaxed break-words" : "text-xs text-text-secondary leading-relaxed"}>
+            {android ? <>This message may be pretending to be someone else. Avoid links and attachments unless you verify the sender another way.<br /><span className="break-all">{sender}</span></> : <>This message from <span className="font-mono font-medium text-text-primary px-1 py-0.5 rounded bg-bg-surface/80 border border-border/40 text-[11px] break-all sm:break-normal">{sender}</span> failed email authentication checks (SPF/DKIM/DMARC). It may be spoofed to steal credentials, account passwords, or sensitive personal data. Be cautious with any links or attachments.</>}
           </p>
 
           {/* Action buttons */}
           <div className="mt-3 flex items-center gap-2 flex-wrap pt-1">
             <button
+              style={android ? { minHeight: 48, minWidth: 48, flexBasis: "100%" } : undefined}
               onClick={onReportSpam}
               title="Report Spam (!)"
               className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 flex-1 sm:flex-initial text-xs font-semibold rounded-xl sm:rounded-md text-white bg-danger hover:bg-red-700 active:scale-95 shadow-xs transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-danger/40 whitespace-nowrap touch-manipulation"
@@ -67,8 +71,9 @@ export function AuthWarningBanner({
               Report Spam
             </button>
 
-            {onReportSpam && (
+            {onReportSpam && !android && (
               <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
                 onClick={onReportSpam}
                 title="Move to Spam"
                 className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 flex-1 sm:flex-initial text-xs font-medium rounded-xl sm:rounded-md text-danger hover:bg-danger/10 border border-danger/30 active:scale-95 transition-all cursor-pointer whitespace-nowrap touch-manipulation"
@@ -78,17 +83,20 @@ export function AuthWarningBanner({
               </button>
             )}
 
-            <button
-              onClick={onTrustSender ?? onDismiss}
+            {(!android || onTrustSender) && <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
+              onClick={android ? () => setConfirmTrust(true) : onTrustSender ?? onDismiss}
               title="I trust this sender"
               className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 sm:py-1.5 min-h-[44px] sm:min-h-0 flex-1 sm:flex-initial text-xs font-medium rounded-xl sm:rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover border border-border active:scale-95 transition-all cursor-pointer whitespace-nowrap touch-manipulation"
             >
               <ShieldCheck size={14} />
-              I trust this sender
-            </button>
+              {android ? "Trust sender…" : "I trust this sender"}
+            </button>}
 
             <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
               type="button"
+              aria-expanded={showDetails}
               onClick={() => setShowDetails(!showDetails)}
               className="w-full sm:w-auto justify-center sm:justify-start min-h-[36px] sm:min-h-0 py-1.5 sm:py-0 text-xs text-text-tertiary hover:text-text-secondary active:scale-95 transition-all underline-offset-2 hover:underline sm:ml-auto inline-flex items-center gap-1 touch-manipulation cursor-pointer"
             >
@@ -97,6 +105,10 @@ export function AuthWarningBanner({
             </button>
           </div>
 
+          {android && confirmTrust && <div role="alertdialog" aria-label="Trust sender?" className="mt-4 border border-border-primary p-3 rounded-xl space-y-3">
+            <p className="text-base break-all">Trust {sender}? This uses your sender trust setting. Only continue if you have verified this sender another way.</p>
+            <div className="flex flex-wrap gap-3"><button className="min-h-12 px-4 border rounded-lg" onClick={() => setConfirmTrust(false)}>Cancel</button><button className="min-h-12 px-4 border rounded-lg" onClick={() => { setConfirmTrust(false); onTrustSender?.(); }}>Trust sender</button></div>
+          </div>}
           {/* Expandable technical details */}
           {showDetails && (
             <div className="mt-3 pt-3 border-t border-danger/15 flex items-center gap-2 flex-wrap text-[11px]">
@@ -115,6 +127,7 @@ export function AuthWarningBanner({
         </div>
 
         <button
+              style={android ? { minHeight: 48, minWidth: 48 } : undefined}
           onClick={onDismiss}
           className="shrink-0 p-1 rounded-md hover:bg-danger/15 text-text-tertiary hover:text-text-primary transition-colors cursor-pointer"
           aria-label="Dismiss warning"

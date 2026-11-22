@@ -1,0 +1,19 @@
+# Storyboard 15 — Auto-save & Resume Draft
+
+## Evidence
+
+- `recordings/android/storyboard-15-auto-save-resume-draft.png` shows Drafts with **0 conversations**, the **No drafts** state and a **Draft discarded** toast. This frame demonstrates deletion, not successful save/resume; it cannot establish which preceding touch caused deletion.
+- `Composer.tsx` renders a 44px icon-only **Close** in the header, while **Discard** is a labeled 48px footer action that immediately deletes without confirmation. The red close hover styling further blurs preservation versus deletion.
+- Its footer displays **Saving... / Saved as draft / Draft**. `draftAutoSave.ts` waits 3 seconds after edits; stopping cancels that timer. Closing calls `closeComposer` directly and tears down autosave, so an immediate exit can cancel pending edits. A failed save is only logged; an old `lastSavedAt` can still imply the latest changes are saved.
+- `EmailList.tsx:114–157` resumes a draft into the composer and initializes its saved timestamp; it can fail to resolve the draft ID and then create a second draft on the next save. No Android Back-specific handling was found in the inspected composer.
+
+## Three phone-touch improvements
+
+1. **Make preservation the clear exit.** Replace the header X with a labeled **Save & close** action, minimum 48×48 CSS px, reachable without opening a menu. Flush pending edits and await persistence before closing; show **Saving...** while working. Keep **Discard draft** in the overflow menu, separate from Send. Android Back first dismisses the keyboard while keeping composer/content visible; with the keyboard hidden it invokes the same Save & close path. If save fails, retain the composer and offer **Retry**; do not report success or navigate away.
+   - **Acceptance:** Type a unique final sentence and immediately tap Save & close, or press Back twice with the keyboard open. One saved draft appears; tapping its row restores the final sentence, recipients, subject and attachments. First Back only hides the keyboard. Save failure preserves editable content. Empty untouched composers close without creating a draft.
+
+2. **Keep truthful save feedback above the keyboard.** Put a compact text status beneath the composer title, outside horizontally crowded footer controls: **Unsaved changes → Saving... → Saved to Drafts**; failure is **Couldn't save · Retry** with a 48px Retry target. Mark edits dirty immediately so a previous saved timestamp never represents new content. Announce completed/failed saves politely to assistive technology; do not move focus during autosave. A resumed row opens directly in edit mode with its saved content; retain the existing draft identity when saving.
+   - **Acceptance:** At 360px viewport width with keyboard open, status remains readable without horizontal scrolling. Editing a resumed draft changes the status immediately; a failed request never shows Saved. Saving and reopening repeatedly yields one draft row with the latest content. If draft identity cannot be resolved, show a recoverable opening error instead of silently duplicating it.
+
+3. **Confirm deliberate destruction.** Tapping overflow **Discard draft** opens a dialog: **Discard this draft?** / **This deletes your saved draft and current changes.** Actions are **Keep editing** and red **Discard draft**, each minimum 48px high and separated by at least 8px. Keep editing receives initial focus; Android Back dismisses the dialog and returns to the composer. Only the destructive confirmation may delete; surface deletion errors and keep content available.
+   - **Acceptance:** Opening/canceling the dialog changes neither draft count nor content. Back cancels it without closing the composer. Confirming removes only this draft and shows **Draft discarded** after successful deletion. Failed deletion retains the draft and presents a retryable error; saving/closing never produces the discard toast.

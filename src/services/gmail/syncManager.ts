@@ -1,7 +1,9 @@
+import { notifyNewlySyncedMail } from "../notifications/newMail";
+import { importBackgroundMail } from "./androidBackgroundSync";
 import { getGmailClient } from "./tokenManager";
-import { initialSync, deltaSync, type SyncProgress } from "./sync";
+import { initialSync, deltaSync, syncInitialChanges, type SyncProgress } from "./sync";
 import { getAccount, clearAccountHistoryId } from "../db/accounts";
-import { getSetting } from "../db/settings";
+import { getSetting, setSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
 import { deleteAllMessagesForAccount } from "../db/messages";
 import { imapInitialSync, imapDeltaSync } from "../imap/imapSync";
@@ -65,19 +67,21 @@ async function syncGmailAccount(accountId: string): Promise<void> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err ?? "");
       if (message === "HISTORY_EXPIRED") {
-        // Fallback to full sync
+        // Clear the expired account cursor so subsequent cycles can poll live changes during backfill.
+        await clearAccountHistoryId(accountId);
         await initialSync(client, accountId, syncDays, (progress) => {
           statusCallback?.(accountId, "syncing", progress);
-        });
+        }, {maxThreads:10});
       } else {
         throw err;
       }
     }
   } else {
-    // First time — full initial sync
+    // New mail gets priority; a bounded backfill must not hold the queue for hours.
+    await syncInitialChanges(client, accountId);
     await initialSync(client, accountId, syncDays, (progress) => {
       statusCallback?.(accountId, "syncing", progress);
-    });
+    }, {maxThreads:10});
   }
 }
 
@@ -223,6 +227,11 @@ async function syncAccountInternal(accountId: string): Promise<void> {
 
     console.log(`[syncManager] Syncing account ${accountId} (provider=${account.provider}, has_sync_cursor=${Boolean(account.history_id)})`);
 
+    if (account.provider === "sandbox") {
+      statusCallback?.(accountId, "done");
+      return;
+    }
+
     if (account.provider === "caldav") {
       // CalDAV-only accounts — skip email sync, only sync calendar
       await syncCalendarForAccount(accountId);
@@ -252,6 +261,12 @@ async function syncAccountInternal(accountId: string): Promise<void> {
       await syncGmailAccount(accountId);
     }
 
+    if (account.provider === "imap" || account.provider === "ews" || account.provider === "msgraph") {
+      await notifyNewlySyncedMail(accountId, account.last_sync_at, Boolean(account.history_id)).catch((error) => {
+        console.warn("Could not process new mail notifications", error);
+      });
+    }
+
     // Always emit "done" when an initial sync completes (clears the bar).
     // Also emit for delta syncs that fell back to initial (recovery re-sync)
     // since those emit progress via statusCallback inside syncImapAccount.
@@ -279,6 +294,7 @@ async function runSync(accountIds: string[]): Promise<void> {
 
   syncPromise = (async () => {
     try {
+      await importBackgroundMail();
       for (const id of accountIds) {
         await syncAccountInternal(id);
       }
@@ -349,6 +365,7 @@ export async function triggerSync(accountIds: string[]): Promise<void> {
 export async function forceFullSync(accountIds: string[]): Promise<void> {
   for (const id of accountIds) {
     await clearAccountHistoryId(id);
+    await setSetting(`gmail_initial_sync:${id}`, "", {skipNotify:true});
   }
   await runSync(accountIds);
 }
@@ -362,6 +379,7 @@ export async function resyncAccount(accountId: string): Promise<void> {
   await deleteAllThreadsForAccount(accountId);
   await deleteAllMessagesForAccount(accountId);
   await clearAccountHistoryId(accountId);
+  await setSetting(`gmail_initial_sync:${accountId}`, "", {skipNotify:true});
   await clearAllFolderSyncStates(accountId);
   await runSync([accountId]);
 }

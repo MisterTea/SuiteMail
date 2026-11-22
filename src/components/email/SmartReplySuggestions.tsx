@@ -68,6 +68,7 @@ export function SmartReplySuggestions({ threadId, accountId, messages, noReply }
 
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
     openComposer({
+      accountId: accountId,
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${lastMessage.subject ?? ""}`,

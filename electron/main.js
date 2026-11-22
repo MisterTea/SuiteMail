@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadSupermailCore } from './loadAddon.js';
+import { showStartupError } from './startupError.js';
 import { setupUpdater, checkForUpdates, installUpdate } from './updater.js';
 
 // Avoid VPN / corporate proxy interception on local development ports
@@ -27,6 +28,25 @@ let mainWindow = null;
 let splashWindow = null;
 let tray = null;
 let isQuitting = false;
+let startupTimer = null;
+let startupReady = false;
+let startupErrorShown = false;
+
+function reportStartupError(detail) {
+  if (startupReady || startupErrorShown || isQuitting) return;
+  startupErrorShown = true;
+  clearTimeout(startupTimer);
+  console.error("[Startup]", detail);
+  showStartupError({
+    app, dialog, window: mainWindow,
+    getParent: () => splashWindow || mainWindow,
+    detail,
+  }).then((action) => {
+    if (action === 'restart') app.relaunch();
+    isQuitting = true;
+    app.quit();
+  }).catch((err) => console.error("[Startup] Could not show error:", err));
+}
 
 // 1. Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
@@ -162,26 +182,21 @@ async function createMainWindow() {
 
   const isDev = isDevMode();
 
-  // Safety fallback: if splashscreen is not dismissed within 10s of page load, show main window
-  mainWindow.webContents.once('did-finish-load', () => {
-    console.log('[Main] MainWindow did-finish-load, current URL:', mainWindow.webContents.getURL());
-    setTimeout(() => {
-      if (splashWindow) {
-        console.warn('[Main] Splashscreen auto-dismissed via safety timeout');
-        try {
-          splashWindow.close();
-        } catch {}
-        splashWindow = null;
-        if (mainWindow && !mainWindow.isVisible()) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
-      }
-    }, 10000);
-  });
+  // Start the watchdog before navigation: a failed page never finishes loading.
+  startupTimer = setTimeout(() => {
+    reportStartupError('Startup has taken more than five seconds. The mail window has not become ready.');
+  }, 5000);
 
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error(`[Main] Page failed to load: ${validatedURL} (${errorCode}: ${errorDescription})`);
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
+    if (isMainFrame && errorCode !== -3) {
+      reportStartupError(`The mail window could not load (${errorCode}: ${errorDescription}).`);
+    }
+  });
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    reportStartupError(`The mail window stopped unexpectedly (${details.reason}).`);
+  });
+  mainWindow.webContents.on('preload-error', (_event, _preloadPath, error) => {
+    reportStartupError(`SuiteMail could not load its desktop connection: ${error.message}`);
   });
 
   mainWindow.webContents.on('console-message', (event, ...args) => {
@@ -221,10 +236,11 @@ async function createMainWindow() {
     try {
       await mainWindow.loadURL(devUrl);
     } catch (err) {
-      console.error(`[Main] Failed to load ${devUrl}:`, err);
+      reportStartupError(`The development server could not be loaded: ${err.message}`);
     }
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+      .catch((err) => reportStartupError(`The installed mail window could not be loaded: ${err.message}`));
   }
 }
 
@@ -292,6 +308,7 @@ app.whenReady().then(() => {
 });
 
 app.on('before-quit', () => {
+  clearTimeout(startupTimer);
   isQuitting = true;
 });
 
@@ -319,6 +336,8 @@ ipcMain.handle('db:execute', async (_event, query, bindValues = []) => {
 // Rust command dispatcher
 ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   if (cmd === 'close_splashscreen') {
+    startupReady = true;
+    clearTimeout(startupTimer);
     if (splashWindow) {
       splashWindow.close();
       splashWindow = null;

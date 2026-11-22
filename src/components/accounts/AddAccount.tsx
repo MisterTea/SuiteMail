@@ -1,5 +1,8 @@
-import { useState } from "react";
+import { useRef, useState, useEffect } from "react";
+import { Capacitor } from "@capacitor/core";
 import { Mail, Calendar, Shield, Building2 } from "lucide-react";
+import { authorizeAndroidGoogle } from "@/services/gmail/androidGoogleAuth";
+import { removeClient } from "@/services/gmail/tokenManager";
 import { startOAuthFlow } from "@/services/gmail/auth";
 import { saveGmailAccount } from "@/services/db/accounts";
 import { getClientId, getClientSecret } from "@/services/gmail/tokenManager";
@@ -21,24 +24,35 @@ interface AddAccountProps {
 type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton" | "microsoft" | "ews";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
+  const androidPreview = Capacitor.getPlatform() === "android";
   const [view, setView] = useState<View>("select-provider");
   const [status, setStatus] = useState<
     "idle" | "checking" | "authenticating" | "error"
   >("idle");
   const [error, setError] = useState<string | null>(null);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const active = useRef(true);
+  const attempt = useRef(0);
+  useEffect(() => {
+    active.current = true;
+    return () => { active.current = false; attempt.current++; };
+  }, []);
   const addAccount = useAccountStore((s) => s.addAccount);
 
   const handleAddGmailAccount = async () => {
+    const request = ++attempt.current;
     setStatus("checking");
     setError(null);
 
     try {
-      const clientId = await getClientId();
-      const clientSecret = await getClientSecret();
+      const clientId = androidPreview ? "" : await getClientId();
+      const clientSecret = androidPreview ? undefined : await getClientSecret();
       setStatus("authenticating");
 
-      const { tokens, userInfo } = await startOAuthFlow(clientId, clientSecret);
+      const { tokens, userInfo } = androidPreview
+        ? await authorizeAndroidGoogle()
+        : await startOAuthFlow(clientId, clientSecret);
+      if (!active.current || request !== attempt.current) return;
 
       const accountId = crypto.randomUUID();
       const expiresAt = getCurrentUnixTimestamp() + tokens.expires_in;
@@ -53,6 +67,8 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         tokenExpiresAt: expiresAt,
       });
 
+      removeClient(savedId);
+      if (!active.current || request !== attempt.current) return;
       addAccount({
         id: savedId,
         email: userInfo.email,
@@ -64,6 +80,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
       onSuccess();
     } catch (err) {
+      if (!active.current || request !== attempt.current) return;
       console.error("Add account error:", err);
       const message =
         err instanceof Error ? err.message : String(err);
@@ -156,7 +173,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             <div className="text-center py-4 text-text-secondary text-sm">
               <div className="mb-2">Waiting for Google sign-in...</div>
               <div className="text-xs text-text-tertiary">
-                Complete the sign-in in your browser, then return here.
+                {androidPreview ? "Choose a Google account on this device and allow SuiteMail to access your mail." : "Complete the sign-in in your browser, then return here."}
               </div>
             </div>
           )}
@@ -164,6 +181,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
           <div className="flex gap-3 justify-between">
             <button
               onClick={() => {
+                attempt.current++;
                 setView("select-provider");
                 setStatus("idle");
                 setError(null);
@@ -238,12 +256,12 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Google (Gmail)
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                Connect via OAuth with full Gmail API support
+                {androidPreview ? "Choose a Google account on this device. No app password needed." : "Connect via OAuth with full Gmail API support"}
               </div>
             </div>
           </button>
 
-          <button
+          {!androidPreview && <button
             onClick={() => setView("microsoft")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -258,7 +276,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Office 365 mail via Microsoft Graph
               </div>
             </div>
-          </button>
+          </button>}
 
           <button
             onClick={() => setView("ews")}
@@ -277,7 +295,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          <button
+          {!androidPreview && <button
             onClick={() => setView("proton")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -292,7 +310,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Connect via Proton Mail Bridge with end-to-end encryption
               </div>
             </div>
-          </button>
+          </button>}
 
           <button
             onClick={() => setView("imap")}

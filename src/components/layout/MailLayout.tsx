@@ -1,8 +1,9 @@
 import { useCallback, useRef } from "react";
 import { EmailList } from "./EmailList";
+import { UnifiedMailbox } from "./UnifiedMailbox";
 import { ReadingPane } from "./ReadingPane";
 import { useUIStore } from "@/stores/uiStore";
-import { useSelectedThreadId } from "@/hooks/useRouteNavigation";
+import { useActiveLabel, useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 function ResizableEmailLayout() {
@@ -40,7 +41,7 @@ function ResizableEmailLayout() {
   }, [emailListWidth, setEmailListWidth]);
 
   return (
-    <div ref={containerRef} className="flex flex-1 min-w-0 flex-row pb-14 md:pb-0">
+    <div data-mail-layout ref={containerRef} className="flex flex-1 min-w-0 flex-row pb-14 md:pb-0">
       <div
         className={`flex flex-col min-w-0 ${
           selectedThreadId ? "hidden md:flex" : "flex flex-1 md:flex-initial w-full md:w-auto"
@@ -65,6 +66,8 @@ function ResizableEmailLayout() {
 
 export function MailLayout() {
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
+  const label = useActiveLabel();
+  if (label === "unified") return <UnifiedMailbox />;
 
   if (readingPanePosition === "right") {
     return (
@@ -75,7 +78,7 @@ export function MailLayout() {
   }
 
   return (
-    <div className={`flex flex-1 min-w-0 pb-14 md:pb-0 ${readingPanePosition === "bottom" ? "flex-col" : "flex-row"}`}>
+    <div data-mail-layout className={`flex flex-1 min-w-0 pb-14 md:pb-0 ${readingPanePosition === "bottom" ? "flex-col" : "flex-row"}`}>
       <ErrorBoundary name="EmailList">
         <EmailList />
       </ErrorBoundary>

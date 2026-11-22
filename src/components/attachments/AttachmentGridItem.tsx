@@ -88,6 +88,7 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
           {attachment.filename ?? "Unnamed"}
         </span>
 
+        {attachment.content_match && <p className="text-xs text-text-secondary line-clamp-3">{attachment.content_match}</p>}
         <span className="text-[11px] text-text-tertiary truncate" title={senderName}>
           {senderName}
         </span>

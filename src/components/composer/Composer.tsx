@@ -1,3 +1,4 @@
+import { useSendChecks } from "./SendChecks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -20,7 +21,8 @@ import { SnippetSuggestionPopup } from "./SnippetSuggestionPopup";
 import { FromSelector } from "./FromSelector";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
-import { useThreadStore } from "@/stores/threadStore";
+import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { Modal } from "@/components/ui/Modal";
 import { useToastStore } from "@/stores/toastStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread, deleteDraft as deleteDraftAction } from "@/services/emailActions";
@@ -31,7 +33,7 @@ import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { getAliasesForAccount, mapDbAlias, type SendAsAlias } from "@/services/db/sendAsAliases";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
-import { startAutoSave, stopAutoSave } from "@/services/composer/draftAutoSave";
+import { startAutoSave, stopAutoSave, flushAutoSave, waitForPendingAutoSave } from "@/services/composer/draftAutoSave";
 import { getTemplatesForAccount, type DbTemplate } from "@/services/db/templates";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
@@ -39,6 +41,13 @@ import { sanitizeHtml } from "@/utils/sanitize";
 import { appendSealedContract } from "@/services/contracts/contractCrypto";
 
 export function Composer() {
+  const androidMobile = useAndroidMobile();
+  const [showFormatting, setShowFormatting] = useState(true);
+  const [showMore, setShowMore] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [discarding, setDiscarding] = useState(false);
   // Individual selectors — only re-render when each specific value changes
   const isOpen = useComposerStore((s) => s.isOpen);
   const mode = useComposerStore((s) => s.mode);
@@ -69,9 +78,15 @@ export function Composer() {
   const addAttachment = useComposerStore((s) => s.addAttachment);
   const attachments = useComposerStore((s) => s.attachments);
 
-  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const viewedAccountId = useAccountStore((s) => s.activeAccountId);
+  const draftAccountId = useComposerStore((s) => s.accountId);
+  const { approveSend, sendReviewDialog } = useSendChecks(isOpen);
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.id === activeAccountId);
+  const activeAccount = draftAccountId
+    ? accounts.find((account) => account.id === draftAccountId)
+    : accounts.find((account) => account.id === viewedAccountId && account.provider !== "caldav")
+      ?? accounts.find((account) => account.provider !== "caldav");
+  const activeAccountId = activeAccount?.id;
   const sendingRef = useRef(false);
 
   // Cache display values during exit animation to prevent 1-frame visual flash on close
@@ -150,7 +165,7 @@ export function Composer() {
         link: { openOnClick: false },
       }),
       Placeholder.configure({
-        placeholder: "Write your message... (type ;shortcut to expand snippets)",
+        placeholder: androidMobile ? "Write your message…" : "Write your message... (type ;shortcut to expand snippets)",
       }),
       Image.configure({
         inline: true,
@@ -191,8 +206,11 @@ export function Composer() {
     },
     editorProps: {
       attributes: {
+        role: "textbox",
+        "aria-label": "Message body",
+        "aria-multiline": "true",
         class:
-          "prose prose-sm max-w-none px-4 py-3 min-h-[220px] pb-32 sm:pb-8 focus:outline-none text-text-primary text-base sm:text-sm leading-relaxed",
+          `prose prose-sm max-w-none px-4 py-3 ${androidMobile ? "min-h-[160px] pb-8" : "min-h-[220px] pb-32 sm:pb-8"} focus:outline-none text-text-primary text-base sm:text-sm leading-relaxed`,
       },
       handleKeyDown: (_view, event) => {
         const suggestions = snippetSuggestionsRef.current;
@@ -285,9 +303,9 @@ export function Composer() {
   // For forwards, expand the quoted email header card by default so user can review what is being forwarded
   useEffect(() => {
     if (mode === "forward" && isOpen) {
-      setShowQuote(true);
+      setShowQuote(!androidMobile);
     }
-  }, [mode, isOpen]);
+  }, [mode, isOpen, androidMobile]);
 
   // Synchronize editor content when composer opens with prefilled content
   useEffect(() => {
@@ -298,6 +316,62 @@ export function Composer() {
       }
     }
   }, [isOpen, editor]);
+
+  const dismissKeyboard = useCallback(() => {
+    editor?.commands.blur();
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  }, [editor]);
+
+  const commitRecipientInputs = useCallback(() => {
+    const fields = overlayRef.current?.querySelectorAll<HTMLInputElement>("input[data-recipient-input]");
+    for (const field of fields ?? []) {
+      if (!field.checkValidity()) {
+        field.reportValidity();
+        field.focus();
+        return false;
+      }
+    }
+    if (document.activeElement instanceof HTMLInputElement && document.activeElement.dataset.recipientInput) {
+      document.activeElement.blur();
+    }
+    return true;
+  }, []);
+
+  const handleSaveClose = useCallback(async () => {
+    if (closing || !commitRecipientInputs()) return;
+    setClosing(true);
+    setSaveError("");
+    try {
+      await flushAutoSave();
+      dismissKeyboard();
+      closeComposer();
+    } catch {
+      setSaveError("Couldn't save draft. Please retry Save & close.");
+    } finally {
+      setClosing(false);
+    }
+  }, [closing, commitRecipientInputs, dismissKeyboard, closeComposer]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setShowFormatting(true);
+    setShowMore(false);
+    setSaveError("");
+    const onError = () => setSaveError("Couldn't save draft. Please retry Save & close.");
+    window.addEventListener("composer-save-error", onError);
+    return () => window.removeEventListener("composer-save-error", onError);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !androidMobile) return;
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || confirmDiscard || showSchedule || document.querySelectorAll('[role="dialog"]').length > 1) return;
+      event.preventDefault();
+      void handleSaveClose();
+    };
+    document.addEventListener("keydown", onEscape);
+    return () => document.removeEventListener("keydown", onEscape);
+  }, [isOpen, androidMobile, confirmDiscard, showSchedule, handleSaveClose]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -372,12 +446,32 @@ export function Composer() {
 
   const handleSend = useCallback(async () => {
     if (!activeAccountId || !activeAccount || sendingRef.current) return;
+    if (!commitRecipientInputs()) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
+    const authoredText = editor?.getText() ?? "";
+    if (!await approveSend({
+      from: state.fromEmail ?? activeAccount.email,
+      to: state.to, cc: state.cc, bcc: state.bcc, mode: state.mode,
+      text: `${state.subject} ${authoredText}`,
+      hasAttachment: state.attachments.some((attachment) => Boolean(attachment.content) || attachment.size === 0),
+    })) return;
+    const current = useComposerStore.getState();
+    if (!current.isOpen || current.subject !== state.subject || current.to !== state.to || current.cc !== state.cc
+      || current.bcc !== state.bcc || current.fromEmail !== state.fromEmail || current.attachments !== state.attachments
+      || (editor?.getText() ?? "") !== authoredText) return;
 
     sendingRef.current = true;
+    try {
+      await flushAutoSave();
+    } catch {
+      sendingRef.current = false;
+      setSaveError("Couldn't save draft before sending. Please retry.");
+      return;
+    }
     stopAutoSave();
-
+    const savedDraftId = useComposerStore.getState().draftId;
+    try {
     const html = await getOutgoingHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
     const raw = buildRawEmail({
@@ -401,14 +495,25 @@ export function Composer() {
     // Get undo send delay
     const delaySetting = await getSetting("undo_send_delay_seconds");
     const delay = parseInt(delaySetting ?? "5", 10) * 1000;
-    const currentDraftId = state.draftId;
+    const currentDraftId = savedDraftId;
 
+    const restoreDraft = () => {
+      sendingRef.current = false;
+      if (useComposerStore.getState().isOpen) {
+        useToastStore.getState().showToast({ message: "Close the current draft to recover this message.", duration: 0, action: { label: "Recover draft", onClick: restoreDraft } });
+        return;
+      }
+      useComposerStore.getState().openComposer({ ...state, accountId: activeAccountId, draftId: currentDraftId });
+      useComposerStore.setState({ fromEmail: state.fromEmail, signatureHtml: state.signatureHtml, signatureId: state.signatureId });
+    };
+    state.setUndoSendRestore(restoreDraft);
     // Show undo send UI
     state.setUndoSendVisible(true);
 
     const timer = setTimeout(async () => {
       try {
-        await sendEmail(activeAccountId, raw, state.threadId ?? undefined);
+        const result = await sendEmail(activeAccountId, raw, state.threadId ?? undefined);
+        if (!result.success) throw new Error(result.error || "Could not send message");
 
         // Delete draft if it was saved
         if (currentDraftId) {
@@ -422,24 +527,50 @@ export function Composer() {
 
         // Update contacts frequency
         for (const addr of [...state.to, ...state.cc, ...state.bcc]) {
-          await upsertContact(addr, null);
+          try { await upsertContact(addr, null); } catch { /* Sending already succeeded. */ }
         }
       } catch (err) {
         console.error("Failed to send email:", err);
+        useToastStore.getState().showToast({
+          message: "Couldn't send. Your draft is available to retry.",
+          duration: 0,
+          action: { label: "Recover draft", onClick: restoreDraft },
+        });
       } finally {
         useComposerStore.getState().setUndoSendVisible(false);
+        useComposerStore.getState().setUndoSendRestore(null);
+        useComposerStore.getState().setUndoSendTimer(null);
         sendingRef.current = false;
       }
     }, delay);
 
     state.setUndoSendTimer(timer);
+    dismissKeyboard();
     closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getOutgoingHtml]);
+    } catch {
+      sendingRef.current = false;
+      startAutoSave(activeAccountId);
+      setSaveError("Couldn't prepare this message. Your draft is still here; please retry.");
+    }
+  }, [activeAccountId, activeAccount, closeComposer, getOutgoingHtml, commitRecipientInputs, dismissKeyboard, approveSend, editor]);
 
   const handleSchedule = useCallback(async (scheduledAt: number, recurrenceRule?: string | null) => {
     if (!activeAccountId || !activeAccount) return;
+    if (!commitRecipientInputs()) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
+    const authoredText = editor?.getText() ?? "";
+    if (!await approveSend({
+      from: state.fromEmail ?? activeAccount.email,
+      to: state.to, cc: state.cc, bcc: state.bcc, mode: state.mode,
+      text: `${state.subject} ${authoredText}`,
+      scheduled: true,
+      hasAttachment: state.attachments.some((attachment) => Boolean(attachment.content) || attachment.size === 0),
+    })) return;
+    const current = useComposerStore.getState();
+    if (!current.isOpen || current.subject !== state.subject || current.to !== state.to || current.cc !== state.cc
+      || current.bcc !== state.bcc || current.fromEmail !== state.fromEmail || current.attachments !== state.attachments
+      || (editor?.getText() ?? "") !== authoredText) return;
 
     const html = await getOutgoingHtml();
     const editableHtml = getFullHtml();
@@ -454,6 +585,7 @@ export function Composer() {
 
     const scheduledId = await insertScheduledEmail({
       accountId: activeAccountId,
+      fromAddress: state.fromEmail ?? activeAccount.email,
       toAddresses: state.to.join(", "),
       ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
       bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
@@ -498,30 +630,32 @@ export function Composer() {
     });
 
     setShowSchedule(false);
+    dismissKeyboard();
     closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml, getOutgoingHtml]);
+  }, [activeAccountId, activeAccount, closeComposer, getFullHtml, getOutgoingHtml, commitRecipientInputs, dismissKeyboard, approveSend, editor]);
 
   const handleDiscard = useCallback(async () => {
+    if (discarding) return;
+    setDiscarding(true);
+    await waitForPendingAutoSave();
     stopAutoSave();
     const state = useComposerStore.getState();
     const currentDraftId = state.draftId;
-    const currentThreadId = state.threadId;
-
-    if (currentDraftId && activeAccountId) {
-      try {
-        await deleteDraftAction(activeAccountId, currentDraftId);
-      } catch { /* ignore */ }
-    }
-
-    if (currentThreadId) {
-      useThreadStore.getState().removeThreads?.([currentThreadId]);
-      if (activeAccountId) {
-        try {
-          const { deleteThread } = await import("@/services/db/threads");
-          await deleteThread(activeAccountId, currentThreadId);
-        } catch { /* ignore */ }
+    try {
+      if (currentDraftId && activeAccountId) {
+        const result = await deleteDraftAction(activeAccountId, currentDraftId);
+        if (!result.success) throw new Error(result.error || "Could not delete draft");
       }
+    } catch {
+      setSaveError("Couldn't discard draft. Your changes are still here.");
+      setDiscarding(false);
+      setConfirmDiscard(false);
+      if (activeAccountId) startAutoSave(activeAccountId);
+      return;
     }
+    setDiscarding(false);
+    setConfirmDiscard(false);
+    dismissKeyboard();
 
     closeComposer();
 
@@ -532,7 +666,7 @@ export function Composer() {
 
     window.dispatchEvent(new CustomEvent("suitemail-sync-done"));
     window.dispatchEvent(new CustomEvent("draft-count-changed"));
-  }, [activeAccountId, closeComposer]);
+  }, [activeAccountId, closeComposer, dismissKeyboard, discarding]);
 
   const handlePopOutComposer = useCallback(async () => {
     try {
@@ -540,6 +674,7 @@ export function Composer() {
       const params = new URLSearchParams();
       params.set("compose", "true");
       params.set("mode", state.mode);
+      if (activeAccountId) params.set("accountId", activeAccountId);
       if (state.to.length > 0) params.set("to", state.to.join(","));
       if (state.cc.length > 0) params.set("cc", state.cc.join(","));
       if (state.bcc.length > 0) params.set("bcc", state.bcc.join(","));
@@ -560,21 +695,26 @@ export function Composer() {
     } catch (err) {
       console.error("Failed to pop out composer:", err);
     }
-  }, [editor, closeComposer]);
+  }, [editor, closeComposer, activeAccountId]);
 
   const isFullpage = viewMode === "fullpage";
+  useEffect(() => { if (lastSavedAt) setSaveError(""); }, [lastSavedAt]);
 
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} className={`fixed inset-0 z-[60] flex ${isFullpage ? "items-stretch justify-center p-0 sm:p-4" : "items-end justify-center pb-0 sm:pb-4"} pointer-events-none`}>
+    <div ref={overlayRef} style={androidMobile ? { height: "var(--android-viewport-height, 100dvh)", bottom: "auto" } : undefined} className={`fixed inset-0 z-[60] flex ${isFullpage ? "items-stretch justify-center p-0 sm:p-4" : "items-end justify-center pb-0 sm:pb-4"} pointer-events-none`}>
       {/* Backdrop */}
       <div
         className="absolute inset-0 pointer-events-auto backdrop-animate"
-        onClick={closeComposer}
+        onClick={() => void handleSaveClose()}
       />
 
       {/* Composer window */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={displayMode === "new" ? "New message" : displayMode === "replyAll" ? "Reply all" : displayMode === "forward" ? "Forward email" : "Reply"}
+        style={androidMobile ? { height: "100%", maxHeight: "100%", paddingTop: "env(safe-area-inset-top)" } : undefined}
         className={`relative bg-bg-primary border rounded-t-2xl sm:rounded-2xl pb-0 glass-modal pointer-events-auto flex flex-col slide-up-panel shadow-2xl shadow-black/15 dark:shadow-black/45 overflow-hidden ${
           isFullpage ? "w-full h-full max-w-5xl" : "w-full max-w-2xl h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[82vh]"
         } ${isDragging ? "border-accent ring-2 ring-accent/30" : "border-border-primary/80 dark:border-white/10 ring-1 ring-black/[0.04] dark:ring-white/[0.06]"}`}
@@ -584,7 +724,7 @@ export function Composer() {
         onDrop={handleDrop}
       >
         {/* Mobile Drag Indicator Handle */}
-        <div className="w-10 h-1 bg-border-primary/70 dark:bg-white/20 rounded-full mx-auto mt-2 -mb-1 sm:hidden shrink-0" aria-hidden="true" />
+        <div className={`${androidMobile ? "hidden" : ""} w-10 h-1 bg-border-primary/70 dark:bg-white/20 rounded-full mx-auto mt-2 -mb-1 sm:hidden shrink-0`} aria-hidden="true" />
         {isDragging && (
           <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-bg-primary/90 dark:bg-bg-primary/95 backdrop-blur-md rounded-2xl pointer-events-none p-6 animate-in fade-in zoom-in-95 duration-150 border-2 border-dashed border-accent m-2">
             <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center text-accent mb-3 shadow-inner">
@@ -596,7 +736,7 @@ export function Composer() {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md">
+        <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md">
           <div className="flex items-center gap-2">
             {displayMode === "replyAll" ? (
               <div className="flex items-center gap-2">
@@ -607,7 +747,7 @@ export function Composer() {
                 <button
                   type="button"
                   onClick={() => setIsRecipientsExpanded((prev) => !prev)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-accent/10 hover:bg-accent/20 active:scale-95 text-accent border border-accent/20 transition-all cursor-pointer touch-manipulation"
+                  className={`${androidMobile ? "hidden" : ""} inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full bg-accent/10 hover:bg-accent/20 active:scale-95 text-accent border border-accent/20 transition-all cursor-pointer touch-manipulation`}
                   title={isRecipientsExpanded ? "Collapse recipient details" : "Expand all recipients"}
                   aria-expanded={isRecipientsExpanded}
                 >
@@ -682,16 +822,20 @@ export function Composer() {
               <ExternalLink size={14} />
             </button>
             <button
-              onClick={closeComposer}
-              className="text-text-tertiary hover:text-danger hover:bg-danger/10 min-h-[44px] min-w-[44px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 flex items-center justify-center rounded-full sm:rounded-md transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer"
-              title="Close"
-              aria-label="Close"
+              onClick={() => void handleSaveClose()}
+              className="text-text-tertiary hover:text-danger hover:bg-danger/10 min-h-[48px] min-w-[48px] sm:min-h-0 sm:min-w-0 p-2 sm:p-1.5 flex items-center justify-center rounded-full sm:rounded-md transition-all duration-150 active:scale-90 touch-manipulation cursor-pointer"
+              data-testid="composer-save-close"
+              disabled={closing}
+              title="Save & close"
+              aria-label="Save & close"
             >
-              <X size={18} className="sm:w-[15px] sm:h-[15px]" />
+              {androidMobile ? <span className="text-xs font-semibold">{closing ? "Saving…" : "Save & close"}</span> : <X size={18} className="sm:w-[15px] sm:h-[15px]" />}
             </button>
           </div>
         </div>
 
+        {androidMobile && <div role="status" aria-live="polite" className="shrink-0 px-4 py-1 text-xs text-text-secondary">{saveError || (isSaving || closing ? "Saving…" : lastSavedAt ? "Saved to Drafts" : "Unsaved changes")}</div>}
+        <div className={androidMobile ? "min-h-0 flex-1 flex flex-col [&>*]:shrink-0 overflow-y-auto overscroll-contain" : "contents"}>
         {/* Address fields */}
         <div className="px-4 py-2 border-b border-border-secondary/60 bg-bg-primary/50 transition-all">
           <FromSelector
@@ -701,7 +845,7 @@ export function Composer() {
           />
 
           {/* Compact recipient summary row when collapsed on mobile */}
-          {!isRecipientsExpanded && (to.length + cc.length > 1) ? (
+          {!isRecipientsExpanded && (to.length + cc.length + bcc.length > 1) ? (
             <div className="flex items-center justify-between gap-2 py-1 min-h-[40px]">
               <div className="flex items-center gap-1.5 min-w-0 flex-1 overflow-x-auto scrollbar-none py-0.5">
                 <span className="text-xs font-semibold text-text-tertiary w-8 shrink-0 select-none">To</span>
@@ -716,6 +860,7 @@ export function Composer() {
                     +{to.length - 1} more
                   </span>
                 )}
+                {bcc.length > 0 && <span className="text-xs shrink-0">Bcc: {bcc.length}</span>}
                 {cc.length > 0 && (
                   <span className="text-[11px] font-medium text-accent px-2 py-1 rounded-full bg-accent/10 border border-accent/20 shrink-0 flex items-center gap-1">
                     <span>Cc:</span>
@@ -737,7 +882,7 @@ export function Composer() {
           ) : (
             <div className="space-y-2">
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1">
+                <div className="flex-1 min-w-0">
                   <AddressInput
                     label="To"
                     addresses={to}
@@ -748,7 +893,7 @@ export function Composer() {
                   />
                 </div>
                 <div className="flex items-center gap-1 shrink-0 mt-0.5">
-                  {!showCcBcc && (
+                  {!showCcBcc && cc.length === 0 && bcc.length === 0 && (
                     <button
                       type="button"
                       onClick={() => setShowCcBcc(true)}
@@ -771,10 +916,10 @@ export function Composer() {
                   )}
                 </div>
               </div>
-              {showCcBcc && (
+              {(showCcBcc || cc.length > 0 || bcc.length > 0) && (
                 <div className="pt-2 border-t border-border-secondary/60 bg-bg-secondary/35 -mx-4 px-4 py-2 space-y-2">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0">
                       <AddressInput label="Cc" addresses={cc} onChange={setCc} />
                     </div>
                     {cc.length === 0 && bcc.length === 0 && (
@@ -813,6 +958,7 @@ export function Composer() {
             )}
             <input
               type="text"
+              aria-label="Subject"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="Subject"
@@ -822,7 +968,7 @@ export function Composer() {
         </div>
 
         {/* Forward context banner */}
-        {mode === "forward" && (
+        {mode === "forward" && !androidMobile && (
           <div
             data-testid="forward-banner"
             className="flex items-center justify-between px-4 py-2 bg-accent/10 dark:bg-accent/15 border-b border-accent/20 text-xs shadow-2xs"
@@ -851,11 +997,11 @@ export function Composer() {
         )}
 
         {/* Editor toolbar */}
-        <EditorToolbar
+        {(!androidMobile || showFormatting) && <EditorToolbar
           editor={editor}
           onToggleAiAssist={() => setShowAiAssist(!showAiAssist)}
           aiAssistOpen={showAiAssist}
-        />
+        />}
 
         {/* AI Assist Panel */}
         {showAiAssist && (
@@ -866,7 +1012,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className="relative flex-1 overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth">
+        <div className={androidMobile ? "relative flex-1 min-h-[160px]" : "relative flex-1 overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth"}>
           {snippetSuggestions.length > 0 && (
             <SnippetSuggestionPopup
               suggestions={snippetSuggestions}
@@ -950,13 +1096,21 @@ export function Composer() {
         </div>
 
         {/* Attachments */}
-        <div className="border-t border-border-secondary">
+        {!androidMobile && <div className="border-t border-border-secondary">
           <AttachmentPicker />
-        </div>
+        </div>}
 
+        </div>
+        {androidMobile && <div className="shrink-0 border-t border-border-secondary"><AttachmentPicker /></div>}
+        {androidMobile && <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 border-t border-border-secondary">
+          <button type="button" className="min-h-[48px] px-3 text-sm" aria-expanded={showFormatting} onClick={() => setShowFormatting(!showFormatting)}>Format</button>
+          <button type="button" className="min-h-[48px] px-3 text-sm" aria-expanded={showMore} onClick={() => setShowMore(!showMore)}>More</button>
+          <button type="button" className="min-h-[48px] px-3 text-sm text-accent" disabled={!to.length} onClick={() => setShowSchedule(true)}>Send later</button>
+          {showMore && <div className="flex flex-wrap items-center gap-2 w-full"><SignatureSelector /><TemplatePicker editor={editor} /><button type="button" className="min-h-[48px] px-3 text-sm text-danger" onClick={() => setConfirmDiscard(true)}>Discard draft</button></div>}
+        </div>}
         {/* Footer */}
-        <div className="flex items-center justify-between px-4 py-2.5 sm:py-2.5 border-t border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md sm:rounded-b-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 sm:py-2.5 border-t border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md sm:rounded-b-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className={androidMobile ? "hidden" : "flex items-center gap-2 sm:gap-3 min-w-0"}>
             <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-tertiary/50 border border-border-primary/40 text-xs text-text-secondary font-medium min-w-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>
               <span className="truncate max-w-[110px] sm:max-w-[170px]">{fromEmail ?? activeAccount?.email ?? "No account"}</span>
@@ -999,11 +1153,11 @@ export function Composer() {
             <SignatureSelector />
             <TemplatePicker editor={editor} />
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className={androidMobile ? "flex w-full justify-end gap-2" : "flex items-center gap-2 shrink-0"}>
             <Button
               variant="secondary"
-              onClick={handleDiscard}
-              className="min-h-[48px] sm:min-h-0 px-4 py-2 sm:px-3 sm:py-1.5 hover:text-danger hover:border-danger/30 transition-colors cursor-pointer text-sm sm:text-xs active:scale-95 rounded-xl touch-manipulation"
+              onClick={() => androidMobile ? setConfirmDiscard(true) : void handleDiscard()}
+              className={`${androidMobile ? "hidden" : ""} min-h-[48px] sm:min-h-0 px-4 py-2 sm:px-3 sm:py-1.5 hover:text-danger hover:border-danger/30 transition-colors cursor-pointer text-sm sm:text-xs active:scale-95 rounded-xl touch-manipulation`}
               title="Discard this draft and close"
               aria-label="Discard draft"
             >
@@ -1012,7 +1166,8 @@ export function Composer() {
             <div className="inline-flex items-stretch rounded-xl shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden group/split">
               <button
                 onClick={handleSend}
-                disabled={to.length === 0}
+                disabled={to.length === 0 || closing}
+                style={androidMobile ? { minHeight: 48 } : undefined}
                 className="min-h-[48px] sm:min-h-0 px-5 py-2 sm:px-3.5 sm:py-1.5 text-sm sm:text-xs font-semibold text-white bg-accent hover:bg-accent-hover active:brightness-95 transition-all duration-150 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 touch-manipulation"
               >
                 <Send size={15} className="opacity-90" />
@@ -1021,7 +1176,7 @@ export function Composer() {
               <button
                 onClick={() => setShowSchedule((prev) => !prev)}
                 disabled={to.length === 0}
-                className="min-h-[48px] min-w-[48px] sm:min-h-0 sm:min-w-0 px-3 py-2 sm:px-2 sm:py-1.5 text-white bg-accent hover:bg-accent-hover active:brightness-95 border-l border-white/25 transition-all duration-150 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 group/btn touch-manipulation"
+                className={`${androidMobile ? "hidden" : ""} min-h-[48px] min-w-[48px] sm:min-h-0 sm:min-w-0 px-3 py-2 sm:px-2 sm:py-1.5 text-white bg-accent hover:bg-accent-hover active:brightness-95 border-l border-white/25 transition-all duration-150 flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-accent cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 group/btn touch-manipulation`}
                 title="Schedule send"
                 aria-label="Schedule send"
                 aria-expanded={showSchedule}
@@ -1038,6 +1193,10 @@ export function Composer() {
         </div>
       </div>
 
+      <Modal isOpen={confirmDiscard} onClose={() => !discarding && setConfirmDiscard(false)} title="Discard this draft?" zIndex="z-[80]">
+        <div className="p-4"><p className="text-sm">This deletes your saved draft and current changes.</p><div className="mt-4 flex flex-wrap gap-2"><button autoFocus type="button" disabled={discarding} className="min-h-[48px] px-4 rounded-lg border border-border-primary" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" disabled={discarding} className="min-h-[48px] px-4 rounded-lg bg-danger text-white" onClick={() => void handleDiscard()}>{discarding ? "Discarding…" : "Discard draft"}</button></div></div>
+      </Modal>
+      {sendReviewDialog}
       {showSchedule && (
         <ScheduleSendDialog
           onSchedule={handleSchedule}

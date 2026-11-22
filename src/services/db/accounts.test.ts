@@ -261,6 +261,7 @@ describe("accounts", () => {
       const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("UPDATE accounts");
       expect(sql).not.toContain("INSERT INTO accounts");
+      expect(sql).toContain("provider = 'gmail_api'");
       expect(params).toContain("gmail-existing");
       expect(params).toContain("enc:access-token-123");
       expect(params).toContain("enc:refresh-token-456");
