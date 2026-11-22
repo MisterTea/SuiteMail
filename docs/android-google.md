@@ -62,3 +62,5 @@ The installed-APK emulator check opens the real Google authorization surface and
 Live sending, multiple actual device accounts, and consent revocation still require separate validation. They are not claimed as validated by the download or cancellation checks. The API dependency is `com.google.android.gms:play-services-auth:22.0.0`; the implementation uses the current AuthorizationClient API, not the deprecated GoogleSignIn API. A separate Credential Manager app-login flow is unnecessary because SuiteMail is authorizing mailbox data access and reads the selected profile after authorization.
 
 References: [Google Android authorization guide](https://developer.android.com/identity/authorization), [AuthorizationRequest account selection](https://developers.google.com/android/reference/com/google/android/gms/auth/api/identity/AuthorizationRequest.Builder).
+
+Gmail downloads now also run through a native periodic WorkManager worker while the interface is closed. See [background Gmail sync](android-background-sync.md). The worker uses the same device-account grants without launching a consent screen in the background.

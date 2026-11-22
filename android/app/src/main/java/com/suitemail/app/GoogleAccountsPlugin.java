@@ -26,7 +26,7 @@ import org.json.JSONArray;
 /** Google Play services owns account credentials and token renewal. No account enumeration permission. */
 @CapacitorPlugin(name = "GoogleAccounts")
 public class GoogleAccountsPlugin extends Plugin {
-    private static final List<String> SCOPES = Arrays.asList(
+    static final List<String> SCOPES = Arrays.asList(
         "https://www.googleapis.com/auth/gmail.modify",
         "https://www.googleapis.com/auth/userinfo.email",
         "https://www.googleapis.com/auth/userinfo.profile",

@@ -1,3 +1,4 @@
+import { AndroidBackgroundSyncSettings } from "./AndroidBackgroundSyncSettings";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
@@ -941,6 +942,7 @@ export function SettingsPage() {
 
               {activeTab === "accounts" && (
                 <>
+                  <AndroidBackgroundSyncSettings />
                   <Section title="Mail Accounts">
                     {accounts.filter((a) => a.provider !== "caldav").length === 0 ? (
                       <p className="text-sm text-text-tertiary">

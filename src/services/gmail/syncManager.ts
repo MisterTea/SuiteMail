@@ -1,3 +1,4 @@
+import { importBackgroundMail } from "./androidBackgroundSync";
 import { getGmailClient } from "./tokenManager";
 import { initialSync, deltaSync, syncInitialChanges, type SyncProgress } from "./sync";
 import { getAccount, clearAccountHistoryId } from "../db/accounts";
@@ -281,6 +282,7 @@ async function runSync(accountIds: string[]): Promise<void> {
 
   syncPromise = (async () => {
     try {
+      await importBackgroundMail();
       for (const id of accountIds) {
         await syncAccountInternal(id);
       }

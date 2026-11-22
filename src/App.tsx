@@ -23,6 +23,8 @@ import {
   triggerSync,
   onSyncStatus,
 } from "./services/gmail/syncManager";
+import { App as AndroidApp } from "@capacitor/app";
+import { hasAndroidBackgroundSync, importBackgroundMail } from "./services/gmail/androidBackgroundSync";
 import { initializeClients } from "./services/gmail/tokenManager";
 import {
   startSnoozeChecker,
@@ -357,6 +359,7 @@ export default function App() {
 
         // Initialize Gmail clients for existing accounts
         await initializeClients();
+        await importBackgroundMail();
 
         // Fetch send-as aliases in background for active Gmail accounts
         const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
@@ -467,6 +470,22 @@ export default function App() {
       cancelled = true;
     };
   }, [initialized, accountCount]);
+
+  useEffect(() => {
+    if (!initialized || !hasAndroidBackgroundSync()) return;
+    let disposed=false;
+    let foreground=true;
+    const onStateChange=({isActive}:{isActive:boolean})=>{
+      foreground=isActive;
+      if(!isActive){stopBackgroundSync();return;}
+      importBackgroundMail().catch(error=>console.warn("Background mail import failed:",error)).finally(()=>{
+        if(!disposed && foreground)startBackgroundSync(useAccountStore.getState().accounts.filter(account=>account.isActive).map(account=>account.id));
+      });
+    };
+    const listener=AndroidApp.addListener("appStateChange",onStateChange);
+    AndroidApp.getState().then(state=>{if(!disposed && !state.isActive)onStateChange(state);}).catch(()=>{});
+    return ()=>{disposed=true;listener.then(handle=>handle.remove());};
+  },[initialized]);
 
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);

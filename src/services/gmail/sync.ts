@@ -487,3 +487,10 @@ export async function syncInitialChanges(client: GmailClient, accountId: string)
     throw error;
   }
 }
+
+
+/** Import a background download through the same parser, storage, categorization, and rules as foreground sync. */
+export async function storeBackgroundGmailThread(accountId: string, thread: import("./client").GmailThread): Promise<void> {
+  if (!thread.messages?.length) return;
+  await processAndStoreThread(thread,accountId,thread.messages.map(parseGmailMessage));
+}
