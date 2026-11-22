@@ -9,6 +9,7 @@ import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaPro
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
 import { createPiProvider, clearPiProvider } from "./providers/piProvider";
 import { loadPiServerUrl } from "./llamaServer";
+import { isAndroidAiRuntime, isAndroidEmulator, resolveOllamaServerUrl } from "./androidHostAi";
 import { createAiCoreProvider, clearAiCoreProvider } from "./providers/aicoreProvider";
 
 const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama" | "pi" | "aicore">, string> = {
@@ -22,6 +23,7 @@ let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } 
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
+  if (isAndroidAiRuntime() && (setting === "pi" || (setting === "ollama" && !(await isAndroidEmulator())))) return "aicore";
   if (
     setting === "openai" ||
     setting === "gemini" ||
@@ -40,7 +42,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
   const providerName = await getActiveProviderName();
 
   if (providerName === "ollama") {
-    const serverUrl = (await getSetting("ollama_server_url")) ?? "http://localhost:11434";
+    const serverUrl = await resolveOllamaServerUrl(await getSetting("ollama_server_url"));
     const model = (await getSetting("ollama_model")) ?? "llama3.2";
     const cacheKey = `${serverUrl}|${model}`;
 
@@ -68,7 +70,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
   }
 
   if (providerName === "aicore") {
-    const model = (await getSetting("aicore_model")) ?? DEFAULT_MODELS.aicore;
+    const model = DEFAULT_MODELS.aicore;
     const cacheKey = `aicore|${model}`;
 
     if (cachedProvider && cachedProvider.name === "aicore" && cachedProvider.key === cacheKey) {
@@ -122,7 +124,7 @@ export async function isAiAvailable(): Promise<boolean> {
 
     if (providerName === "ollama") {
       const serverUrl = await getSetting("ollama_server_url");
-      return !!serverUrl;
+      return !!serverUrl || await isAndroidEmulator();
     }
 
     if (providerName === "pi") {
@@ -131,7 +133,7 @@ export async function isAiAvailable(): Promise<boolean> {
     }
 
     if (providerName === "aicore") {
-      return true;
+      return (await getActiveProvider()).testConnection();
     }
 
     const keySetting = API_KEY_SETTINGS[providerName];

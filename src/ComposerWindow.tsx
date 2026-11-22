@@ -82,6 +82,7 @@ export default function ComposerWindow() {
 
         // Open composer with parsed state
         useComposerStore.getState().openComposer({
+          accountId: mapped.find((account) => account.id === params.get("accountId"))?.id,
           mode,
           to,
           cc,

@@ -31,6 +31,7 @@ export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpTo
       <h2 className="text-base font-medium text-text-primary break-all">{attachment.filename ?? "Unnamed attachment"}</h2>
       <p className="text-sm text-text-secondary">{meta.extension || "Unknown type"} · {attachment.size != null ? formatFileSize(attachment.size) : "Size unavailable"}</p>
       <p className="text-sm text-text-tertiary break-words">{senderName} · {formatShortDate(attachment.date)}</p>
+      {attachment.content_match && <p className="text-sm text-text-secondary break-words">{attachment.content_match}</p>}
       <div className="flex flex-wrap gap-2">
         {previewable && <button className="min-h-12 min-w-12 px-4 rounded-lg border border-border-primary" onClick={onPreview} aria-label={`Open ${attachment.filename ?? "attachment"}`}>Open</button>}
         <button className="min-h-12 min-w-12 px-4 rounded-lg border border-border-primary" onClick={onDownload} aria-label={`Download ${attachment.filename ?? "attachment"}`}>Download</button>
@@ -60,6 +61,8 @@ export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpTo
           {meta.extension}
         </span>
       </div>
+
+      {attachment.content_match && <span className="min-w-0 flex-1 text-xs text-text-secondary truncate" title={attachment.content_match}>{attachment.content_match}</span>}
 
       {/* Sender */}
       <span className="text-xs text-text-tertiary truncate w-36 shrink-0 hidden md:block" title={senderName}>

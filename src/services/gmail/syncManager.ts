@@ -1,3 +1,4 @@
+import { notifyNewlySyncedMail } from "../notifications/newMail";
 import { importBackgroundMail } from "./androidBackgroundSync";
 import { getGmailClient } from "./tokenManager";
 import { initialSync, deltaSync, syncInitialChanges, type SyncProgress } from "./sync";
@@ -226,6 +227,11 @@ async function syncAccountInternal(accountId: string): Promise<void> {
 
     console.log(`[syncManager] Syncing account ${accountId} (provider=${account.provider}, has_sync_cursor=${Boolean(account.history_id)})`);
 
+    if (account.provider === "sandbox") {
+      statusCallback?.(accountId, "done");
+      return;
+    }
+
     if (account.provider === "caldav") {
       // CalDAV-only accounts — skip email sync, only sync calendar
       await syncCalendarForAccount(accountId);
@@ -253,6 +259,12 @@ async function syncAccountInternal(accountId: string): Promise<void> {
       await syncImapAccount(accountId);
     } else {
       await syncGmailAccount(accountId);
+    }
+
+    if (account.provider === "imap" || account.provider === "ews" || account.provider === "msgraph") {
+      await notifyNewlySyncedMail(accountId, account.last_sync_at, Boolean(account.history_id)).catch((error) => {
+        console.warn("Could not process new mail notifications", error);
+      });
     }
 
     // Always emit "done" when an initial sync completes (clears the bar).

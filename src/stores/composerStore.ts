@@ -34,6 +34,7 @@ export interface ScheduledToastInfo {
 
 export interface ComposerState {
   isOpen: boolean;
+  accountId: string | null;
   mode: ComposerMode;
   to: string[];
   cc: string[];
@@ -60,6 +61,7 @@ export interface ComposerState {
   contractText: string;
 
   openComposer: (opts?: {
+    accountId?: string | null;
     mode?: ComposerMode;
     to?: string[];
     cc?: string[];
@@ -102,6 +104,7 @@ export interface ComposerState {
 
 export const useComposerStore = create<ComposerState>((set) => ({
   isOpen: false,
+  accountId: null,
   mode: "new",
   to: [],
   cc: [],
@@ -130,6 +133,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   openComposer: (opts) =>
     set({
       isOpen: true,
+      accountId: opts?.accountId ?? null,
       mode: opts?.mode ?? "new",
       to: opts?.to ?? [],
       cc: opts?.cc ?? [],
@@ -154,6 +158,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   closeComposer: () =>
     set({
       isOpen: false,
+      accountId: null,
       mode: "new",
       to: [],
       cc: [],

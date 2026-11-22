@@ -15,6 +15,7 @@ vi.mock("@/services/db/accounts", () => ({
 }));
 
 vi.mock("@/services/db/settings", () => ({
+  setSetting: vi.fn().mockResolvedValue(undefined),
   getSetting: vi.fn().mockResolvedValue(null),
   getSecureSetting: vi.fn().mockResolvedValue(null),
 }));

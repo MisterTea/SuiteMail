@@ -233,7 +233,7 @@ export async function appendLedgerEntriesToRemote(
  * Parse raw email body which can either be a JSONL stream (one JSON object per line)
  * or a single pretty-printed JSON payload.
  */
-export function parseMetadataLines(rawText: string): any[] {
+export function parseMetadataLines(rawText: string, strict = false): any[] {
   const trimmed = rawText.trim();
   if (!trimmed) return [];
 
@@ -247,6 +247,7 @@ export function parseMetadataLines(rawText: string): any[] {
       try {
         results.push(JSON.parse(line));
       } catch (err) {
+        if (strict) throw err;
         console.warn("[metadataSidecarSync] Skipping invalid JSON line in metadata body:", line, err);
       }
     }
@@ -272,7 +273,7 @@ export async function syncSidecarMetadata(
   const syncState = await getFolderSyncState(accountId, folderPath);
   const status = await imapGetFolderStatus(config, folderPath);
 
-  const lastUid = syncState?.last_uid ?? 0;
+  const lastUid = syncState?.uidvalidity === status.uidvalidity ? syncState.last_uid : 0;
   const allUids = await imapSearchAllUids(config, folderPath);
   const newUids = allUids.filter((uid) => uid > lastUid);
 
@@ -286,13 +287,16 @@ export async function syncSidecarMetadata(
   for (let i = 0; i < newUids.length; i += batchSize) {
     const chunk = newUids.slice(i, i + batchSize);
     const fetchResult = await imapFetchMessages(config, folderPath, chunk);
+    if (chunk.some((uid) => !fetchResult.messages.some((message) => message.uid === uid))) {
+      throw new Error("Incomplete metadata download; filtering deferred");
+    }
 
     for (const msg of fetchResult.messages) {
       const rawText = msg.body_text || msg.body_html || "";
-      if (!rawText.trim()) continue;
+      if (!rawText.trim()) throw new Error(`Empty metadata message UID ${msg.uid}`);
 
       try {
-        const items = parseMetadataLines(rawText);
+        const items = parseMetadataLines(rawText, true);
 
         for (const payload of items) {
           const conversationId = payload.conversationId || payload.targetId;
@@ -418,6 +422,7 @@ export async function syncSidecarMetadata(
         }
       } catch (e) {
         console.warn(`[metadataSidecarSync] Failed to parse sidecar message UID ${msg.uid}:`, e);
+        throw e;
       }
     }
   }
@@ -477,11 +482,7 @@ export async function ensureMetadataDownloadedForEmail(
   config: ImapConfig,
   _conversationId?: string,
 ): Promise<number> {
-  const hasPending = await hasPendingMetadata(accountId, config);
-  if (hasPending) {
-    return await syncSidecarMetadata(accountId, config);
-  }
-  return 0;
+  return syncSidecarMetadata(accountId, config);
 }
 
 /**

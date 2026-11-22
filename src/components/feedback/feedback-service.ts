@@ -1,4 +1,5 @@
 import "@/platform";
+import { DEFAULT_BUGCATCHER_URL, submitBugcatcherReport } from "../../../electron/bugcatcher.js";
 
 export interface IssueData {
   type: "bug" | "feature";
@@ -13,7 +14,7 @@ export interface IssueResult {
 
 /** Public Bugcatcher Worker (services/bugcatcher). Holds the GitHub token server-side. */
 export const BUGCATCHER_URL: string =
-  import.meta.env.VITE_BUGCATCHER_URL ?? "https://suiteleaf-bugcatcher.jgmath2000.workers.dev";
+  import.meta.env.VITE_BUGCATCHER_URL ?? DEFAULT_BUGCATCHER_URL;
 
 /** Renders the current browser viewport to a PNG data URL when native desktop capture is unavailable. */
 export function captureDomCanvasScreenshot(): string {
@@ -73,22 +74,10 @@ export async function submitFeedbackIssue(
 ): Promise<IssueResult> {
   const text = data.text.trim();
   if (!text) return { success: false, error: "Please enter a description before submitting." };
-  try {
-    const res = await fetchImpl(`${BUGCATCHER_URL}/report`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        type: data.type,
-        text,
-        screenshot: data.screenshotDataUrl || undefined,
-        context: `SuperMail · ${location.pathname} · ${navigator.userAgent}`,
-      }),
-    });
-    const body = (await res.json().catch(() => ({}))) as { success?: boolean; number?: number; error?: string };
-    if (!res.ok || !body.success)
-      return { success: false, error: body.error ?? `Report failed (HTTP ${res.status}).` };
-    return { success: true, number: body.number };
-  } catch {
-    return { success: false, error: "Could not reach the report service. Check your connection and try again." };
-  }
+  return submitBugcatcherReport(BUGCATCHER_URL, {
+    type: data.type,
+    text,
+    screenshot: data.screenshotDataUrl || undefined,
+    context: `SuperMail · ${location.pathname} · ${navigator.userAgent}`,
+  }, fetchImpl);
 }

@@ -8,6 +8,7 @@ vi.mock("@/platform", () => ({
 }));
 
 vi.mock("@/services/db/settings", () => ({
+  setSetting: vi.fn().mockResolvedValue(undefined),
   getSetting: vi.fn().mockImplementation((key: string) => {
     if (key === "google_client_id") return Promise.resolve("saved-google-client-id");
     return Promise.resolve(null);

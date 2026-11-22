@@ -1,3 +1,5 @@
+import { searchAttachmentText } from "@/services/attachments/attachmentIndex";
+import { readAttachmentBytes } from "@/services/attachments/readAttachmentBytes";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { platformSaveFile } from "@/platform";
@@ -10,7 +12,6 @@ import {
   type AttachmentWithContext,
   type AttachmentSender,
 } from "@/services/db/attachments";
-import { getEmailProvider } from "@/services/email/providerFactory";
 import { AttachmentPreview } from "@/components/email/AttachmentList";
 import { AttachmentGridItem } from "./AttachmentGridItem";
 import { AttachmentListItem } from "./AttachmentListItem";
@@ -89,7 +90,8 @@ export function AttachmentLibrary() {
   const android = useAndroidMobile();
   const [error, setError] = useState<string | null>(null);
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.isActive);
+  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = accounts.find((a) => a.id === activeAccountId) ?? accounts.find((a) => a.isActive);
   const accountId = activeAccount?.id ?? null;
 
   const [attachments, setAttachments] = useState<AttachmentWithContext[]>([]);
@@ -97,6 +99,8 @@ export function AttachmentLibrary() {
   const [loading, setLoading] = useState(true);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [contentMatches, setContentMatches] = useState<AttachmentWithContext[]>([]);
+  const [searchingContents, setSearchingContents] = useState(false);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [senderFilter, setSenderFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
@@ -142,14 +146,47 @@ export function AttachmentLibrary() {
     return () => window.removeEventListener("suitemail-sync-done", handler);
   }, [accountId, loadData]);
 
+  useEffect(() => {
+    setContentMatches([]);
+    if (!accountId || !searchQuery.trim()) {
+      setSearchingContents(false);
+      return;
+    }
+    let active = true;
+    let request = 0;
+    const search = async () => {
+      const current = ++request;
+      setSearchingContents(true);
+      try {
+        const matches = await searchAttachmentText(searchQuery, accountId);
+        if (active && current === request) setContentMatches(matches);
+      } catch {
+        if (active && current === request) setError("Couldn’t search attachment contents.");
+      } finally {
+        if (active && current === request) setSearchingContents(false);
+      }
+    };
+    const timer = setTimeout(search, 220);
+    window.addEventListener("suitemail-attachment-index-updated", search);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+      window.removeEventListener("suitemail-attachment-index-updated", search);
+    };
+  }, [accountId, searchQuery]);
+
   const filtered = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return attachments.filter((att) => {
+    const q = searchQuery.trim().toLowerCase();
+    const matches = new Map(contentMatches.map((att) => [att.id, att]));
+    for (const attachment of attachments) {
+      if (!matches.has(attachment.id)) matches.set(attachment.id, attachment);
+    }
+    return [...matches.values()].filter((att) => {
       if (q) {
         const matchName = att.filename?.toLowerCase().includes(q);
         const matchSubject = att.subject?.toLowerCase().includes(q);
         const matchSender = att.from_name?.toLowerCase().includes(q) || att.from_address?.toLowerCase().includes(q);
-        if (!matchName && !matchSubject && !matchSender) return false;
+        if (!matchName && !matchSubject && !matchSender && !att.content_match) return false;
       }
       if (!matchesType(att, typeFilter)) return false;
       if (senderFilter !== "all" && att.from_address !== senderFilter) return false;
@@ -157,25 +194,18 @@ export function AttachmentLibrary() {
       if (!matchesSize(att, sizeFilter)) return false;
       return true;
     });
-  }, [attachments, searchQuery, typeFilter, senderFilter, dateFilter, sizeFilter]);
+  }, [attachments, contentMatches, searchQuery, typeFilter, senderFilter, dateFilter, sizeFilter]);
 
   const handleDownload = useCallback(async (att: AttachmentWithContext) => {
-    if (!att.gmail_attachment_id || !accountId) return;
     try {
-      const provider = await getEmailProvider(accountId);
-      const response = await provider.fetchAttachment(att.message_id, att.gmail_attachment_id);
-      const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-      const binaryStr = atob(base64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
+      const bytes = await readAttachmentBytes(att);
+      if (!bytes) throw new Error("Attachment is unavailable");
       await platformSaveFile(att.filename ?? "attachment", bytes);
     } catch (err) {
       console.error("Download failed:", err);
       setError("Couldn’t download the attachment. Try Download again.");
     }
-  }, [accountId]);
+  }, []);
 
   const handleJumpToEmail = useCallback((att: AttachmentWithContext) => {
     if (att.thread_id) {
@@ -215,6 +245,7 @@ export function AttachmentLibrary() {
               ref={searchRef}
               type="text"
               placeholder="Search attachments..."
+              aria-label="Search attachment names and contents"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-8 pr-3 py-1.5 text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-1 focus:ring-accent w-full sm:w-48"
@@ -290,6 +321,7 @@ export function AttachmentLibrary() {
       </div>
 
       {error && <div role="alert" className="p-4 text-sm text-danger">{error}<button className="min-h-12 px-4" onClick={() => accountId && loadData(accountId)}>Reload library</button></div>}
+      {searchingContents && <p role="status" className="px-4 pt-2 text-xs text-text-tertiary">Searching attachment contents…</p>}
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 pb-16 md:pb-6">
         {loading ? (
@@ -333,7 +365,7 @@ export function AttachmentLibrary() {
       {previewAttachment && (
         <AttachmentPreview
           attachment={previewAttachment}
-          accountId={accountId!}
+          accountId={previewAttachment.account_id}
           messageId={previewAttachment.message_id}
           onClose={() => setPreviewAttachment(null)}
         />

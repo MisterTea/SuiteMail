@@ -1,3 +1,4 @@
+import { startAttachmentIndex, stopAttachmentIndex } from "@/services/attachments/attachmentIndex";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Outlet } from "@tanstack/react-router";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -359,6 +360,7 @@ export default function App() {
 
         // Initialize Gmail clients for existing accounts
         await initializeClients();
+        await initNotifications();
         await importBackgroundMail();
 
         // Fetch send-as aliases in background for active Gmail accounts
@@ -389,9 +391,7 @@ export default function App() {
         startBundleChecker();
         startQueueProcessor();
         startPreCacheManager();
-
-        // Initialize notifications
-        await initNotifications();
+        startAttachmentIndex();
 
         // Initialize global compose shortcut
         await initGlobalShortcut();
@@ -429,6 +429,7 @@ export default function App() {
       stopBundleChecker();
       stopQueueProcessor();
       stopPreCacheManager();
+    stopAttachmentIndex();
       stopUpdateChecker();
       unregisterComposeShortcut();
       deepLinkCleanupRef.current?.();
@@ -583,14 +584,15 @@ export default function App() {
 
   const handleAddAccountSuccess = useCallback(async () => {
     setShowAddAccount(false);
+    const addedAccountId = useAccountStore.getState().activeAccountId;
     const dbAccounts = await getAllAccounts();
     const mapped = toStoreAccounts(dbAccounts);
-    useAccountStore.getState().setAccounts(mapped);
+    useAccountStore.getState().setAccounts(mapped, addedAccountId);
 
     // Re-initialize clients for the new account
     await initializeClients();
 
-    const newest = mapped[mapped.length - 1];
+    const newest = mapped.find((account) => account.id === addedAccountId);
     if (newest) {
       // Sync the new account immediately — before restarting the background
       // timer so it doesn't queue behind delta syncs for existing accounts.

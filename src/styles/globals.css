@@ -662,7 +662,7 @@ body {
   .android-app input:not([type="checkbox"]):not([type="radio"]),
   .android-app textarea,
   .android-app select { font-size: 16px; }
-  .android-app [data-mobile-nav] {
+  .android-app nav[data-mobile-nav] {
     padding-bottom: max(8px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   }
   .android-app[data-android-keyboard="open"] [data-mobile-nav] { display: none; }

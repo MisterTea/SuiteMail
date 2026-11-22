@@ -326,7 +326,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const [labelsExpanded, setLabelsExpanded] = useState(false);
   const [isManualSyncing, setIsSyncing] = useState(false);
   const isAccountSyncing = useUIStore((s) =>
-    activeAccountId !== null && s.syncingAccountIds.includes(activeAccountId),
+    activeLabel === "unified" ? s.syncingAccountIds.length > 0 : activeAccountId !== null && s.syncingAccountIds.includes(activeAccountId),
   );
   const isSyncing = isManualSyncing || isAccountSyncing;
 
@@ -530,7 +530,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     setIsSyncing(true);
     useUIStore.getState().setSyncingFolder(activeLabel);
     try {
-      await triggerSync([activeAccountId]);
+      const accountIds = activeLabel === "unified"
+        ? useAccountStore.getState().accounts.filter((account) => account.isActive && account.provider !== "caldav").map((account) => account.id)
+        : [activeAccountId];
+      await triggerSync(accountIds);
     } catch (err) {
       console.error("Manual sync failed:", err);
     } finally {

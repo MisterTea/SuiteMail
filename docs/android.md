@@ -23,6 +23,16 @@ ANDROID_ABIS=arm64-v8a,x86_64 npm run build:android
 
 The Android build excludes both desktop Gmail environment credentials. Backups of app data are disabled. Production Capacitor configuration disallows mixed HTTP content; the debug build explicitly enables it for local fixtures and remote development AI servers. This APK is a development preview, not a Play Store release.
 
+## EWS application ID default
+
+Set `EWS_OAUTH_CLIENT_ID` in `.env` to prefill the EWS Application (client) ID field:
+
+```dotenv
+EWS_OAUTH_CLIENT_ID=bd4d4c73-8649-4fd0-9c9d-3a88e73432f5
+```
+
+This public ID is bundled at build time for both Android and desktop. Users can edit or clear it before signing in; their chosen ID is saved with the account. The tenant field stays blank. If the variable is unset, the application ID field also starts blank. Restart the development server or rebuild the app after changing the variable.
+
 ## Live reload for day-to-day development
 
 Start an emulator (or connect an authorized USB Android device), then run:
@@ -98,3 +108,19 @@ Validation on 2026-11-21: 2,092 non-live-model unit tests passed; the updated in
 During initial Gmail backfill, each foreground sync cycle now polls history changes first, then downloads at most 10 older threads. The 60-second timer can therefore check new mail between bounded chunks. Its live cursor is stored in the initial-download checkpoint without marking the historical download complete; the normal account history cursor is installed when backfill finishes. New messages publish UI refreshes as soon as they are stored. If the checkpoint history expires, a fresh listing restarts from recent mail without deleting downloaded messages.
 
 Native periodic Gmail checks are now available while the app is closed. See [background sync](android-background-sync.md) for behavior, settings, and validation.
+
+## On-device AiCore
+
+Android offers **AiCore** instead of the remote Ollama and Pi providers. It uses ML Kit `genai-prompt` with `ModelPreference.FULL` and `ModelReleaseStage.STABLE`. Android chooses the actual model; legacy model names in settings do not select arbitrary Gemma models.
+
+Settings → AI checks device support. If a model download is needed, choose **Set up AiCore**. Downloads can take several minutes. Unsupported devices show an unavailable message; inference never silently switches to a cloud provider or FAST model. Most emulators cannot run AiCore inference, so validate generation on a supported physical device.
+
+### Host AI in the emulator
+
+Android emulators also offer **Host AI (Ollama / LMStudio)**. Start the AI server on your computer, select this provider, and enter an installed model name. Ollama defaults to `http://10.0.2.2:11434`; for LM Studio use `http://10.0.2.2:1234`. Saved localhost URLs are mapped to the emulator host while retaining their port. Requests use Android native HTTP, so the host server does not need WebView CORS configuration. This option is not shown on physical Android devices.
+
+## Sandbox account
+
+Enable **Settings → Accounts → Sandbox account** to create and switch to a local demo mailbox with 75 procedurally generated emails. Sandbox sends never use SMTP or an external mail API. The first send in a conversation receives an immediate generated reply; later sends in that conversation do not receive another automatic reply. This is persisted across restarts, and retrying the same send does not duplicate it.
+
+Disabling the account hides it and preserves its mail; enabling it again restores it. Use the normal AI provider settings to try drafting, rewriting, and summarization with the generated mail, including Host AI on an Android emulator.

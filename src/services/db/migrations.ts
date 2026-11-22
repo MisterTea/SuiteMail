@@ -891,6 +891,71 @@ export const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_metadata_ledger_synced ON metadata_ledger(account_id, synced_to_imap);
     `,
   },
+  {
+    version: 32,
+    description: "Add Microsoft account OAuth tenant and redirect address",
+    sql: `
+      ALTER TABLE accounts ADD COLUMN oauth_tenant TEXT;
+      ALTER TABLE accounts ADD COLUMN oauth_redirect_uri TEXT;
+    `,
+  },
+  {
+    version: 33,
+    description: "Persist sandbox replies and local MIME messages",
+    sql: `
+      CREATE TABLE IF NOT EXISTS sandbox_replies (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        thread_id TEXT NOT NULL,
+        PRIMARY KEY (account_id, thread_id)
+      );
+      CREATE TABLE IF NOT EXISTS sandbox_raw_messages (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        thread_id TEXT,
+        raw TEXT NOT NULL,
+        PRIMARY KEY (account_id, id)
+      );
+    `,
+  },
+  {
+    version: 34,
+    description: "Index attachment text, track new mail and persist hidden suggestions",
+    sql: `
+      ALTER TABLE scheduled_emails ADD COLUMN from_address TEXT;
+      CREATE TABLE IF NOT EXISTS attachment_index_status (
+        attachment_id TEXT PRIMARY KEY REFERENCES attachments(id) ON DELETE CASCADE,
+        retry_at INTEGER
+      );
+      CREATE TABLE IF NOT EXISTS attachment_vectors (
+        attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
+        chunk INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        vector TEXT NOT NULL,
+        PRIMARY KEY (attachment_id, chunk)
+      );
+      CREATE TABLE IF NOT EXISTS hidden_recipient_suggestions (
+        email TEXT PRIMARY KEY
+      );
+      CREATE TABLE IF NOT EXISTS new_mail_notifications (
+        account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+        message_id TEXT NOT NULL,
+        PRIMARY KEY (account_id, message_id)
+      );
+      CREATE TRIGGER IF NOT EXISTS track_new_mail_notification
+      AFTER INSERT ON messages
+      WHEN NEW.is_read = 0 AND EXISTS (
+        SELECT 1 FROM accounts WHERE id = NEW.account_id AND provider IN ('imap', 'ews', 'msgraph')
+      )
+      BEGIN
+        INSERT OR IGNORE INTO new_mail_notifications (account_id, message_id)
+        VALUES (NEW.account_id, NEW.id);
+      END;
+      CREATE TABLE IF NOT EXISTS quiet_mail_digest (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        count INTEGER NOT NULL
+      );
+    `,
+  },
 ];
 
 /**

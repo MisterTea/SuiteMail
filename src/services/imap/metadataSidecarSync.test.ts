@@ -308,13 +308,7 @@ describe("metadataSidecarSync", () => {
     });
 
     it("ensureMetadataDownloadedForEmail syncs when pending exists", async () => {
-      // 1st listFolders for hasPendingMetadata
-      mockCommands.imapListFolders.mockResolvedValueOnce([
-        { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
-      ]);
-      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 10 };
-      mockCommands.imapSearchAllUids.mockResolvedValueOnce([11]);
-
+      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 10, uidvalidity: 1 };
       // syncSidecarMetadata calls:
       mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
@@ -363,12 +357,34 @@ describe("metadataSidecarSync", () => {
       mockCommands.imapListFolders.mockResolvedValueOnce([
         { path: ".metadata", name: ".metadata", raw_path: ".metadata" },
       ]);
-      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 20 };
+      mockFolderSyncState["acc-1:.metadata"] = { last_uid: 20, uidvalidity: 1 };
+      mockCommands.imapGetFolderStatus.mockResolvedValueOnce({ uidvalidity: 1 });
       mockCommands.imapSearchAllUids.mockResolvedValueOnce([15, 20]);
 
       const count = await ensureMetadataDownloadedForEmail("acc-1", testConfig, "thread-dl-check");
       expect(count).toBe(0);
     });
+  });
+
+  it("does not advance the checkpoint after an incomplete metadata fetch", async () => {
+    mockCommands.imapListFolders.mockResolvedValueOnce([{ path: ".metadata", name: ".metadata", raw_path: ".metadata" }]);
+    mockFolderSyncState["acc-1:.metadata"] = { last_uid: 10, uidvalidity: 1 };
+    mockCommands.imapGetFolderStatus.mockResolvedValueOnce({ uidvalidity: 1 });
+    mockCommands.imapSearchAllUids.mockResolvedValueOnce([11, 12]);
+    mockCommands.imapFetchMessages.mockResolvedValueOnce({ messages: [{ uid: 11, body_text: '{}' }] });
+    await expect(syncSidecarMetadata("acc-1", testConfig)).rejects.toThrow("Incomplete metadata download");
+    expect(mockFolderSyncState["acc-1:.metadata"].last_uid).toBe(10);
+  });
+
+  it("fetches metadata again when the server resets UID validity", async () => {
+    mockCommands.imapListFolders.mockResolvedValueOnce([{ path: ".metadata", name: ".metadata", raw_path: ".metadata" }]);
+    mockFolderSyncState["acc-1:.metadata"] = { last_uid: 100, uidvalidity: 1 };
+    mockCommands.imapGetFolderStatus.mockResolvedValueOnce({ uidvalidity: 2 });
+    mockCommands.imapSearchAllUids.mockResolvedValueOnce([1]);
+    mockCommands.imapFetchMessages.mockResolvedValueOnce({ messages: [{ uid: 1, body_text: '{"conversationId":"reset-thread","type":"personal","isFiltered":true}' }] });
+    await syncSidecarMetadata("acc-1", testConfig);
+    expect(mockFolderSyncState["acc-1:.metadata"].last_uid).toBe(1);
+    expect(mockFolderSyncState["acc-1:.metadata"].uidvalidity).toBe(2);
   });
 
   describe("syncBatchConversationLabelsToRemote", () => {

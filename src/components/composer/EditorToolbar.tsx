@@ -100,8 +100,9 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
   const divider = <div className="w-px h-5 sm:h-4 bg-border-primary/60 mx-1 shrink-0" />;
 
   return (
-    <div className="relative border-b border-border-secondary/60 bg-bg-secondary/40 backdrop-blur-xs">
+    <div className="relative shrink-0 border-b border-border-secondary/60 bg-bg-secondary/40 backdrop-blur-xs">
       <div role="toolbar" aria-label="Message formatting" className={androidMobile ? "flex flex-wrap items-center gap-1 px-3 py-1.5" : "flex items-center gap-1 sm:gap-0.5 px-3 py-1.5 overflow-x-auto no-scrollbar flex-nowrap sm:flex-wrap overscroll-x-contain touch-pan-x scroll-smooth"}>
+      <div className={androidMobile ? "flex w-full items-center gap-1 overflow-x-auto overscroll-x-contain touch-pan-x" : "contents"}>
       {/* Inline styles */}
       {toolbarBtn(<Bold size={14} />, editor.isActive("bold"), () => editor.chain().focus().toggleBold().run(), "Bold (Ctrl+B)")}
       {toolbarBtn(<Italic size={14} />, editor.isActive("italic"), () => editor.chain().focus().toggleItalic().run(), "Italic (Ctrl+I)")}
@@ -148,16 +149,17 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
       />
       {toolbarBtn(<ImageIcon size={14} />, false, () => imageInputRef.current?.click(), "Insert image")}
 
+      </div>
       {/* Spacer */}
-      <div className="flex-1 min-w-[8px]" />
+      <div className={androidMobile ? "hidden" : "flex-1 min-w-[8px]"} />
 
       {/* Productivity Tools */}
-      <div className="flex flex-wrap items-center gap-1 min-w-0">
+      <div className={androidMobile ? "flex w-full items-center gap-1 min-w-0 overflow-x-auto" : "flex flex-wrap items-center gap-1 min-w-0"}>
         <button
           type="button"
           onClick={() => setShowAvailabilityModal(true)}
           title="Share Availability (Calendar Slots)"
-          className="h-10 sm:h-7 px-3 sm:px-2 text-xs font-medium rounded-lg sm:rounded-md hover:bg-bg-hover/80 active:bg-bg-hover text-text-secondary hover:text-text-primary transition-all duration-150 flex items-center gap-1.5 active:scale-90 touch-manipulation cursor-pointer shrink-0"
+          className={`${androidMobile ? "h-12" : "h-10 sm:h-7"} px-3 sm:px-2 text-xs font-medium rounded-lg sm:rounded-md hover:bg-bg-hover/80 active:bg-bg-hover text-text-secondary hover:text-text-primary transition-all duration-150 flex items-center gap-1.5 active:scale-90 touch-manipulation cursor-pointer shrink-0`}
         >
           <Calendar size={14} className="text-text-tertiary sm:w-3.5 sm:h-3.5" />
           <span>Slots</span>
@@ -167,7 +169,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
           type="button"
           onClick={() => setShowMailMergeModal(true)}
           title="Mail Merge Campaign from CSV"
-          className="h-10 sm:h-7 px-3 sm:px-2 text-xs font-medium rounded-lg sm:rounded-md hover:bg-bg-hover/80 active:bg-bg-hover text-text-secondary hover:text-text-primary transition-all duration-150 flex items-center gap-1.5 active:scale-90 touch-manipulation cursor-pointer shrink-0"
+          className={`${androidMobile ? "h-12" : "h-10 sm:h-7"} px-3 sm:px-2 text-xs font-medium rounded-lg sm:rounded-md hover:bg-bg-hover/80 active:bg-bg-hover text-text-secondary hover:text-text-primary transition-all duration-150 flex items-center gap-1.5 active:scale-90 touch-manipulation cursor-pointer shrink-0`}
         >
           <Users size={14} className="text-text-tertiary sm:w-3.5 sm:h-3.5" />
           <span>Merge</span>
@@ -178,7 +180,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
             type="button"
             onClick={onToggleAiAssist}
             title="AI Assist"
-            className={`h-10 sm:h-7 px-3 sm:px-2 text-xs font-medium rounded-lg sm:rounded-md transition-all duration-150 flex items-center gap-1.5 active:scale-90 touch-manipulation cursor-pointer shrink-0 ${
+            className={`${androidMobile ? "h-12" : "h-10 sm:h-7"} px-3 sm:px-2 text-xs font-medium rounded-lg sm:rounded-md transition-all duration-150 flex items-center gap-1.5 active:scale-90 touch-manipulation cursor-pointer shrink-0 ${
               aiAssistOpen
                 ? "bg-accent/15 text-accent shadow-2xs ring-1 ring-accent/30 dark:bg-accent/25 dark:text-accent-light"
                 : "text-text-secondary hover:text-accent hover:bg-accent/10 active:bg-accent/15"
@@ -195,7 +197,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: Editor
         {toolbarBtn(<Redo2 size={15} className="sm:w-3.5 sm:h-3.5" />, false, () => editor.chain().focus().redo().run(), "Redo (Ctrl+Y)")}
       </div>
       {/* Scroll edge fade cue on mobile to indicate horizontal overflow */}
-      <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-bg-secondary/90 to-transparent sm:hidden" />
+      {!androidMobile && <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-bg-secondary/90 to-transparent sm:hidden" />}
     </div>
 
       <InputDialog

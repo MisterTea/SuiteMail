@@ -1,3 +1,4 @@
+import { useSendChecks } from "./SendChecks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -41,7 +42,7 @@ import { appendSealedContract } from "@/services/contracts/contractCrypto";
 
 export function Composer() {
   const androidMobile = useAndroidMobile();
-  const [showFormatting, setShowFormatting] = useState(false);
+  const [showFormatting, setShowFormatting] = useState(true);
   const [showMore, setShowMore] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -77,9 +78,15 @@ export function Composer() {
   const addAttachment = useComposerStore((s) => s.addAttachment);
   const attachments = useComposerStore((s) => s.attachments);
 
-  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const viewedAccountId = useAccountStore((s) => s.activeAccountId);
+  const draftAccountId = useComposerStore((s) => s.accountId);
+  const { approveSend, sendReviewDialog } = useSendChecks(isOpen);
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.id === activeAccountId);
+  const activeAccount = draftAccountId
+    ? accounts.find((account) => account.id === draftAccountId)
+    : accounts.find((account) => account.id === viewedAccountId && account.provider !== "caldav")
+      ?? accounts.find((account) => account.provider !== "caldav");
+  const activeAccountId = activeAccount?.id;
   const sendingRef = useRef(false);
 
   // Cache display values during exit animation to prevent 1-frame visual flash on close
@@ -203,7 +210,7 @@ export function Composer() {
         "aria-label": "Message body",
         "aria-multiline": "true",
         class:
-          "prose prose-sm max-w-none px-4 py-3 min-h-[220px] pb-32 sm:pb-8 focus:outline-none text-text-primary text-base sm:text-sm leading-relaxed",
+          `prose prose-sm max-w-none px-4 py-3 ${androidMobile ? "min-h-[160px] pb-8" : "min-h-[220px] pb-32 sm:pb-8"} focus:outline-none text-text-primary text-base sm:text-sm leading-relaxed`,
       },
       handleKeyDown: (_view, event) => {
         const suggestions = snippetSuggestionsRef.current;
@@ -347,7 +354,7 @@ export function Composer() {
 
   useEffect(() => {
     if (!isOpen) return;
-    setShowFormatting(false);
+    setShowFormatting(true);
     setShowMore(false);
     setSaveError("");
     const onError = () => setSaveError("Couldn't save draft. Please retry Save & close.");
@@ -442,6 +449,17 @@ export function Composer() {
     if (!commitRecipientInputs()) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
+    const authoredText = editor?.getText() ?? "";
+    if (!await approveSend({
+      from: state.fromEmail ?? activeAccount.email,
+      to: state.to, cc: state.cc, bcc: state.bcc, mode: state.mode,
+      text: `${state.subject} ${authoredText}`,
+      hasAttachment: state.attachments.some((attachment) => Boolean(attachment.content) || attachment.size === 0),
+    })) return;
+    const current = useComposerStore.getState();
+    if (!current.isOpen || current.subject !== state.subject || current.to !== state.to || current.cc !== state.cc
+      || current.bcc !== state.bcc || current.fromEmail !== state.fromEmail || current.attachments !== state.attachments
+      || (editor?.getText() ?? "") !== authoredText) return;
 
     sendingRef.current = true;
     try {
@@ -485,8 +503,7 @@ export function Composer() {
         useToastStore.getState().showToast({ message: "Close the current draft to recover this message.", duration: 0, action: { label: "Recover draft", onClick: restoreDraft } });
         return;
       }
-      useAccountStore.getState().setActiveAccount(activeAccountId);
-      useComposerStore.getState().openComposer({ ...state, draftId: currentDraftId });
+      useComposerStore.getState().openComposer({ ...state, accountId: activeAccountId, draftId: currentDraftId });
       useComposerStore.setState({ fromEmail: state.fromEmail, signatureHtml: state.signatureHtml, signatureId: state.signatureId });
     };
     state.setUndoSendRestore(restoreDraft);
@@ -535,13 +552,25 @@ export function Composer() {
       startAutoSave(activeAccountId);
       setSaveError("Couldn't prepare this message. Your draft is still here; please retry.");
     }
-  }, [activeAccountId, activeAccount, closeComposer, getOutgoingHtml, commitRecipientInputs, dismissKeyboard]);
+  }, [activeAccountId, activeAccount, closeComposer, getOutgoingHtml, commitRecipientInputs, dismissKeyboard, approveSend, editor]);
 
   const handleSchedule = useCallback(async (scheduledAt: number, recurrenceRule?: string | null) => {
     if (!activeAccountId || !activeAccount) return;
     if (!commitRecipientInputs()) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
+    const authoredText = editor?.getText() ?? "";
+    if (!await approveSend({
+      from: state.fromEmail ?? activeAccount.email,
+      to: state.to, cc: state.cc, bcc: state.bcc, mode: state.mode,
+      text: `${state.subject} ${authoredText}`,
+      scheduled: true,
+      hasAttachment: state.attachments.some((attachment) => Boolean(attachment.content) || attachment.size === 0),
+    })) return;
+    const current = useComposerStore.getState();
+    if (!current.isOpen || current.subject !== state.subject || current.to !== state.to || current.cc !== state.cc
+      || current.bcc !== state.bcc || current.fromEmail !== state.fromEmail || current.attachments !== state.attachments
+      || (editor?.getText() ?? "") !== authoredText) return;
 
     const html = await getOutgoingHtml();
     const editableHtml = getFullHtml();
@@ -556,6 +585,7 @@ export function Composer() {
 
     const scheduledId = await insertScheduledEmail({
       accountId: activeAccountId,
+      fromAddress: state.fromEmail ?? activeAccount.email,
       toAddresses: state.to.join(", "),
       ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
       bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
@@ -602,7 +632,7 @@ export function Composer() {
     setShowSchedule(false);
     dismissKeyboard();
     closeComposer();
-  }, [activeAccountId, activeAccount, closeComposer, getFullHtml, getOutgoingHtml, commitRecipientInputs, dismissKeyboard]);
+  }, [activeAccountId, activeAccount, closeComposer, getFullHtml, getOutgoingHtml, commitRecipientInputs, dismissKeyboard, approveSend, editor]);
 
   const handleDiscard = useCallback(async () => {
     if (discarding) return;
@@ -644,6 +674,7 @@ export function Composer() {
       const params = new URLSearchParams();
       params.set("compose", "true");
       params.set("mode", state.mode);
+      if (activeAccountId) params.set("accountId", activeAccountId);
       if (state.to.length > 0) params.set("to", state.to.join(","));
       if (state.cc.length > 0) params.set("cc", state.cc.join(","));
       if (state.bcc.length > 0) params.set("bcc", state.bcc.join(","));
@@ -664,7 +695,7 @@ export function Composer() {
     } catch (err) {
       console.error("Failed to pop out composer:", err);
     }
-  }, [editor, closeComposer]);
+  }, [editor, closeComposer, activeAccountId]);
 
   const isFullpage = viewMode === "fullpage";
   useEffect(() => { if (lastSavedAt) setSaveError(""); }, [lastSavedAt]);
@@ -804,7 +835,7 @@ export function Composer() {
         </div>
 
         {androidMobile && <div role="status" aria-live="polite" className="shrink-0 px-4 py-1 text-xs text-text-secondary">{saveError || (isSaving || closing ? "Saving…" : lastSavedAt ? "Saved to Drafts" : "Unsaved changes")}</div>}
-        <div className={androidMobile ? "min-h-0 flex-1 overflow-y-auto overscroll-contain" : "contents"}>
+        <div className={androidMobile ? "min-h-0 flex-1 flex flex-col [&>*]:shrink-0 overflow-y-auto overscroll-contain" : "contents"}>
         {/* Address fields */}
         <div className="px-4 py-2 border-b border-border-secondary/60 bg-bg-primary/50 transition-all">
           <FromSelector
@@ -981,7 +1012,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className={androidMobile ? "relative min-h-[160px]" : "relative flex-1 overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth"}>
+        <div className={androidMobile ? "relative flex-1 min-h-[160px]" : "relative flex-1 overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth"}>
           {snippetSuggestions.length > 0 && (
             <SnippetSuggestionPopup
               suggestions={snippetSuggestions}
@@ -1065,11 +1096,12 @@ export function Composer() {
         </div>
 
         {/* Attachments */}
-        <div className="border-t border-border-secondary">
+        {!androidMobile && <div className="border-t border-border-secondary">
           <AttachmentPicker />
-        </div>
+        </div>}
 
         </div>
+        {androidMobile && <div className="shrink-0 border-t border-border-secondary"><AttachmentPicker /></div>}
         {androidMobile && <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 border-t border-border-secondary">
           <button type="button" className="min-h-[48px] px-3 text-sm" aria-expanded={showFormatting} onClick={() => setShowFormatting(!showFormatting)}>Format</button>
           <button type="button" className="min-h-[48px] px-3 text-sm" aria-expanded={showMore} onClick={() => setShowMore(!showMore)}>More</button>
@@ -1164,6 +1196,7 @@ export function Composer() {
       <Modal isOpen={confirmDiscard} onClose={() => !discarding && setConfirmDiscard(false)} title="Discard this draft?" zIndex="z-[80]">
         <div className="p-4"><p className="text-sm">This deletes your saved draft and current changes.</p><div className="mt-4 flex flex-wrap gap-2"><button autoFocus type="button" disabled={discarding} className="min-h-[48px] px-4 rounded-lg border border-border-primary" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" disabled={discarding} className="min-h-[48px] px-4 rounded-lg bg-danger text-white" onClick={() => void handleDiscard()}>{discarding ? "Discarding…" : "Discard draft"}</button></div></div>
       </Modal>
+      {sendReviewDialog}
       {showSchedule && (
         <ScheduleSendDialog
           onSchedule={handleSchedule}

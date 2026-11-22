@@ -325,6 +325,9 @@ export async function executeEmailAction(
   // 2. Local DB update
   try {
     await applyLocalDbUpdate(accountId, action);
+    if (typeof window !== "undefined" && "threadId" in action) {
+      window.dispatchEvent(new Event("suitemail-thread-changed"));
+    }
   } catch (err) {
     console.warn("Local DB update failed:", err);
   }
@@ -388,9 +391,10 @@ export function archiveThread(
   messageIds: string[],
 ): Promise<ActionResult> {
   const store = useThreadStore.getState();
-  const thread = store?.threadMap?.get
+  const candidate = store?.threadMap?.get
     ? store.threadMap.get(threadId)
     : store?.threads?.find((t) => t.id === threadId);
+  const thread = candidate?.accountId === accountId ? candidate : undefined;
 
   try {
     useToastStore.getState().showToast({
@@ -443,9 +447,10 @@ export function trashThread(
   messageIds: string[],
 ): Promise<ActionResult> {
   const store = useThreadStore.getState();
-  const thread = store?.threadMap?.get
+  const candidate = store?.threadMap?.get
     ? store.threadMap.get(threadId)
     : store?.threads?.find((t) => t.id === threadId);
+  const thread = candidate?.accountId === accountId ? candidate : undefined;
 
   try {
     useToastStore.getState().showToast({

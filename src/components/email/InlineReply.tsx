@@ -1,3 +1,4 @@
+import { useSendChecks } from "../composer/SendChecks";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useToastStore } from "@/stores/toastStore";
 import { sanitizeHtml, escapeHtml } from "@/utils/sanitize";
@@ -39,6 +40,7 @@ interface InlineReplyProps {
 export function InlineReply({ thread, messages, accountId, noReply, onSent }: InlineReplyProps) {
   const androidMobile = useAndroidMobile();
   const [mode, setMode] = useState<ReplyMode | null>(null);
+  const { approveSend, sendReviewDialog } = useSendChecks(mode !== null);
   const [sending, setSending] = useState(false);
   const [signatureHtml, setSignatureHtml] = useState("");
   const [autoDraftLoading, setAutoDraftLoading] = useState(false);
@@ -47,6 +49,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
   const [contractText, setContractText] = useState<string | null>(null);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.id === accountId);
+
   const openComposer = useComposerStore((s) => s.openComposer);
   const containerRef = useRef<HTMLDivElement>(null);
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,6 +127,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       const subject = lastMessage.subject ?? "";
       const fields = await contractReplyFields(lastMessage.body_html, lastMessage.body_text);
       openComposer({
+        accountId,
         mode: newMode,
         to: recipients,
         cc: copied,
@@ -149,7 +153,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     if (newMode === "reply" || newMode === "replyAll") {
       loadAutoDraft(newMode);
     }
-  }, [editor, loadAutoDraft, androidMobile, lastMessage, activeAccount?.email, openComposer, thread.id]);
+  }, [editor, loadAutoDraft, androidMobile, lastMessage, activeAccount?.email, openComposer, thread.id, accountId]);
 
   // Load default signature
   useEffect(() => {
@@ -218,6 +222,11 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     if (!activeAccount || !editor || sending) return;
     const { to, cc } = getRecipients();
     if (to.length === 0 && mode !== "forward") return;
+    const authoredText = editor.getText();
+    if (!await approveSend({
+      from: activeAccount.email, to, cc, mode: mode ?? "reply",
+      text: authoredText,
+    }) || editor.getText() !== authoredText) return;
 
     setSending(true);
     try {
@@ -270,7 +279,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
           console.error("Failed to send inline reply:", err);
           useToastStore.getState().showToast({ message: "Couldn't send reply. Recover your draft to retry.", duration: 0, action: { label: "Recover draft", onClick: () => {
             if (useComposerStore.getState().isOpen) return;
-            openComposer({ mode: mode ?? "reply", to, cc, subject: getSubject(), bodyHtml: authoredHtml, threadId: thread.id, inReplyToMessageId: lastMessage?.id, contractActive: textToSeal != null, contractText: textToSeal ?? "" });
+            openComposer({ accountId, mode: mode ?? "reply", to, cc, subject: getSubject(), bodyHtml: authoredHtml, threadId: thread.id, inReplyToMessageId: lastMessage?.id, contractActive: textToSeal != null, contractText: textToSeal ?? "" });
           } } });
         } finally {
           setUndoSendVisible(false);
@@ -291,7 +300,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     } finally {
       setSending(false);
     }
-  }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent, contractText, openComposer]);
+  }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent, contractText, openComposer, approveSend]);
 
   const handleExpandToComposer = useCallback(() => {
     if (!editor || !lastMessage) return;
@@ -299,6 +308,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     const bodyHtml = editor.getHTML();
 
     openComposer({
+      accountId,
       mode: mode === "forward" ? "forward" : mode === "replyAll" ? "replyAll" : "reply",
       to,
       cc,
@@ -313,7 +323,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     // Reset inline state
     editor.commands.setContent("");
     setMode(null);
-  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer, contractText]);
+  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer, contractText, accountId]);
 
   const handleRegenerateDraft = useCallback(async () => {
     if (!editor || !mode || mode === "forward") return;
@@ -436,6 +446,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
 
   return (
     <div ref={containerRef} className="mx-2.5 sm:mx-4 my-2.5 sm:my-3 border border-border-primary rounded-xl overflow-hidden bg-bg-primary shadow-lg ring-1 ring-accent/20 focus-within:ring-2 focus-within:ring-accent/40 transition-all">
+      {sendReviewDialog}
       {/* Header */}
       <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-2 bg-bg-secondary/70 border-b border-border-secondary">
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -473,7 +484,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
             >
               <Users size={12} className="text-accent shrink-0" />
               <span className="truncate text-left">
-                {to[0] ? to[0].split("@")[0] : "Recipients"}
+                {to[0] || "Recipients"}
                 {totalRecipients > 1 ? ` +${totalRecipients - 1}` : ""}
               </span>
               {cc.length > 0 && (
@@ -502,6 +513,8 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
           </button>
         </div>
       </div>
+
+      {activeAccount && <div className="px-3.5 py-1.5 text-xs text-text-secondary border-b border-border-secondary break-all">From {activeAccount.email}</div>}
 
       {/* Expandable Recipient Detail Drawer in InlineReply */}
       {showRecipientsList && totalRecipients > 0 && mode !== "forward" && (

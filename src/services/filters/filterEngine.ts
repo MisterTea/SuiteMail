@@ -13,6 +13,9 @@ import { getAccount } from "../db/accounts";
 import { getThreadCrdtDoc } from "../db/threadCrdtDocs";
 import { getDb } from "../db/connection";
 import { getLabelsForAccount } from "../db/labels";
+import { getMessagesForThread } from "../db/messages";
+import { getPendingOpsForResource } from "../db/pendingOperations";
+import { syncFilterSettings } from "../imap/settingsSidecarSync";
 
 export { isEmailFiltered, markEmailFiltered };
 
@@ -136,7 +139,7 @@ export async function applyFiltersToMessages(
   }
 
   // Apply combined actions per thread in parallel
-  await Promise.allSettled(
+  const outcomes = await Promise.allSettled(
     [...threadActions].map(async ([threadId, result]) => {
       const addLabels = [...new Set(result.addLabelIds)];
       const removeLabels = [...new Set(result.removeLabelIds)];
@@ -161,14 +164,25 @@ export async function applyFiltersToMessages(
         }
       } catch (err) {
         console.error(`Failed to apply filter actions to thread ${threadId}:`, err);
+        throw err;
       }
     }),
   );
+  const failure = outcomes.find((outcome) => outcome.status === "rejected");
+  if (failure?.status === "rejected") throw failure.reason;
 }
 
 // ============================================================================
 // Client-side Filter Operations (Metadata-tracked)
 // ============================================================================
+
+/** Prepare one batch against freshly downloaded rules and metadata. Failures defer filtering. */
+export async function prepareFilterBatch(accountId: string, config: ImapConfig) {
+  await syncFilterSettings(accountId, config, { strict: true });
+  await ensureMetadataDownloadedForEmail(accountId, config);
+  return (threadId: string, messages: ParsedMessage | ParsedMessage[]) =>
+    addEmailLocally(accountId, threadId, messages, config);
+}
 
 /**
  * Add an email (or thread of messages) with client-side filtering.
@@ -180,6 +194,44 @@ export async function applyFiltersToMessages(
  * If the email has already been marked as filtered in metadata, filter rules are skipped.
  */
 export async function addEmail(
+  accountId: string,
+  threadId: string,
+  messageOrMessages: ParsedMessage | ParsedMessage[],
+  config?: ImapConfig,
+  options?: { skipSidecarPush?: boolean },
+): Promise<{ filtered: boolean }> {
+  const account = config ? undefined : await getAccount(accountId);
+  const imapConfig = config ?? (account?.provider === "imap" ? buildImapConfig(account) : undefined);
+  if (imapConfig) {
+    await syncFilterSettings(accountId, imapConfig, { strict: true });
+    await ensureMetadataDownloadedForEmail(accountId, imapConfig, threadId);
+  }
+  return addEmailLocally(accountId, threadId, messageOrMessages, imapConfig, options);
+}
+
+const filteringThreads = new Map<string, Promise<{ filtered: boolean }>>();
+
+async function addEmailLocally(
+  accountId: string,
+  threadId: string,
+  messages: ParsedMessage | ParsedMessage[],
+  config?: ImapConfig,
+  options?: { skipSidecarPush?: boolean },
+): Promise<{ filtered: boolean }> {
+  const effectiveId = threadId || (Array.isArray(messages) ? messages[0]?.threadId : messages.threadId) || "";
+  const key = JSON.stringify([accountId, effectiveId]);
+  const previous = filteringThreads.get(key);
+  if (previous) return previous;
+  const operation = filterEmail(accountId, effectiveId, messages, config, options);
+  filteringThreads.set(key, operation);
+  try {
+    return await operation;
+  } finally {
+    if (filteringThreads.get(key) === operation) filteringThreads.delete(key);
+  }
+}
+
+async function filterEmail(
   accountId: string,
   threadId: string,
   messageOrMessages: ParsedMessage | ParsedMessage[],
@@ -242,43 +294,7 @@ export async function downloadEmail(
   messageOrMessages: ParsedMessage | ParsedMessage[],
   config?: ImapConfig,
 ): Promise<{ filtered: boolean }> {
-  const messages = Array.isArray(messageOrMessages)
-    ? messageOrMessages
-    : [messageOrMessages];
-  const effectiveThreadId =
-    threadId || (messages.length > 0 ? messages[0]!.threadId : "");
-
-  // When downloading an email, make sure there isn't metadata for that email
-  // yet to be downloaded before adding/assuming an empty metadata item.
-  let imapConfig = config;
-  if (!imapConfig) {
-    try {
-      const account = await getAccount(accountId);
-      if (account && account.provider === "imap") {
-        imapConfig = buildImapConfig(account);
-      }
-    } catch {
-      // Account lookup failed or not found
-    }
-  }
-
-  if (imapConfig) {
-    try {
-      await ensureMetadataDownloadedForEmail(
-        accountId,
-        imapConfig,
-        effectiveThreadId,
-      );
-    } catch (err) {
-      console.warn(
-        `[filterEngine] Error checking pending metadata for ${effectiveThreadId}:`,
-        err,
-      );
-    }
-  }
-
-  // Add the email, applying filters if unfiltered and setting metadata
-  return addEmail(accountId, effectiveThreadId, messages, imapConfig);
+  return addEmail(accountId, threadId, messageOrMessages, config);
 }
 
 // ============================================================================
@@ -452,4 +468,38 @@ export async function applyFilterActionsToThreads(
       }
     }),
   );
+}
+
+/** Retry persisted unfinished work even when the provider has no new messages. */
+export async function retryUnfilteredEmails(accountId: string, config: ImapConfig): Promise<void> {
+  const db = await getDb();
+  const threads = await db.select<{ id: string }[]>(
+    `SELECT t.id FROM threads t WHERE t.account_id = $1 AND t.is_filtered = 0
+     AND EXISTS (SELECT 1 FROM messages m WHERE m.account_id = t.account_id AND m.thread_id = t.id)`,
+    [accountId],
+  );
+  for (let i = 0; i < threads.length; i += 100) {
+    const filter = await prepareFilterBatch(accountId, config);
+    for (const { id } of threads.slice(i, i + 100)) {
+      if ((await getPendingOpsForResource(accountId, id)).length > 0) continue;
+      const rows = await getMessagesForThread(accountId, id);
+      const messages: ParsedMessage[] = await Promise.all(rows.map(async (m) => {
+        const attachments = await db.select<{ count: number }[]>(
+          "SELECT COUNT(*) AS count FROM attachments WHERE account_id = $1 AND message_id = $2", [accountId, m.id],
+        );
+        return {
+          id: m.id, threadId: id, fromAddress: m.from_address, fromName: m.from_name,
+          toAddresses: m.to_addresses, ccAddresses: m.cc_addresses, bccAddresses: m.bcc_addresses,
+          replyTo: m.reply_to, subject: m.subject, snippet: m.snippet ?? "", date: m.date,
+          isRead: Boolean(m.is_read), isStarred: Boolean(m.is_starred),
+          bodyHtml: m.body_html, bodyText: m.body_text, attachments: [], labelIds: [],
+          hasAttachments: Number(attachments[0]?.count ?? 0) > 0,
+          rawSize: m.raw_size ?? 0, internalDate: m.internal_date ?? m.date,
+          listUnsubscribe: m.list_unsubscribe, listUnsubscribePost: m.list_unsubscribe_post,
+          authResults: m.auth_results,
+        };
+      }));
+      if (messages.length > 0) await filter(id, messages);
+    }
+  }
 }

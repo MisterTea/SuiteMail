@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { searchContacts, type DbContact } from "@/services/db/contacts";
+import { hideRecipientSuggestion, searchContacts, type DbContact } from "@/services/db/contacts";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { X } from "lucide-react";
 
@@ -248,12 +248,12 @@ export function AddressInput({
               const initial = displayName.charAt(0).toUpperCase();
               const isSelected = i === selectedIdx;
               return (
+                <div key={contact.id} className="flex items-center">
                 <button
-                  key={contact.id}
                   type="button"
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => addAddress(contact.email)}
-                  className={`w-full text-left px-3.5 py-3 sm:py-2 text-sm flex items-center gap-2.5 transition-colors cursor-pointer touch-manipulation active:bg-accent/15 min-h-[48px] ${
+                  className={`flex-1 min-w-0 text-left px-3.5 py-3 sm:py-2 text-sm flex items-center gap-2.5 transition-colors cursor-pointer touch-manipulation active:bg-accent/15 min-h-[48px] ${
                     isSelected ? "bg-accent/10 text-accent font-medium" : "hover:bg-bg-hover text-text-primary"
                   }`}
                 >
@@ -271,6 +271,22 @@ export function AddressInput({
                     )}
                   </div>
                 </button>
+                <button type="button" className="mr-2 p-2 rounded-md hover:bg-bg-hover" title="Hide autocomplete suggestion"
+                  aria-label={`Hide suggestion for ${contact.email}`}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={async (event) => {
+                    event.stopPropagation();
+                    try {
+                      await hideRecipientSuggestion(contact.email);
+                      setSuggestions((previous) => previous.filter((item) => item.id !== contact.id));
+                      setSelectedIdx(-1);
+                    } catch {
+                      setError("Couldn’t hide this suggestion.");
+                    }
+                  }}>
+                  <X size={14} />
+                </button>
+                </div>
               );
             })}
           </div>

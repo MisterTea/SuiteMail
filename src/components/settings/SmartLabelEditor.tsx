@@ -181,16 +181,21 @@ export function SmartLabelEditor() {
           <div className="flex items-center gap-1">
             <button
               onClick={() => handleToggleEnabled(rule)}
-              className={`w-8 h-4 rounded-full transition-colors relative ${
-                rule.is_enabled === 1 ? "bg-accent" : "bg-bg-tertiary"
-              }`}
+              role="switch"
+              aria-checked={rule.is_enabled === 1}
+              className="inline-flex shrink-0 items-center justify-center"
               title={rule.is_enabled === 1 ? "Disable" : "Enable"}
             >
-              <span
-                className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform shadow ${
-                  rule.is_enabled === 1 ? "translate-x-4" : ""
-                }`}
-              />
+              <span aria-hidden="true" className={`w-8 h-4 rounded-full transition-colors relative ${
+                rule.is_enabled === 1 ? "bg-accent" : "bg-bg-tertiary"
+              }`}>
+                <span
+                  className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform shadow ${
+                    rule.is_enabled === 1 ? "translate-x-4" : ""
+                  }`}
+                />
+
+              </span>
             </button>
             <button
               onClick={() => handleEdit(rule)}

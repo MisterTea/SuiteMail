@@ -18,8 +18,8 @@ interface AddEwsAccountProps {
 
 export function AddEwsAccount({ onClose, onSuccess, onBack }: AddEwsAccountProps) {
   const addAccount = useAccountStore((s) => s.addAccount);
-  const [tenant, setTenant] = useState("organizations");
-  const [clientId, setClientId] = useState("");
+  const [tenant, setTenant] = useState("");
+  const [clientId, setClientId] = useState(() => import.meta.env.EWS_OAUTH_CLIENT_ID?.trim() ?? "");
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelRef = useRef(false);

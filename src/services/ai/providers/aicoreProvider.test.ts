@@ -15,7 +15,7 @@ describe("aicoreProvider", () => {
   });
 
   describe("createAiCoreProvider", () => {
-    it("creates provider defaulting to gemma-4-26b (Max AI mode)", async () => {
+    it("uses FULL preference by default", async () => {
       mockPlatformInvoke.mockResolvedValue("Generated output");
       const provider = createAiCoreProvider();
 
@@ -27,12 +27,12 @@ describe("aicoreProvider", () => {
       expect(mockPlatformInvoke).toHaveBeenCalledWith("aicore_generate", {
         systemPrompt: "You are a helpful assistant",
         prompt: "Hello",
-        model: "gemma-4-26b",
+        model: "full",
       });
       expect(result).toBe("Generated output");
     });
 
-    it("allows specifying a custom model", async () => {
+    it("uses FULL preference even with a legacy model name", async () => {
       mockPlatformInvoke.mockResolvedValue("Nano response");
       const provider = createAiCoreProvider("gemini-nano");
 
@@ -44,7 +44,7 @@ describe("aicoreProvider", () => {
       expect(mockPlatformInvoke).toHaveBeenCalledWith("aicore_generate", {
         systemPrompt: "System",
         prompt: "User prompt",
-        model: "gemini-nano",
+        model: "full",
       });
       expect(result).toBe("Nano response");
     });
@@ -55,10 +55,10 @@ describe("aicoreProvider", () => {
       expect(p1).toBe(p2);
     });
 
-    it("creates a new client when model changes", () => {
+    it("reuses FULL client for legacy model names", () => {
       const p1 = createAiCoreProvider("gemma-4-26b");
       const p2 = createAiCoreProvider("gemini-nano");
-      expect(p1).not.toBe(p2);
+      expect(p1).toBe(p2);
     });
   });
 

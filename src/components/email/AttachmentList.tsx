@@ -1,3 +1,4 @@
+import { readAttachmentBytes } from "@/services/attachments/readAttachmentBytes";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { platformSaveFile } from "@/platform";
@@ -222,22 +223,14 @@ export function AttachmentPreview({
   const fetchData = useCallback(async (): Promise<Uint8Array> => {
     if (bytesRef.current) return bytesRef.current;
 
-    const provider = await getEmailProvider(accountId);
-    const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id!);
-
-    // Normalize URL-safe base64 (Gmail API) to standard base64
-    const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-    const binaryStr = atob(base64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
+    const bytes = await readAttachmentBytes({ ...attachment, account_id: accountId, message_id: messageId });
+    if (!bytes) throw new Error("Attachment is unavailable");
     bytesRef.current = bytes;
     return bytes;
-  }, [accountId, messageId, attachment.gmail_attachment_id]);
+  }, [accountId, messageId, attachment]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if (!attachment.gmail_attachment_id || !isPreviewable || blobUrl) return;
+    if (!isPreviewable || blobUrl) return;
 
     setLoading(true);
     try {
@@ -263,7 +256,7 @@ export function AttachmentPreview({
   }, [isPreviewable, blobUrl, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
-    if (!attachment.gmail_attachment_id || saving) return;
+    if (saving) return;
 
     setSaving(true);
     try {

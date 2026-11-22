@@ -206,6 +206,16 @@ export function useKeyboardShortcuts() {
 }
 
 async function executeAction(actionId: string): Promise<void> {
+  // The unified view has its own account-scoped thread selection.
+  if (getActiveLabel() === "unified") {
+    const inlineReply = ["action.reply", "action.replyAll", "action.forward"].includes(actionId);
+    if (inlineReply && getSelectedThreadId()) {
+      const mode = actionId === "action.reply" ? useUIStore.getState().defaultReplyMode : actionId === "action.replyAll" ? "replyAll" : "forward";
+      window.dispatchEvent(new CustomEvent("suitemail-inline-reply", { detail: { mode } }));
+      return;
+    }
+    if ((actionId.startsWith("action.") && actionId !== "action.compose") || ["nav.next", "nav.prev", "nav.open"].includes(actionId)) return;
+  }
   const threads = useThreadStore.getState().threads;
   const selectedId = getSelectedThreadId();
   const currentIdx = threads.findIndex((t) => t.id === selectedId);

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { OAuthProviderConfig } from "./providers";
+import { microsoftEwsProvider, type OAuthProviderConfig } from "./providers";
 
 // Mock Platform APIs
 vi.mock("@/platform", () => ({
@@ -159,6 +159,31 @@ describe("refreshProviderToken", () => {
 // We'll test the JWT parsing logic directly by importing the module internals
 
 describe("startProviderOAuthFlow", () => {
+  it("uses the native sign-in window for EWS and exchanges its code without a secret", async () => {
+    const idToken = `header.${btoa(JSON.stringify({ email: "user@example.com", name: "Test User" }))}.signature`;
+    vi.mocked(invoke).mockImplementation(async (command: string, args: unknown) => {
+      if (command === "oauth_webview_login") {
+        const request = args as { authUrl: string; redirectPrefix: string; state: string };
+        const url = new URL(request.authUrl);
+        expect(url.searchParams.get("redirect_uri")).toBe(request.redirectPrefix);
+        expect(url.searchParams.get("resource")).toBe("https://outlook.office.com");
+        expect(url.searchParams.get("state")).toBe(request.state);
+        return { code: "ews-code", state: request.state };
+      }
+      if (command === "oauth_exchange_token") {
+        return { access_token: "ews-access", refresh_token: "ews-refresh", expires_in: 3600, token_type: "Bearer", id_token: idToken };
+      }
+      throw new Error(`Unexpected command: ${command}`);
+    });
+    const result = await startProviderOAuthFlow(microsoftEwsProvider("example.com"), "client-id");
+    expect(result.userInfo.email).toBe("user@example.com");
+    expect(invoke).toHaveBeenCalledWith("oauth_exchange_token", expect.objectContaining({
+      code: "ews-code", clientSecret: null, resource: "https://outlook.office.com",
+      redirectUri: "https://login.microsoftonline.com/common/oauth2/nativeclient",
+    }));
+    expect(openUrl).not.toHaveBeenCalled();
+  });
+
   it("formats Google OAuth URL with access_type=offline, prompt=consent, and 127.0.0.1 redirect URI", async () => {
     let capturedState = "";
     vi.mocked(invoke).mockImplementation(async (cmd: string, args: unknown) => {

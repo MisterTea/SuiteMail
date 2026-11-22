@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
-import { useAccountStore } from "@/stores/accountStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { useUIStore } from "@/stores/uiStore";
@@ -48,7 +47,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   const [showMore, setShowMore] = useState(false);
   const updateThread = useThreadStore((s) => s.updateThread);
   const removeThread = useThreadStore((s) => s.removeThread);
-  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccountId = thread.accountId;
   const activeLabel = useActiveLabel();
   const [showSnooze, setShowSnooze] = useState(false);
   const [showFollowUp, setShowFollowUp] = useState(false);

@@ -9,6 +9,7 @@ vi.mock("@/services/db/settings", () => {
   };
 });
 
+import * as hostAi from "./androidHostAi";
 import { createMockAiProvider } from "@/test/mocks";
 import { DEFAULT_PI_SERVER_URL } from "./llamaServer";
 
@@ -71,6 +72,23 @@ describe("providerManager", () => {
   });
 
   describe("getActiveProviderName", () => {
+    it.each(["ollama", "pi"])("uses AiCore instead of a saved %s provider on Android", async (saved) => {
+      vi.stubGlobal("navigator", { userAgent: "Android" });
+      try {
+        mockGetSetting.mockResolvedValue(saved);
+        expect(await getActiveProviderName()).toBe("aicore");
+      } finally { vi.unstubAllGlobals(); }
+    });
+
+    it("keeps host Ollama available on the Android emulator", async () => {
+      vi.stubGlobal("navigator", { userAgent: "Android" });
+      const emulator = vi.spyOn(hostAi, "isAndroidEmulator").mockResolvedValue(true);
+      try {
+        mockGetSetting.mockResolvedValue("ollama");
+        expect(await getActiveProviderName()).toBe("ollama");
+      } finally { emulator.mockRestore(); vi.unstubAllGlobals(); }
+    });
+
     it("defaults to claude when ai_provider is not set", async () => {
       mockGetSetting.mockResolvedValue(null);
       expect(await getActiveProviderName()).toBe("claude");
@@ -222,17 +240,17 @@ describe("providerManager", () => {
       expect(createPiProvider).toHaveBeenCalledWith("http://127.0.0.1:8080", "gemma-4-e4b-it");
     });
 
-    it("creates aicore provider with default gemma-4-26b (Max AI mode)", async () => {
+    it("creates aicore provider with FULL preference", async () => {
       mockGetSetting.mockImplementation(async (key: string) => {
         if (key === "ai_provider") return "aicore";
         return null;
       });
 
       await getActiveProvider();
-      expect(createAiCoreProvider).toHaveBeenCalledWith("gemma-4-26b");
+      expect(createAiCoreProvider).toHaveBeenCalledWith("full");
     });
 
-    it("creates aicore provider with custom model", async () => {
+    it("uses FULL instead of legacy saved model names", async () => {
       mockGetSetting.mockImplementation(async (key: string) => {
         if (key === "ai_provider") return "aicore";
         if (key === "aicore_model") return "gemini-nano";
@@ -240,7 +258,7 @@ describe("providerManager", () => {
       });
 
       await getActiveProvider();
-      expect(createAiCoreProvider).toHaveBeenCalledWith("gemini-nano");
+      expect(createAiCoreProvider).toHaveBeenCalledWith("full");
     });
 
     it("uses default ollama url and model when not configured", async () => {

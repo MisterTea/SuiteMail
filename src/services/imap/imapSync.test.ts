@@ -70,6 +70,8 @@ vi.mock("../db/connection", () => ({
 }));
 vi.mock("../filters/filterEngine", () => ({
   addEmail: vi.fn().mockResolvedValue({ filtered: true }),
+  prepareFilterBatch: vi.fn(async () => (await import("../filters/filterEngine")).addEmail.bind(null, "acc-1")),
+  retryUnfilteredEmails: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("./metadataSidecarSync", () => ({
   syncSidecarMetadata: vi.fn().mockResolvedValue(0),
@@ -105,7 +107,7 @@ import { setConversationMetadataLabels } from "../crdt/metadataCrdt";
 import { upsertAttachment } from "../db/attachments";
 import { getAllFolderSyncStates } from "../db/folderSyncState";
 import { getPendingOpsForResource } from "../db/pendingOperations";
-import { addEmail } from "../filters/filterEngine";
+import { addEmail, prepareFilterBatch } from "../filters/filterEngine";
 import { syncBatchConversationLabelsToRemote } from "./metadataSidecarSync";
 
 describe("imapMessageToParsedMessage", () => {
@@ -435,6 +437,15 @@ describe("imapInitialSync", () => {
     // Only recent message should be stored (old one is beyond 365 days)
     expect(mockUpsertMessage).toHaveBeenCalledTimes(1);
     expect(mockUpsertMessage.mock.calls[0]![0].id).toContain("1"); // uid=1
+  });
+
+  it("persists final threads but defers filtering when metadata refresh fails", async () => {
+    setupFolderWithMessages("INBOX", [createMockImapMessage({ uid: 1, message_id: "<deferred@test>", date: Math.floor(Date.now() / 1000) })]);
+    vi.mocked(prepareFilterBatch).mockRejectedValueOnce(new Error("metadata unavailable"));
+    await imapInitialSync("acc-1");
+    expect(mockUpsertMessage).toHaveBeenCalled();
+    expect(mockUpsertThread).toHaveBeenCalled();
+    expect(addEmail).not.toHaveBeenCalled();
   });
 
   it("handles empty folders gracefully", async () => {

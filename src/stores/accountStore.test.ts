@@ -1,5 +1,8 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import { setSetting } from "../services/db/settings";
 import { hasMailAccount, useAccountStore, type Account } from "./accountStore";
+
+vi.mock("../services/db/settings", () => ({ setSetting: vi.fn().mockResolvedValue(undefined) }));
 
 const mockAccount: Account = {
   id: "acc-1",
@@ -47,12 +50,21 @@ describe("accountStore", () => {
     expect(state.activeAccountId).toBe("acc-1");
   });
 
-  it("should not override active account when adding second account", () => {
+  it("should switch to a newly added account", () => {
     useAccountStore.getState().addAccount(mockAccount);
     useAccountStore.getState().addAccount(mockAccount2);
     const state = useAccountStore.getState();
     expect(state.accounts).toHaveLength(2);
-    expect(state.activeAccountId).toBe("acc-1");
+    expect(state.activeAccountId).toBe("acc-2");
+    expect(setSetting).toHaveBeenLastCalledWith("active_account_id", "acc-2");
+  });
+
+  it("preserves the newly selected account when reloading accounts after save", () => {
+    useAccountStore.getState().setAccounts([mockAccount]);
+    useAccountStore.getState().addAccount(mockAccount2);
+    const selected = useAccountStore.getState().activeAccountId;
+    useAccountStore.getState().setAccounts([mockAccount, mockAccount2], selected);
+    expect(useAccountStore.getState().activeAccountId).toBe("acc-2");
   });
 
   it("should switch active account", () => {

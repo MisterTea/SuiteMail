@@ -7,6 +7,8 @@ import {
 import { GmailApiProvider } from "./gmailProvider";
 import { ImapSmtpProvider } from "./imapSmtpProvider";
 import { MsGraphProvider } from "./msgraphProvider";
+import { SandboxProvider } from "./sandboxProvider";
+import { SANDBOX_ID } from "./sandbox";
 import { EwsProvider } from "./ewsProvider";
 import { getAccount } from "../db/accounts";
 import { getGmailClient } from "../gmail/tokenManager";
@@ -23,6 +25,14 @@ describe("providerFactory", () => {
   beforeEach(() => {
     clearAllProviders();
     vi.clearAllMocks();
+  });
+
+  it("routes sandbox mail locally without creating a Gmail client", async () => {
+    vi.mocked(getAccount).mockResolvedValue({ id: SANDBOX_ID, provider: "sandbox", email: "you@sandbox.test", is_active: 1 } as NonNullable<Awaited<ReturnType<typeof getAccount>>>);
+    const provider = await getEmailProvider(SANDBOX_ID);
+    expect(provider).toBeInstanceOf(SandboxProvider);
+    expect(provider.type).toBe("sandbox");
+    expect(getGmailClient).not.toHaveBeenCalled();
   });
 
   it("returns GmailApiProvider for gmail_api accounts", async () => {

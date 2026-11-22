@@ -70,7 +70,7 @@ async function checkScheduledEmails(): Promise<void> {
       }
 
       const raw = buildRawEmail({
-        from: account.email,
+        from: email.from_address ?? account.email,
         to: email.to_addresses.split(",").map((a) => a.trim()),
         cc: email.cc_addresses
           ? email.cc_addresses.split(",").map((a) => a.trim())
@@ -81,6 +81,7 @@ async function checkScheduledEmails(): Promise<void> {
         subject: email.subject ?? "",
         htmlBody: email.body_html,
         threadId: email.thread_id ?? undefined,
+        inReplyTo: email.reply_to_message_id ?? undefined,
         attachments,
       });
 
@@ -95,6 +96,7 @@ async function checkScheduledEmails(): Promise<void> {
         );
         await insertScheduledEmail({
           accountId: email.account_id,
+          fromAddress: email.from_address,
           toAddresses: email.to_addresses,
           ccAddresses: email.cc_addresses,
           bccAddresses: email.bcc_addresses,

@@ -82,7 +82,7 @@ async function decryptAccountTokens(account: DbAccount): Promise<DbAccount> {
 export async function getAllAccounts(): Promise<DbAccount[]> {
   const db = await getDb();
   const accounts = await db.select<DbAccount[]>(
-    "SELECT * FROM accounts ORDER BY created_at ASC",
+    "SELECT * FROM accounts WHERE provider != 'sandbox' OR is_active = 1 ORDER BY created_at ASC",
   );
   return Promise.all(accounts.map(decryptAccountTokens));
 }

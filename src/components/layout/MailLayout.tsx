@@ -1,8 +1,9 @@
 import { useCallback, useRef } from "react";
 import { EmailList } from "./EmailList";
+import { UnifiedMailbox } from "./UnifiedMailbox";
 import { ReadingPane } from "./ReadingPane";
 import { useUIStore } from "@/stores/uiStore";
-import { useSelectedThreadId } from "@/hooks/useRouteNavigation";
+import { useActiveLabel, useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 
 function ResizableEmailLayout() {
@@ -65,6 +66,8 @@ function ResizableEmailLayout() {
 
 export function MailLayout() {
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
+  const label = useActiveLabel();
+  if (label === "unified") return <UnifiedMailbox />;
 
   if (readingPanePosition === "right") {
     return (
