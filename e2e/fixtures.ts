@@ -29,6 +29,9 @@ export const test = isAndroid ? base.extend({
     const browser = await chromium.connectOverCDP('http://127.0.0.1:9223', { noDefaults: true });
     const context = browser.contexts()[0]!;
     const page: Page = context.pages()[0] || await context.newPage();
+    const browserErrors: string[] = [];
+    page.on('pageerror', error => browserErrors.push(error.stack || error.message));
+    page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setTouchEmulationEnabled', {enabled:true,maxTouchPoints:5});
     const locatorPrototype = Object.getPrototypeOf(page.locator('body'));
@@ -36,8 +39,13 @@ export const test = isAndroid ? base.extend({
     const originalClick = locatorPrototype.click;
     locatorPrototype.tap = async function(options: {timeout?: number} = {}) {
       await this.waitFor({state:'visible',timeout:options.timeout});
-      await originalClick.call(this, {trial:true,timeout:options.timeout});
       await page.waitForTimeout(Number(process.env.SLOW_MO || 350));
+      // Android viewport/keyboard animations can move a control after the trial
+      // click. Settle first, and fully reveal buttons inside scrolling dialogs.
+      await this.evaluate((element: Element) => {
+        if (element.closest('.modal-panel')) element.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+      });
+      await originalClick.call(this, {trial:true,timeout:options.timeout});
       const box = await this.boundingBox();
       if (!box) throw new Error('Touch target has no bounds');
       await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});
@@ -47,6 +55,14 @@ export const test = isAndroid ? base.extend({
     locatorPrototype.click = locatorPrototype.tap;
     // Existing desktop scenarios use a local dev URL. Android always loads the
     // bundled interface from its installed APK, including after a reload.
+    const reload = page.reload.bind(page);
+    page.reload = (async (options?: Parameters<Page['reload']>[0]) => {
+      const response = await reload(options);
+      // The document load event precedes asynchronous WASM/app initialization.
+      // Wait for the actual application before another navigation can abort it.
+      await page.locator('[data-app-content]').waitFor({state:'visible',timeout:60_000});
+      return response;
+    }) as Page['reload'];
     const goto = page.goto.bind(page);
     page.goto = (async (url: string, options?: Parameters<Page['goto']>[1]) => {
       await goto(url.replace('http://localhost:1420', 'https://localhost'), options);
@@ -85,6 +101,9 @@ export const test = isAndroid ? base.extend({
       await page.waitForTimeout(1000);
     } finally {
       try {
+        if (testInfo.status !== testInfo.expectedStatus && browserErrors.length) {
+          await testInfo.attach('Android browser errors', {body:browserErrors.join('\n\n'),contentType:'text/plain'});
+        }
         try { if (/^\d+$/.test(recordingPid)) adbRun('shell','kill','-2',recordingPid); } catch {}
         await Promise.race([recorded,new Promise(r => setTimeout(r,3000))]);
         const output = path.join(outputDir,filename);

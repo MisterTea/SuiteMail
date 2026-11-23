@@ -7,6 +7,9 @@ test.beforeAll(async () => { server = new FakeServer(3334); await server.start()
 test.afterAll(async () => { await server.stop(); });
 
 test.beforeEach(async ({ page }) => {
+  // Android reuses the installed app's origin between tests; browser contexts do not.
+  // Clear once per scenario, keeping reloads within each scenario persistent.
+  if (process.env.SUITEMAIL_ANDROID === '1') await page.evaluate(() => localStorage.clear());
   server.reset();
   server.db.exec(`
     DELETE FROM ai_cache;
@@ -103,8 +106,8 @@ test('AI suggestions with missing times require review and cancellation creates 
 test('ordinary calendar creation still saves through the shared provider path', async ({ page }) => {
   // Switch to the connected calendar account without selecting a suggestion.
   server.db.prepare("UPDATE settings SET value = 'calendar-account' WHERE key = 'active_account_id'").run();
-  await page.goto('http://localhost:1420/#/calendar');
   await page.reload();
+  await page.getByRole('navigation', { name: 'Mobile navigation' }).getByRole('button', { name: 'Calendar', exact: true }).tap();
   await page.getByRole('button', { name: 'Create event', exact: true }).tap();
   const dialog = page.getByRole('dialog', { name: 'Create Event' });
   await dialog.getByLabel('Title', { exact: true }).fill('Personal planning');

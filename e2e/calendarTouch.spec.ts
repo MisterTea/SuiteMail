@@ -8,6 +8,7 @@ test.afterAll(async () => { await server.stop(); });
 
 test.beforeEach(async ({ page }) => {
   server.reset();
+  server.db.exec("DELETE FROM settings WHERE key = 'calendar_view'");
   server.db.exec("UPDATE accounts SET provider = 'ews' WHERE id = 'acc-test-1'");
   await page.addInitScript(`${getElectronBridgeScript(3334)}
     (() => {
