@@ -26,8 +26,7 @@ function mapAuthMethod(method: string | null): "password" | "oauth2" {
  * Build an ImapConfig from a DbAccount's IMAP fields.
  * Assumes the account's imap_password has already been decrypted.
  *
- * For OAuth2 accounts, pass a fresh `accessToken` obtained from
- * `ensureFreshToken()` — it will be used as the password field.
+ * OAuth2 accounts use the stored access token unless a fresh token is supplied.
  */
 export function buildImapConfig(
   account: DbAccount,
@@ -39,8 +38,8 @@ export function buildImapConfig(
 
   const authMethod = mapAuthMethod(account.auth_method);
   const password =
-    authMethod === "oauth2" && accessToken
-      ? accessToken
+    authMethod === "oauth2"
+      ? accessToken ?? account.access_token ?? account.imap_password ?? ""
       : account.imap_password ?? "";
 
   return {

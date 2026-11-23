@@ -47,11 +47,9 @@ export async function getEnabledFiltersForAccount(
   );
 }
 
-export interface FilterChangeEvent {
-  action: "insert" | "update" | "delete";
-  accountId: string;
-  filterId: string;
-}
+export type FilterChangeEvent =
+  | { action: "insert" | "update" | "delete"; accountId: string; filterId: string }
+  | { action: "sync"; accountId: string };
 
 export type FilterChangeListener = (event: FilterChangeEvent) => void;
 
@@ -64,7 +62,7 @@ export function addFilterChangeListener(listener: FilterChangeListener): () => v
   };
 }
 
-function notifyFilterChange(event: FilterChangeEvent) {
+export function notifyFilterChange(event: FilterChangeEvent) {
   for (const listener of filterChangeListeners) {
     try {
       listener(event);
@@ -72,6 +70,14 @@ function notifyFilterChange(event: FilterChangeEvent) {
       console.warn("[filters] Error in filter change listener:", e);
     }
   }
+}
+
+let filterWriteQueue = Promise.resolve();
+
+export function withFilterWriteLock<T>(write: () => Promise<T>): Promise<T> {
+  const result = filterWriteQueue.then(write);
+  filterWriteQueue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 export async function insertFilter(filter: {
@@ -83,6 +89,10 @@ export async function insertFilter(filter: {
   highestPriority?: boolean;
   sortOrder?: number;
 }): Promise<string> {
+  return withFilterWriteLock(() => insertFilterLocally(filter));
+}
+
+async function insertFilterLocally(filter: Parameters<typeof insertFilter>[0]): Promise<string> {
   const db = await getDb();
   let sortOrder = filter.sortOrder ?? 0;
   if (filter.highestPriority) {
@@ -128,6 +138,10 @@ export async function updateFilter(
     isEnabled?: boolean;
   },
 ): Promise<void> {
+  return withFilterWriteLock(() => updateFilterLocally(id, updates));
+}
+
+async function updateFilterLocally(id: string, updates: Parameters<typeof updateFilter>[1]): Promise<void> {
   const db = await getDb();
   let accountId: string | undefined;
   try {
@@ -161,6 +175,10 @@ export async function updateFilter(
 }
 
 export async function deleteFilter(id: string): Promise<void> {
+  return withFilterWriteLock(() => deleteFilterLocally(id));
+}
+
+async function deleteFilterLocally(id: string): Promise<void> {
   const db = await getDb();
   let accountId: string | undefined;
   try {

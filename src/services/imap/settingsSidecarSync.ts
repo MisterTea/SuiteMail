@@ -4,9 +4,11 @@ import {
   imapAppendMessage,
   imapSearchAllUids,
   imapFetchMessages,
+  imapFetchRawMessage,
   imapDeleteMessages,
   imapGetFolderStatus,
   type ImapConfig,
+  type ImapMessage,
 } from "./electronCommands";
 import {
   SETTINGS_SIDECAR_FOLDER,
@@ -23,13 +25,27 @@ import {
 import {
   getFiltersForAccount,
   addFilterChangeListener,
+  notifyFilterChange,
+  withFilterWriteLock,
   type DbFilterRule,
   type FilterCriteria,
   type FilterActions,
 } from "../db/filters";
-import { getAccount, getAllAccounts } from "../db/accounts";
+import { getAccount, getAllAccounts, type DbAccount } from "../db/accounts";
 import { buildImapConfig } from "./imapConfigBuilder";
-import { getDb } from "../db/connection";
+import { ensureFreshToken } from "../oauth/oauthTokenManager";
+import { getDb, withTransaction } from "../db/connection";
+import { isDeviceSetting, syncableSettings } from "./deviceSettings";
+import { addMailRuleChangeListener, withMailRuleWriteLock } from "../db/mailRuleChanges";
+import {
+  readMailRuleEntry,
+  readLocalMailRules,
+  readMailRuleSyncState,
+  hasQuickStepHistory,
+  saveSyncedMailRules,
+  isUnchangedMailRuleDefault,
+  type MailRuleSnapshotEntry,
+} from "../db/mailRuleSyncState";
 
 export {
   SETTINGS_SIDECAR_FOLDER,
@@ -58,6 +74,22 @@ export interface FiltersSettingsPayload {
   version: number;
   updatedAt: number;
   filters: FilterRulePayload[];
+  // Includes deleted rules so concurrent snapshots cannot bring them back.
+  revisions?: Record<string, number>;
+}
+
+interface MailRulesPayload {
+  version: number;
+  updatedAt: number;
+  rules: MailRuleSnapshotEntry[];
+  revisions?: Record<string, number>;
+}
+
+type SettingsType = "general" | "filters" | "rules";
+type SettingsPayload = GeneralSettingsPayload | FiltersSettingsPayload | MailRulesPayload;
+
+function isRulesSettingsFolder(path: string): boolean {
+  return /(?:^|[/.])\.?settings(?:[/.])rules$/i.test(path.trim());
 }
 
 /**
@@ -70,9 +102,9 @@ export function isGeneralSettingsFolder(path: string): boolean {
     lower === "settings/general" ||
     lower === ".settings.general" ||
     lower === "settings.general" ||
+    lower.endsWith(".settings.general") ||
     lower.endsWith("/" + SETTINGS_GENERAL_FOLDER) ||
     lower.endsWith("/settings/general") ||
-    lower.endsWith(".settings.general") ||
     (isSettingsFolder(lower) && (lower.endsWith("/general") || lower.endsWith(".general")))
   );
 }
@@ -87,9 +119,9 @@ export function isFiltersSettingsFolder(path: string): boolean {
     lower === "settings/filters" ||
     lower === ".settings.filters" ||
     lower === "settings.filters" ||
+    lower.endsWith(".settings.filters") ||
     lower.endsWith("/" + SETTINGS_FILTERS_FOLDER) ||
     lower.endsWith("/settings/filters") ||
-    lower.endsWith(".settings.filters") ||
     (isSettingsFolder(lower) && (lower.endsWith("/filters") || lower.endsWith(".filters")))
   );
 }
@@ -115,7 +147,7 @@ function base64UrlEncode(str: string): string {
  */
 export async function ensureSettingsFolder(
   config: ImapConfig,
-  subfolder?: "general" | "filters",
+  subfolder?: SettingsType,
 ): Promise<string> {
   const folders = await imapListFolders(config);
 
@@ -129,6 +161,9 @@ export async function ensureSettingsFolder(
       (f) => isFiltersSettingsFolder(f.path) || isFiltersSettingsFolder(f.name),
     );
     if (existing) return existing.raw_path || existing.path;
+  } else if (subfolder === "rules") {
+    const existing = folders.find((f) => isRulesSettingsFolder(f.path));
+    if (existing) return existing.raw_path || existing.path;
   } else {
     const existing = folders.find((f) => {
       const lower = f.path.toLowerCase().trim();
@@ -137,25 +172,27 @@ export async function ensureSettingsFolder(
     if (existing) return existing.raw_path || existing.path;
   }
 
-  // Ensure parent .settings folder exists first
+  // Use the listed parent path when the server puts it under a namespace.
   const parentFolder = folders.find((f) => {
-    const lower = f.path.toLowerCase().trim();
-    return lower === SETTINGS_SIDECAR_FOLDER || lower === "settings";
+    const name = f.name.toLowerCase().trim();
+    return name === SETTINGS_SIDECAR_FOLDER || name === "settings";
   });
+  const delim = parentFolder?.delimiter || folders[0]?.delimiter || "/";
+  const parentPath = parentFolder?.raw_path || parentFolder?.path ||
+    (delim === "." ? "settings" : SETTINGS_SIDECAR_FOLDER);
   if (!parentFolder) {
     try {
-      await imapCreateFolder(config, SETTINGS_SIDECAR_FOLDER);
+      await imapCreateFolder(config, parentPath);
     } catch (err) {
-      console.warn(`[settingsSidecarSync] Note on creating ${SETTINGS_SIDECAR_FOLDER}:`, err);
+      console.warn(`[settingsSidecarSync] Note on creating ${parentPath}:`, err);
     }
   }
 
   if (!subfolder) {
-    return SETTINGS_SIDECAR_FOLDER;
+    return parentPath;
   }
 
-  const delim = parentFolder?.delimiter || folders[0]?.delimiter || "/";
-  const targetFolder = `${SETTINGS_SIDECAR_FOLDER}${delim}${subfolder}`;
+  const targetFolder = `${parentPath}${delim}${subfolder}`;
   try {
     await imapCreateFolder(config, targetFolder);
   } catch (err) {
@@ -170,20 +207,21 @@ export async function ensureSettingsFolder(
  */
 export function buildSettingsEmail(
   fromEmail: string,
-  type: "general" | "filters",
-  payload: GeneralSettingsPayload | FiltersSettingsPayload,
+  type: SettingsType,
+  payload: SettingsPayload,
 ): string {
-  const jsonBody = JSON.stringify(payload, null, 2);
+  const mailPayload = "settings" in payload ? { ...payload, settings: syncableSettings(payload.settings) } : payload;
+  const jsonBody = JSON.stringify(mailPayload, null, 2).replace(/\n/g, "\r\n");
   const lines = [
     `From: <${fromEmail}>`,
     `To: <${fromEmail}>`,
     `Subject: SuperMail-Settings: ${type}`,
     `Date: ${new Date().toUTCString()}`,
-    `Message-ID: <settings-${type}-${Date.now()}@supermail.local>`,
+    `Message-ID: <settings-${type}-${crypto.randomUUID()}@supermail.local>`,
     `X-SuperMail-Sidecar: true`,
     `X-SuperMail-Settings-Type: ${type}`,
     `MIME-Version: 1.0`,
-    `Content-Type: application/json; charset=utf-8`,
+    `Content-Type: ${type === "general" ? "application/json" : "text/plain"}; charset=utf-8`,
     `Content-Transfer-Encoding: 8bit`,
     ``,
     jsonBody,
@@ -198,8 +236,8 @@ export function buildSettingsEmail(
 export async function uploadSettingsReplacement(
   config: ImapConfig,
   fromEmail: string,
-  type: "general" | "filters",
-  payload: GeneralSettingsPayload | FiltersSettingsPayload,
+  type: SettingsType,
+  payload: SettingsPayload,
 ): Promise<void> {
   const folder = await ensureSettingsFolder(config, type);
 
@@ -211,7 +249,17 @@ export async function uploadSettingsReplacement(
     console.warn(`[settingsSidecarSync] Error searching UIDs in ${folder}:`, err);
   }
 
-  // 2. Format replacement email and append to the IMAP folder
+  await appendSettingsReplacement(config, folder, fromEmail, type, payload, existingUids);
+}
+
+async function appendSettingsReplacement(
+  config: ImapConfig,
+  folder: string,
+  fromEmail: string,
+  type: SettingsType,
+  payload: SettingsPayload,
+  existingUids: number[],
+): Promise<void> {
   const rawRfc = buildSettingsEmail(fromEmail, type, payload);
   const base64Url = base64UrlEncode(rawRfc);
   await imapAppendMessage(config, folder, base64Url, "(\\Seen)");
@@ -231,7 +279,7 @@ export async function uploadSettingsReplacement(
  */
 export async function fetchCurrentSettingsMessage<T>(
   config: ImapConfig,
-  type: "general" | "filters",
+  type: SettingsType,
 ): Promise<{ uids: number[]; payload: T | null; folder: string }> {
   const folder = await ensureSettingsFolder(config, type);
   let uids: number[] = [];
@@ -287,103 +335,6 @@ export function dbFilterToPayload(f: DbFilterRule): FilterRulePayload {
 }
 
 /**
- * Reconcile remote filters from .settings/filters into the local SQLite database.
- */
-export async function reconcileFiltersToDb(
-  accountId: string,
-  remoteFilters: FilterRulePayload[],
-): Promise<void> {
-  const db = await getDb();
-  const remoteIds = new Set(remoteFilters.map((f) => f.id));
-
-  // Remove local filters not present in the remote settings message
-  const localFilters = await getFiltersForAccount(accountId);
-  for (const lf of localFilters) {
-    if (!remoteIds.has(lf.id)) {
-      await db.execute("DELETE FROM filter_rules WHERE id = $1", [lf.id]);
-    }
-  }
-
-  // Upsert all remote filters
-  for (const rf of remoteFilters) {
-    const isEnabled = rf.isEnabled !== false ? 1 : 0;
-    const criteriaJson = JSON.stringify(rf.criteria || {});
-    const actionsJson = JSON.stringify(rf.actions || {});
-    const sortOrder = rf.sortOrder ?? 0;
-    const createdAt = rf.createdAt ?? Math.floor(Date.now() / 1000);
-
-    await db.execute(
-      `INSERT INTO filter_rules (id, account_id, name, is_enabled, criteria_json, actions_json, sort_order, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT(id) DO UPDATE SET
-         name = $3,
-         is_enabled = $4,
-         criteria_json = $5,
-         actions_json = $6,
-         sort_order = $7,
-         created_at = $8`,
-      [rf.id, accountId, rf.name, isEnabled, criteriaJson, actionsJson, sortOrder, createdAt],
-    );
-  }
-}
-
-/**
- * Apply a filter change (add, update, delete) to the settings message and upload a replacement.
- */
-export async function applyFilterChangeAndUpload(
-  config: ImapConfig,
-  fromEmail: string,
-  change: {
-    action: "add" | "update" | "delete";
-    filter: FilterRulePayload | { id: string };
-  },
-  accountId?: string,
-): Promise<FiltersSettingsPayload> {
-  const { payload: remotePayload } = await fetchCurrentSettingsMessage<FiltersSettingsPayload>(
-    config,
-    "filters",
-  );
-
-  let currentFilters: FilterRulePayload[] = [];
-  if (remotePayload && Array.isArray(remotePayload.filters)) {
-    currentFilters = [...remotePayload.filters];
-  } else if (accountId) {
-    const local = await getFiltersForAccount(accountId);
-    currentFilters = local.map(dbFilterToPayload);
-  }
-
-  if (change.action === "add") {
-    const newFilter = change.filter as FilterRulePayload;
-    currentFilters = currentFilters.filter((f) => f.id !== newFilter.id);
-    currentFilters.push(newFilter);
-  } else if (change.action === "update") {
-    const updatedFilter = change.filter as FilterRulePayload;
-    const index = currentFilters.findIndex((f) => f.id === updatedFilter.id);
-    if (index >= 0) {
-      currentFilters[index] = { ...currentFilters[index], ...updatedFilter };
-    } else {
-      currentFilters.push(updatedFilter);
-    }
-  } else if (change.action === "delete") {
-    currentFilters = currentFilters.filter((f) => f.id !== change.filter.id);
-  }
-
-  const newPayload: FiltersSettingsPayload = {
-    version: 1,
-    updatedAt: Date.now(),
-    filters: currentFilters,
-  };
-
-  await uploadSettingsReplacement(config, fromEmail, "filters", newPayload);
-
-  if (accountId) {
-    await reconcileFiltersToDb(accountId, currentFilters);
-  }
-
-  return newPayload;
-}
-
-/**
  * Apply a general setting change to the settings message and upload a replacement.
  */
 export async function applyGeneralSettingChangeAndUpload(
@@ -392,6 +343,11 @@ export async function applyGeneralSettingChangeAndUpload(
   key: string,
   value: string,
 ): Promise<GeneralSettingsPayload> {
+  if (isDeviceSetting(key)) {
+    await setSetting(key, value);
+    return { version: 1, updatedAt: Date.now(), settings: syncableSettings(await getAllSettings()) };
+  }
+
   const { payload: remotePayload } = await fetchCurrentSettingsMessage<GeneralSettingsPayload>(
     config,
     "general",
@@ -404,6 +360,7 @@ export async function applyGeneralSettingChangeAndUpload(
     currentSettings = await getAllSettings();
   }
 
+  currentSettings = syncableSettings(currentSettings);
   currentSettings[key] = value;
 
   const newPayload: GeneralSettingsPayload = {
@@ -416,22 +373,6 @@ export async function applyGeneralSettingChangeAndUpload(
   await setSetting(key, value, { skipNotify: true });
 
   return newPayload;
-}
-
-/**
- * Upload all filters as a replacement settings message to .settings/filters.
- */
-export async function uploadFilterSettings(
-  config: ImapConfig,
-  fromEmail: string,
-  filters: (DbFilterRule | FilterRulePayload)[],
-): Promise<void> {
-  const payload: FiltersSettingsPayload = {
-    version: 1,
-    updatedAt: Date.now(),
-    filters: filters.map((f) => ("criteria_json" in f ? dbFilterToPayload(f) : f)),
-  };
-  await uploadSettingsReplacement(config, fromEmail, "filters", payload);
 }
 
 /**
@@ -478,7 +419,8 @@ export async function syncGeneralSettings(
   try {
     const payload = JSON.parse(rawText.trim()) as GeneralSettingsPayload;
     if (payload && payload.settings) {
-      for (const [key, value] of Object.entries(payload.settings)) {
+      const settings = syncableSettings(payload.settings);
+      for (const [key, value] of Object.entries(settings)) {
         await setSetting(key, value, { skipNotify: true });
       }
 
@@ -515,7 +457,7 @@ export async function syncGeneralSettings(
         last_sync_at: Date.now(),
       });
 
-      return payload.settings;
+      return settings;
     }
   } catch (err) {
     console.warn(`[settingsSidecarSync] Failed to parse general settings payload:`, err);
@@ -524,100 +466,276 @@ export async function syncGeneralSettings(
   return null;
 }
 
-/**
- * Pull and apply filters from .settings/filters.
- */
+async function readFilterSnapshot(
+  config: ImapConfig,
+  folder: string,
+  message: { uid: number; body_text: string | null; body_html: string | null },
+): Promise<FiltersSettingsPayload> {
+  let body = message.body_text || message.body_html || "";
+  if (!body.trim()) {
+    // Older clients wrote application/json, which the native mail parser exposes as an attachment.
+    const raw = await imapFetchRawMessage(config, folder, message.uid);
+    const headersEnd = /\r?\n\r?\n/.exec(raw);
+    if (headersEnd && /^X-SuperMail-Settings-Type:[ \t]*filters[ \t]*\r?$/im.test(raw.slice(0, headersEnd.index))) {
+      body = raw.slice(headersEnd.index + headersEnd[0].length);
+    }
+  }
+
+  const payload = JSON.parse(body.trim()) as FiltersSettingsPayload;
+  if (
+    payload?.version !== 1 || !Number.isFinite(payload.updatedAt) ||
+    !Array.isArray(payload.filters) || payload.filters.some((filter) =>
+      !filter || typeof filter.id !== "string" || typeof filter.name !== "string")
+  ) {
+    throw new Error("Invalid IMAP filter settings message");
+  }
+  validateRevisions(payload.revisions);
+  payload.filters = payload.filters.map((filter) => ({
+    id: filter.id,
+    name: filter.name,
+    isEnabled: filter.isEnabled !== false,
+    criteria: filter.criteria ?? {},
+    actions: filter.actions ?? {},
+    sortOrder: filter.sortOrder ?? 0,
+    createdAt: filter.createdAt ?? Math.floor(payload.updatedAt / 1000),
+  }));
+  return payload;
+}
+
+type Rule = { id: string };
+type RuleMap<T extends Rule> = Map<string, T>;
+type FilterMap = RuleMap<FilterRulePayload>;
+type RuleSnapshot<T extends Rule> = { rules: T[]; revisions?: Record<string, number> };
+
+function indexRules<T extends Rule>(rules: T[]): RuleMap<T> {
+  return new Map(rules.map((rule) => [rule.id, rule]));
+}
+
+function sameRule(a?: Rule, b?: Rule): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function validateRevisions(revisions: unknown): void {
+  if (revisions === undefined) return;
+  if (!revisions || typeof revisions !== "object" || Array.isArray(revisions) ||
+      Object.values(revisions).some((rev) => !Number.isSafeInteger(rev) || rev < 0)) {
+    throw new Error("Invalid IMAP settings revisions");
+  }
+}
+
+/** Fold concurrent replacements in UID order. For the same rule and revision, the later UID wins. */
+function mergeRuleSnapshots<T extends Rule>(snapshots: RuleSnapshot<T>[]) {
+  let rules: RuleMap<T> = new Map();
+  let revisions = new Map<string, number>();
+  for (const snapshot of snapshots) {
+    const incoming = indexRules(snapshot.rules);
+    if (!snapshot.revisions) {
+      // A message from an older client is a complete replacement.
+      rules = incoming;
+      revisions = new Map();
+      continue;
+    }
+    const incomingRevisions = new Map(Object.entries(snapshot.revisions));
+    for (const id of new Set([...incoming.keys(), ...incomingRevisions.keys()])) {
+      const revision = incomingRevisions.get(id) ?? 0;
+      if (revision < (revisions.get(id) ?? 0)) continue;
+      const rule = incoming.get(id);
+      if (rule) rules.set(id, rule);
+      else rules.delete(id);
+      revisions.set(id, revision);
+    }
+  }
+  return { rules, revisions };
+}
+
+async function readLocalFilters(accountId: string): Promise<FilterRulePayload[]> {
+  return (await getFiltersForAccount(accountId)).map(dbFilterToPayload);
+}
+
+async function saveSyncedFilters(accountId: string, before: FilterMap, synced: FilterMap): Promise<void> {
+  let changed = false;
+  await withFilterWriteLock(async () => {
+    const current = indexRules(await readLocalFilters(accountId));
+    await withTransaction(async (db) => {
+      for (const id of new Set([...before.keys(), ...synced.keys()])) {
+        const old = current.get(id);
+        const filter = synced.get(id);
+        // A local edit made while APPEND was in flight belongs to the next sync.
+        if (!sameRule(old, before.get(id)) || sameRule(old, filter)) continue;
+        if (filter) {
+          await db.execute(
+            `INSERT INTO filter_rules (id, account_id, name, is_enabled, criteria_json, actions_json, sort_order, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             ON CONFLICT(id) DO UPDATE SET
+               name = excluded.name, is_enabled = excluded.is_enabled,
+               criteria_json = excluded.criteria_json, actions_json = excluded.actions_json,
+               sort_order = excluded.sort_order, created_at = excluded.created_at
+             WHERE filter_rules.account_id = excluded.account_id`,
+            [id, accountId, filter.name, filter.isEnabled ? 1 : 0, JSON.stringify(filter.criteria),
+              JSON.stringify(filter.actions), filter.sortOrder, filter.createdAt],
+          );
+        } else {
+          await db.execute("DELETE FROM filter_rules WHERE account_id = $1 AND id = $2", [accountId, id]);
+        }
+        changed = true;
+      }
+      await db.execute(
+        `INSERT INTO imap_filter_sync_state (account_id, filters_json) VALUES ($1, $2)
+         ON CONFLICT(account_id) DO UPDATE SET filters_json = excluded.filters_json`,
+        [accountId, JSON.stringify([...synced.values()])],
+      );
+    });
+  });
+  if (changed) notifyFilterChange({ accountId, action: "sync" });
+}
+
+interface RuleExchange<T extends Rule> {
+  type: "filters" | "rules";
+  matchesFolder: (path: string) => boolean;
+  decode: (message: ImapMessage, folder: string) => Promise<RuleSnapshot<T>>;
+  readLocal: () => Promise<T[]>;
+  readBaseline: () => Promise<T[] | null>;
+  save: (before: RuleMap<T>, synced: RuleMap<T>, revisions: Map<string, number>) => Promise<void>;
+  encode: (rules: T[], revisions: Record<string, number>) => SettingsPayload;
+  isDefault?: (rule: T) => boolean;
+  needsSave?: (revisions: Map<string, number>) => boolean;
+}
+
+async function exchangeRuleSettings<T extends Rule>(
+  config: ImapConfig,
+  getEmail: () => Promise<string>,
+  exchange: RuleExchange<T>,
+): Promise<T[] | null> {
+  const folders = await imapListFolders(config);
+  const folder = folders.find((f) => exchange.matchesFolder(f.path));
+  const folderPath = folder && (folder.raw_path || folder.path);
+  const uids = folderPath ? (await imapSearchAllUids(config, folderPath)).sort((a, b) => a - b) : [];
+  const snapshots: RuleSnapshot<T>[] = [];
+  if (folderPath && uids.length > 0) {
+    const result = await imapFetchMessages(config, folderPath, uids);
+    const messages = new Map(result.messages.map((message) => [message.uid, message]));
+    for (const uid of uids) {
+      const message = messages.get(uid);
+      if (!message) throw new Error("IMAP rules changed during download");
+      snapshots.push(await exchange.decode(message, folderPath));
+    }
+  }
+
+  const { rules, revisions } = mergeRuleSnapshots(snapshots);
+  const saved = await exchange.readBaseline();
+  const previous = indexRules(saved ?? []);
+  const local = indexRules(await exchange.readLocal());
+  const revision = 1 + Math.max(0, ...revisions.values());
+  let changed = false;
+  for (const id of new Set([...previous.keys(), ...local.keys()])) {
+    const rule = local.get(id);
+    // A rule that has never synced is a local addition unless the server already deleted it.
+    if (!saved && revisions.has(id) && !rules.has(id)) continue;
+    if (!previous.has(id) && rule && (rules.has(id) || revisions.has(id)) && exchange.isDefault?.(rule)) continue;
+    if ((snapshots.length > 0 && sameRule(previous.get(id), rule)) || sameRule(rules.get(id), rule)) continue;
+    if (rule) rules.set(id, rule);
+    else rules.delete(id);
+    revisions.set(id, revision);
+    changed = true;
+  }
+
+  const entries = [...rules.values()];
+  if (changed) {
+    const fromEmail = await getEmail();
+    const destination = folderPath ?? await ensureSettingsFolder(config, exchange.type);
+    await appendSettingsReplacement(config, destination, fromEmail, exchange.type,
+      exchange.encode(entries, Object.fromEntries(revisions)), uids);
+  }
+
+  if (!changed && snapshots.length === 0) return null;
+  if (exchange.needsSave?.(revisions) || JSON.stringify(entries) !== JSON.stringify(saved) || local.size !== rules.size ||
+      [...rules].some(([id, rule]) => !sameRule(local.get(id), rule))) {
+    await exchange.save(local, rules, revisions);
+  }
+  return entries;
+}
+
+async function exchangeFilterSettings(
+  accountId: string,
+  config: ImapConfig,
+  email?: string,
+): Promise<FilterRulePayload[] | null> {
+  return exchangeRuleSettings(config, async () => email ?? (await getAccount(accountId))?.email ?? config.username, {
+    type: "filters",
+    matchesFolder: isFiltersSettingsFolder,
+    async decode(message, folder) {
+      const snapshot = await readFilterSnapshot(config, folder, message);
+      return { rules: snapshot.filters, revisions: snapshot.revisions };
+    },
+    readLocal: () => withFilterWriteLock(() => readLocalFilters(accountId)),
+    async readBaseline() {
+      const db = await getDb();
+      const [saved] = await db.select<{ filters_json: string }[]>(
+        "SELECT filters_json FROM imap_filter_sync_state WHERE account_id = $1", [accountId],
+      );
+      return saved ? JSON.parse(saved.filters_json) as FilterRulePayload[] : null;
+    },
+    save: (before, synced) => saveSyncedFilters(accountId, before, synced),
+    encode: (filters, revisions) => ({ version: 1, updatedAt: Date.now(), filters, revisions }),
+  });
+}
+
+let mailRulesSyncQueue = Promise.resolve();
+
+export async function syncMailRules(accountId: string, config: ImapConfig, email: string): Promise<void> {
+  // Global Smart Folders are shared by every mailbox on this device.
+  let quickStepsInitialized = false;
+  const sync = mailRulesSyncQueue.then(() => exchangeRuleSettings(config, async () => email, {
+    type: "rules",
+    matchesFolder: isRulesSettingsFolder,
+    async decode(message) {
+      const payload = JSON.parse(message.body_text || message.body_html || "") as MailRulesPayload;
+      if (payload?.version !== 1 || !Array.isArray(payload.rules)) throw new Error("Invalid IMAP mail rules message");
+      validateRevisions(payload.revisions);
+      return { rules: payload.rules.map(readMailRuleEntry), revisions: payload.revisions };
+    },
+    async readBaseline() {
+      const state = await readMailRuleSyncState(accountId);
+      quickStepsInitialized = state.quickStepsInitialized;
+      return state.rules;
+    },
+    readLocal: () => withMailRuleWriteLock(() => readLocalMailRules(accountId)),
+    save: (before, synced, revisions) => saveSyncedMailRules(accountId, before, synced, revisions),
+    encode: (rules, revisions) => ({ version: 1, updatedAt: Date.now(), rules, revisions }),
+    isDefault: isUnchangedMailRuleDefault,
+    needsSave: (revisions) => !quickStepsInitialized && hasQuickStepHistory(revisions),
+  }));
+  mailRulesSyncQueue = sync.then(() => undefined, () => undefined);
+  await sync;
+}
+
+const filterSyncs = new Map<string, Promise<FilterRulePayload[] | null>>();
+
+/** Exchange filters with .settings/filters, including edits made while offline. */
 export async function syncFilterSettings(
   accountId: string,
   config: ImapConfig,
-  options?: { strict?: boolean },
+  options?: { strict?: boolean; email?: string },
 ): Promise<FilterRulePayload[] | null> {
-  const folders = await imapListFolders(config);
-  const filtersFolder = folders.find(
-    (f) => isFiltersSettingsFolder(f.path) || isFiltersSettingsFolder(f.name),
+  const previous = filterSyncs.get(accountId);
+  const sync = (previous ? previous.catch(() => null) : Promise.resolve()).then(
+    () => exchangeFilterSettings(accountId, config, options?.email),
   );
-  if (!filtersFolder) return null;
-
-  const folderPath = filtersFolder.raw_path || filtersFolder.path;
-  const uids = await imapSearchAllUids(config, folderPath);
-  if (uids.length === 0) return null;
-
-  const latestUid = Math.max(...uids);
-  const fetchResult = await imapFetchMessages(config, folderPath, [latestUid]);
-  const msg = fetchResult.messages[0];
-  if (!msg) {
-    if (options?.strict) throw new Error("Filter settings could not be downloaded");
-    return null;
-  }
-
-  const rawText = msg.body_text || msg.body_html || "";
-  if (!rawText.trim() && !options?.strict) return null;
-
+  filterSyncs.set(accountId, sync);
   try {
-    const payload = JSON.parse(rawText.trim()) as FiltersSettingsPayload;
-    if (payload && Array.isArray(payload.filters)) {
-      await reconcileFiltersToDb(accountId, payload.filters);
-
-      // Clean up any old duplicate messages
-      const oldUids = uids.filter((u) => u !== latestUid);
-      if (oldUids.length > 0) {
-        try {
-          await imapDeleteMessages(config, folderPath, oldUids);
-        } catch {
-          // best effort
-        }
-      }
-
-      const status = await imapGetFolderStatus(config, folderPath);
-      await upsertFolderSyncState({
-        account_id: accountId,
-        folder_path: folderPath,
-        uidvalidity: status.uidvalidity,
-        last_uid: latestUid,
-        modseq: status.highest_modseq,
-        last_sync_at: Date.now(),
-      });
-
-      return payload.filters;
-    }
+    return await sync;
   } catch (err) {
     if (options?.strict) throw err;
-    console.warn(`[settingsSidecarSync] Failed to parse filters settings payload:`, err);
-  }
-
-  if (options?.strict) throw new Error("Invalid filter settings payload");
-  return null;
-}
-
-/**
- * Upload filter settings replacement for a specific account.
- */
-export async function uploadFilterSettingsForAccount(accountId: string): Promise<void> {
-  const account = await getAccount(accountId);
-  if (!account || (account.provider !== "imap" && !account.imap_host)) {
-    return;
-  }
-  const config = buildImapConfig(account);
-  const filters = await getFiltersForAccount(accountId);
-  await uploadFilterSettings(config, account.email, filters);
-}
-
-/**
- * Upload a specific filter change (add, update, delete) as a replacement for an account.
- */
-export async function uploadFilterChangeForAccount(
-  accountId: string,
-  change: {
-    action: "add" | "update" | "delete";
-    filter: FilterRulePayload | { id: string };
-  },
-): Promise<FiltersSettingsPayload | null> {
-  const account = await getAccount(accountId);
-  if (!account || (account.provider !== "imap" && !account.imap_host)) {
+    console.warn("[settingsSidecarSync] Failed to sync filters:", err);
     return null;
+  } finally {
+    if (filterSyncs.get(accountId) === sync) filterSyncs.delete(accountId);
   }
-  const config = buildImapConfig(account);
-  return applyFilterChangeAndUpload(config, account.email, change, accountId);
+}
+
+async function getSettingsImapConfig(account: DbAccount): Promise<ImapConfig> {
+  const token = account.auth_method === "oauth2" ? await ensureFreshToken(account) : undefined;
+  return buildImapConfig(account, token);
 }
 
 /**
@@ -628,10 +746,10 @@ export async function uploadGeneralSettingsForAccount(
   settings?: Record<string, string>,
 ): Promise<void> {
   const account = await getAccount(accountId);
-  if (!account || (account.provider !== "imap" && !account.imap_host)) {
+  if (!account?.imap_host) {
     return;
   }
-  const config = buildImapConfig(account);
+  const config = await getSettingsImapConfig(account);
   const toUpload = settings || (await getAllSettings());
   await uploadGeneralSettings(config, account.email, toUpload);
 }
@@ -643,12 +761,17 @@ export async function syncSettingsForAccount(
   accountId: string,
 ): Promise<{ general: boolean; filters: boolean }> {
   const account = await getAccount(accountId);
-  if (!account || (account.provider !== "imap" && !account.imap_host)) {
+  if (!account?.imap_host) {
     return { general: false, filters: false };
   }
-  const config = buildImapConfig(account);
+  const config = await getSettingsImapConfig(account);
+  const filtersResult = await syncFilterSettings(accountId, config, { email: account.email });
+  try {
+    await syncMailRules(accountId, config, account.email);
+  } catch (err) {
+    console.warn("[settingsSidecarSync] Failed to sync mail rules:", err);
+  }
   const generalResult = await syncGeneralSettings(accountId, config);
-  const filtersResult = await syncFilterSettings(accountId, config);
   return {
     general: generalResult !== null,
     filters: filtersResult !== null,
@@ -656,8 +779,9 @@ export async function syncSettingsForAccount(
 }
 
 let listenersInitialized = false;
+let mailRulesDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let generalDebounceTimer: ReturnType<typeof setTimeout> | null = null;
-let filterDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+const filterDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Initialize automatic listeners to sync settings and filters to IMAP sidecars on change.
@@ -666,23 +790,50 @@ export function initSettingsSidecarAutoSync(): void {
   if (listenersInitialized) return;
   listenersInitialized = true;
 
-  addFilterChangeListener((event) => {
-    if (filterDebounceTimer) clearTimeout(filterDebounceTimer);
-    filterDebounceTimer = setTimeout(async () => {
+  addFilterChangeListener(({ accountId, action }) => {
+    if (action === "sync") return;
+    clearTimeout(filterDebounceTimers.get(accountId));
+    filterDebounceTimers.set(accountId, setTimeout(async () => {
+      filterDebounceTimers.delete(accountId);
       try {
-        await uploadFilterSettingsForAccount(event.accountId);
+        const account = await getAccount(accountId);
+        if (account?.imap_host) {
+          const config = await getSettingsImapConfig(account);
+          await syncFilterSettings(accountId, config, { strict: true, email: account.email });
+        }
       } catch (err) {
-        console.warn(`[settingsSidecarSync] Failed to auto-sync filter change:`, err);
+        console.warn("[settingsSidecarSync] Failed to auto-sync filter change:", err);
+      }
+    }, 300));
+  });
+
+  addMailRuleChangeListener((change) => {
+    if (change.source !== "local") return;
+    clearTimeout(mailRulesDebounceTimer);
+    mailRulesDebounceTimer = setTimeout(async () => {
+      try {
+        const accounts = (await getAllAccounts()).filter((account) => account.imap_host);
+        for (const account of accounts) {
+          try {
+            const config = await getSettingsImapConfig(account);
+            await syncMailRules(account.id, config, account.email);
+          } catch (err) {
+            console.warn("[settingsSidecarSync] Failed to upload mail rules for account:", err);
+          }
+        }
+      } catch (err) {
+        console.warn("[settingsSidecarSync] Failed to load mail rule sync accounts:", err);
       }
     }, 300);
   });
 
-  addSettingChangeListener(() => {
+  addSettingChangeListener(({ key }) => {
+    if (isDeviceSetting(key)) return;
     if (generalDebounceTimer) clearTimeout(generalDebounceTimer);
     generalDebounceTimer = setTimeout(async () => {
       try {
         const accounts = await getAllAccounts();
-        const imapAccounts = accounts.filter((a) => a.provider === "imap" || a.imap_host);
+        const imapAccounts = accounts.filter((a) => a.imap_host);
         for (const acc of imapAccounts) {
           await uploadGeneralSettingsForAccount(acc.id);
         }

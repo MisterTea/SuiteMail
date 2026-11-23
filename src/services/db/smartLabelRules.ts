@@ -1,3 +1,4 @@
+import { writeMailRule } from "./mailRuleChanges";
 import { getDb, buildDynamicUpdate, boolToInt } from "./connection";
 import type { FilterCriteria } from "./filters";
 
@@ -39,20 +40,22 @@ export async function insertSmartLabelRule(rule: {
   criteria?: FilterCriteria;
   isEnabled?: boolean;
 }): Promise<string> {
-  const db = await getDb();
-  const id = crypto.randomUUID();
-  await db.execute(
-    "INSERT INTO smart_label_rules (id, account_id, label_id, ai_description, criteria_json, is_enabled) VALUES ($1, $2, $3, $4, $5, $6)",
-    [
-      id,
-      rule.accountId,
-      rule.labelId,
-      rule.aiDescription,
-      rule.criteria ? JSON.stringify(rule.criteria) : null,
-      boolToInt(rule.isEnabled !== false),
-    ],
-  );
-  return id;
+  return writeMailRule("smartLabel", async () => {
+    const db = await getDb();
+    const id = crypto.randomUUID();
+    await db.execute(
+      "INSERT INTO smart_label_rules (id, account_id, label_id, ai_description, criteria_json, is_enabled) VALUES ($1, $2, $3, $4, $5, $6)",
+      [
+        id,
+        rule.accountId,
+        rule.labelId,
+        rule.aiDescription,
+        rule.criteria ? JSON.stringify(rule.criteria) : null,
+        boolToInt(rule.isEnabled !== false),
+      ],
+    );
+    return id;
+  });
 }
 
 export async function updateSmartLabelRule(
@@ -64,21 +67,25 @@ export async function updateSmartLabelRule(
     isEnabled?: boolean;
   },
 ): Promise<void> {
-  const db = await getDb();
-  const fields: [string, unknown][] = [];
-  if (updates.labelId !== undefined) fields.push(["label_id", updates.labelId]);
-  if (updates.aiDescription !== undefined) fields.push(["ai_description", updates.aiDescription]);
-  if (updates.criteria !== undefined)
-    fields.push(["criteria_json", updates.criteria ? JSON.stringify(updates.criteria) : null]);
-  if (updates.isEnabled !== undefined) fields.push(["is_enabled", boolToInt(updates.isEnabled)]);
+  return writeMailRule("smartLabel", async () => {
+    const db = await getDb();
+    const fields: [string, unknown][] = [];
+    if (updates.labelId !== undefined) fields.push(["label_id", updates.labelId]);
+    if (updates.aiDescription !== undefined) fields.push(["ai_description", updates.aiDescription]);
+    if (updates.criteria !== undefined)
+      fields.push(["criteria_json", updates.criteria ? JSON.stringify(updates.criteria) : null]);
+    if (updates.isEnabled !== undefined) fields.push(["is_enabled", boolToInt(updates.isEnabled)]);
 
-  const query = buildDynamicUpdate("smart_label_rules", "id", id, fields);
-  if (query) {
-    await db.execute(query.sql, query.params);
-  }
+    const query = buildDynamicUpdate("smart_label_rules", "id", id, fields);
+    if (query) {
+      await db.execute(query.sql, query.params);
+    }
+  });
 }
 
 export async function deleteSmartLabelRule(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute("DELETE FROM smart_label_rules WHERE id = $1", [id]);
+  return writeMailRule("smartLabel", async () => {
+    const db = await getDb();
+    await db.execute("DELETE FROM smart_label_rules WHERE id = $1", [id]);
+  });
 }

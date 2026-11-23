@@ -9,6 +9,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
+import { subscribeToSyncedMailRules } from "@/services/db/mailRuleChanges";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
@@ -356,12 +357,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     }
   }, [activeAccountId, loadLabels]);
 
-  // Load smart folders when active account changes
   useEffect(() => {
-    loadSmartFolders(activeAccountId ?? undefined);
-    if (activeAccountId) {
-      refreshSmartFolderCounts(activeAccountId);
-    }
+    const load = async () => {
+      await loadSmartFolders(activeAccountId ?? undefined);
+      if (activeAccountId) await refreshSmartFolderCounts(activeAccountId);
+    };
+    void load();
+    return subscribeToSyncedMailRules("smartFolder", activeAccountId, load);
   }, [activeAccountId, loadSmartFolders, refreshSmartFolderCounts]);
 
   // Load draft, snoozed, and starred counts when active account changes

@@ -31,7 +31,6 @@ import {
 } from "@/services/filters/filterEngine";
 import { insertFilter, type FilterCriteria, type FilterActions } from "@/services/db/filters";
 import { getLabelsForAccount, ensureLabelOrFolder, type DbLabel } from "@/services/db/labels";
-import { uploadFilterChangeForAccount } from "@/services/imap/settingsSidecarSync";
 
 export interface AiFilterSuggestModalProps {
   isOpen: boolean;
@@ -327,20 +326,6 @@ export function AiFilterSuggestModal({
         const threadIds = [...new Set(affectedEmails.map((e) => e.threadId))];
         await applyFilterActionsToThreads(accountId, finalActions, threadIds);
       }
-
-      // Upload IMAP sync sidecar change if applicable
-      uploadFilterChangeForAccount(accountId, {
-        action: "add",
-        filter: {
-          id: newFilterId,
-          name: finalName,
-          isEnabled: true,
-          criteria: suggestedFilter.criteria,
-          actions: finalActions,
-        },
-      }).catch((err) =>
-        console.warn("[AiFilterSuggestModal] Failed to upload filter replacement:", err),
-      );
 
       onFilterAdded?.(newFilterId);
       handleClose();

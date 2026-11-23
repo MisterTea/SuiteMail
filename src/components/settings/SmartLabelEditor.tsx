@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, Pencil, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { TextField } from "@/components/ui/TextField";
+import { subscribeToSyncedMailRules } from "@/services/db/mailRuleChanges";
 import { useAccountStore } from "@/stores/accountStore";
 import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
 import {
@@ -44,8 +45,8 @@ export function SmartLabelEditor() {
     getLabelsForAccount(activeAccountId).then((l) =>
       setLabels(l.filter((lb) => lb.type === "user")),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadRules is stable
-  }, [activeAccountId]);
+    return subscribeToSyncedMailRules("smartLabel", activeAccountId, loadRules);
+  }, [activeAccountId, loadRules]);
 
   const resetForm = useCallback(() => {
     setLabelId("");

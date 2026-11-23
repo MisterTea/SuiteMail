@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, Pencil } from "lucide-react";
+import { subscribeToSyncedMailRules } from "@/services/db/mailRuleChanges";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   getSmartFolders,
@@ -30,8 +31,8 @@ export function SmartFolderEditor() {
 
   useEffect(() => {
     loadFolders();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFolders is stable, only re-run on activeAccountId change
-  }, [activeAccountId]);
+    return subscribeToSyncedMailRules("smartFolder", activeAccountId, loadFolders);
+  }, [activeAccountId, loadFolders]);
 
   const resetForm = useCallback(() => {
     setName("");

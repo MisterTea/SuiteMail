@@ -16,9 +16,6 @@ vi.mock("@/services/db/labels", () => ({
   getLabelsForAccount: vi.fn().mockResolvedValue([]),
   ensureLabelOrFolder: vi.fn(),
 }));
-vi.mock("@/services/imap/settingsSidecarSync", () => ({
-  uploadFilterChangeForAccount: vi.fn(),
-}));
 vi.mock("@/services/ai/piEmailAgent", () => ({
   suggestFilterWithPiAgent: vi.fn(),
 }));

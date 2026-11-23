@@ -1,3 +1,4 @@
+import { writeMailRule } from "./mailRuleChanges";
 import { getDb, buildDynamicUpdate, selectFirstBy } from "./connection";
 
 export interface DbSmartFolder {
@@ -46,52 +47,60 @@ export async function insertSmartFolder(folder: {
   icon?: string;
   color?: string;
 }): Promise<string> {
-  const db = await getDb();
-  const id = crypto.randomUUID();
-  await db.execute(
-    "INSERT INTO smart_folders (id, account_id, name, query, icon, color) VALUES ($1, $2, $3, $4, $5, $6)",
-    [
-      id,
-      folder.accountId ?? null,
-      folder.name,
-      folder.query,
-      folder.icon ?? "Search",
-      folder.color ?? null,
-    ],
-  );
-  return id;
+  return writeMailRule("smartFolder", async () => {
+    const db = await getDb();
+    const id = crypto.randomUUID();
+    await db.execute(
+      "INSERT INTO smart_folders (id, account_id, name, query, icon, color) VALUES ($1, $2, $3, $4, $5, $6)",
+      [
+        id,
+        folder.accountId ?? null,
+        folder.name,
+        folder.query,
+        folder.icon ?? "Search",
+        folder.color ?? null,
+      ],
+    );
+    return id;
+  });
 }
 
 export async function updateSmartFolder(
   id: string,
   updates: { name?: string; query?: string; icon?: string; color?: string },
 ): Promise<void> {
-  const fields: [string, unknown][] = [];
-  if (updates.name !== undefined) fields.push(["name", updates.name]);
-  if (updates.query !== undefined) fields.push(["query", updates.query]);
-  if (updates.icon !== undefined) fields.push(["icon", updates.icon]);
-  if (updates.color !== undefined) fields.push(["color", updates.color]);
+  return writeMailRule("smartFolder", async () => {
+    const fields: [string, unknown][] = [];
+    if (updates.name !== undefined) fields.push(["name", updates.name]);
+    if (updates.query !== undefined) fields.push(["query", updates.query]);
+    if (updates.icon !== undefined) fields.push(["icon", updates.icon]);
+    if (updates.color !== undefined) fields.push(["color", updates.color]);
 
-  const built = buildDynamicUpdate("smart_folders", "id", id, fields);
-  if (!built) return;
+    const built = buildDynamicUpdate("smart_folders", "id", id, fields);
+    if (!built) return;
 
-  const db = await getDb();
-  await db.execute(built.sql, built.params);
+    const db = await getDb();
+    await db.execute(built.sql, built.params);
+  });
 }
 
 export async function deleteSmartFolder(id: string): Promise<void> {
-  const db = await getDb();
-  await db.execute("DELETE FROM smart_folders WHERE id = $1", [id]);
+  return writeMailRule("smartFolder", async () => {
+    const db = await getDb();
+    await db.execute("DELETE FROM smart_folders WHERE id = $1", [id]);
+  });
 }
 
 export async function updateSmartFolderSortOrder(
   orders: { id: string; sortOrder: number }[],
 ): Promise<void> {
-  const db = await getDb();
-  for (const { id, sortOrder } of orders) {
-    await db.execute(
-      "UPDATE smart_folders SET sort_order = $1 WHERE id = $2",
-      [sortOrder, id],
-    );
-  }
+  return writeMailRule("smartFolder", async () => {
+    const db = await getDb();
+    for (const { id, sortOrder } of orders) {
+      await db.execute(
+        "UPDATE smart_folders SET sort_order = $1 WHERE id = $2",
+        [sortOrder, id],
+      );
+    }
+  });
 }

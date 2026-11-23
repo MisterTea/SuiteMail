@@ -1,4 +1,5 @@
 import { getDb } from "./connection";
+import { DEFAULT_QUICK_STEPS } from "../quickSteps/defaults";
 
 export const MIGRATIONS = [
   {
@@ -954,6 +955,36 @@ export const MIGRATIONS = [
         account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
         count INTEGER NOT NULL
       );
+    `,
+  },
+  {
+    version: 35,
+    description: "Track the last synchronized IMAP filter rules",
+    sql: `
+      CREATE TABLE IF NOT EXISTS imap_filter_sync_state (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        filters_json TEXT NOT NULL
+      );
+    `,
+  },
+  {
+    version: 36,
+    description: "Track IMAP mail rules and Quick Step initialization",
+    sql: `
+      CREATE TABLE IF NOT EXISTS mail_rule_sync_state (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        rules_json TEXT,
+        quick_steps_initialized INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT OR IGNORE INTO mail_rule_sync_state (account_id, quick_steps_initialized)
+      SELECT DISTINCT accounts.id, 1 FROM accounts JOIN quick_steps ON quick_steps.account_id = accounts.id;
+      ${DEFAULT_QUICK_STEPS.map((step, index) => `
+        UPDATE OR IGNORE quick_steps
+        SET id = account_id || ':quick-default:${step.key}', created_at = ${index}
+        WHERE name = '${step.name.replace(/'/g, "''")}' AND icon = '${step.icon.replace(/'/g, "''")}'
+          AND actions_json = '${JSON.stringify(step.actions).replace(/'/g, "''")}'
+          AND description IS NULL AND shortcut IS NULL AND is_enabled = 1 AND continue_on_error = 0 AND sort_order = 0;
+      `).join("")}
     `,
   },
 ];

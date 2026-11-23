@@ -191,9 +191,12 @@ export function isSettingsFolder(path: string): boolean {
     lower.startsWith(".settings/") ||
     lower.startsWith("settings/") ||
     lower.startsWith(".settings.") ||
+    lower.startsWith("settings.") ||
     lower.endsWith("/" + SETTINGS_SIDECAR_FOLDER) ||
+    lower.endsWith(".settings") ||
     lower.includes("/.settings/") ||
-    lower.includes("/settings/")
+    lower.includes("/settings/") ||
+    lower.includes(".settings.")
   );
 }
 

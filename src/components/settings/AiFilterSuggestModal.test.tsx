@@ -28,9 +28,6 @@ vi.mock("@/services/db/labels", () => ({
   ensureLabelOrFolder: vi.fn().mockResolvedValue("created-folder-id-123"),
 }));
 
-vi.mock("@/services/imap/settingsSidecarSync", () => ({
-  uploadFilterChangeForAccount: vi.fn().mockResolvedValue(undefined),
-}));
 
 import { suggestFilterWithPiAgent } from "@/services/ai/piEmailAgent";
 import {

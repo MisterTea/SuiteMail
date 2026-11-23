@@ -61,6 +61,11 @@ describe("buildImapConfig", () => {
     expect(config.auth_method).toBe("oauth2");
   });
 
+  it("uses the stored access token for oauth2 accounts without an override", () => {
+    const account = createMockDbAccount({ auth_method: "oauth2", access_token: "stored-token", imap_password: "old" });
+    expect(buildImapConfig(account).password).toBe("stored-token");
+  });
+
   it("ignores accessToken override for password accounts", () => {
     const account = createMockDbAccount({ auth_method: "password" });
     const config = buildImapConfig(account, "should-not-use");

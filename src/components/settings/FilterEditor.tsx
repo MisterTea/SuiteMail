@@ -15,7 +15,6 @@ import {
   type FilterCriteria,
   type FilterActions,
 } from "@/services/db/filters";
-import { uploadFilterChangeForAccount } from "@/services/imap/settingsSidecarSync";
 
 export function FilterEditor() {
   const androidMobile = useAndroidMobile();
@@ -108,21 +107,13 @@ export function FilterEditor() {
 
     if (editingId) {
       await updateFilter(editingId, { name: name.trim(), criteria, actions });
-      uploadFilterChangeForAccount(activeAccountId, {
-        action: "update",
-        filter: { id: editingId, name: name.trim(), isEnabled: true, criteria, actions },
-      }).catch((err) => console.warn("[FilterEditor] Failed to upload filter replacement:", err));
     } else {
-      const newId = await insertFilter({
+      await insertFilter({
         accountId: activeAccountId,
         name: name.trim(),
         criteria,
         actions,
       });
-      uploadFilterChangeForAccount(activeAccountId, {
-        action: "add",
-        filter: { id: newId, name: name.trim(), isEnabled: true, criteria, actions },
-      }).catch((err) => console.warn("[FilterEditor] Failed to upload filter replacement:", err));
     }
 
     resetForm();
@@ -155,35 +146,12 @@ export function FilterEditor() {
     await deleteFilter(id);
     if (editingId === id) resetForm();
     await loadFilters();
-    if (activeAccountId) {
-      uploadFilterChangeForAccount(activeAccountId, {
-        action: "delete",
-        filter: { id },
-      }).catch((err) => console.warn("[FilterEditor] Failed to upload filter replacement:", err));
-    }
-  }, [editingId, resetForm, loadFilters, activeAccountId]);
+  }, [editingId, resetForm, loadFilters]);
 
   const handleToggleEnabled = useCallback(async (filter: DbFilterRule) => {
-    const nextEnabled = filter.is_enabled !== 1;
-    await updateFilter(filter.id, { isEnabled: nextEnabled });
+    await updateFilter(filter.id, { isEnabled: filter.is_enabled !== 1 });
     await loadFilters();
-    if (activeAccountId) {
-      let criteria = {};
-      let actions = {};
-      try { criteria = JSON.parse(filter.criteria_json); } catch {}
-      try { actions = JSON.parse(filter.actions_json); } catch {}
-      uploadFilterChangeForAccount(activeAccountId, {
-        action: "update",
-        filter: {
-          id: filter.id,
-          name: filter.name,
-          isEnabled: nextEnabled,
-          criteria,
-          actions,
-        },
-      }).catch((err) => console.warn("[FilterEditor] Failed to upload filter replacement:", err));
-    }
-  }, [loadFilters, activeAccountId]);
+  }, [loadFilters]);
 
   const filterDescriptions = useMemo(() => {
     const map = new Map<string, string>();

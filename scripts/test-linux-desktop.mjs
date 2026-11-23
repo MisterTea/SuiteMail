@@ -31,6 +31,13 @@ const listen = async server => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   return server.address().port;
 };
+const startProtonProbe = greeting => listen(net.createServer(socket => {
+  // A probe may close after confirming the port is open, before reading the greeting.
+  socket.on('error', error => {
+    if (error.code !== 'ECONNRESET' && error.code !== 'EPIPE') throw error;
+  });
+  socket.end(greeting);
+}));
 const hash = async file => createHash('sha512').update(await fs.readFile(file)).digest('base64');
 const poll = async (check, label, timeout = 15000) => {
   const deadline = Date.now() + timeout;
@@ -163,8 +170,8 @@ try {
     assert.match(mailServers.deliveries.at(-1).message, /Subject: Linux native mail roundtrip/);
     assert.ok(mailServers.deliveries.at(-1).envelope.some(line => /RCPT TO:<recipient@example.invalid>/i.test(line)));
     assert.equal(await page.evaluate(() => window.supermail.fs.readTextFile('fetched-linux-attachment.txt')), ATTACHMENT_TEXT);
-    const imapPort = await listen(net.createServer(socket => socket.end('* OK Proton Bridge test greeting\r\n')));
-    const smtpPort = await listen(net.createServer(socket => socket.end('220 Proton Bridge test greeting\r\n')));
+    const imapPort = await startProtonProbe('* OK Proton Bridge test greeting\r\n');
+    const smtpPort = await startProtonProbe('220 Proton Bridge test greeting\r\n');
     const bridge = await page.evaluate(({ imapPort, smtpPort }) => window.supermail.invoke('check_proton_bridge_status', { custom_imap_port: imapPort, custom_smtp_port: smtpPort }), { imapPort, smtpPort });
     assert.equal(bridge.is_installed, true);
     assert.equal(bridge.config_dir_found, true);

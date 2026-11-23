@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, Pencil, Plus, GripVertical, ChevronDown } from "lucide-react";
+import { subscribeToSyncedMailRules } from "@/services/db/mailRuleChanges";
 import { useAccountStore } from "@/stores/accountStore";
 import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
 import {
@@ -51,20 +52,18 @@ export function QuickStepEditor() {
 
   const loadQuickSteps = useCallback(async () => {
     if (!activeAccountId) return;
-    // Seed defaults if needed
-    await seedDefaultQuickSteps(activeAccountId);
     const qs = await getQuickStepsForAccount(activeAccountId);
     setQuickSteps(qs);
   }, [activeAccountId]);
 
   useEffect(() => {
     if (!activeAccountId) return;
-    loadQuickSteps();
+    void seedDefaultQuickSteps(activeAccountId).then(loadQuickSteps).catch(console.warn);
     getLabelsForAccount(activeAccountId).then((l) =>
       setLabels(l.filter((lb) => lb.type === "user")),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadQuickSteps is stable, only re-run on activeAccountId change
-  }, [activeAccountId]);
+    return subscribeToSyncedMailRules("quickStep", activeAccountId, loadQuickSteps);
+  }, [activeAccountId, loadQuickSteps]);
 
   const resetForm = useCallback(() => {
     setName("");
