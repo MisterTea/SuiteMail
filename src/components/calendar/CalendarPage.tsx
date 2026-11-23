@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAccountStore } from "@/stores/accountStore";
-import { getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
+import { getCalendarEventsInRangeMulti, upsertCalendarEvent, removeMissingEventsInRange, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
 import type { CalendarEventData, CreateEventInput } from "@/services/calendar/types";
@@ -40,12 +40,12 @@ export function CalendarPage() {
       end.setHours(23, 59, 59, 999);
       return { start, end };
     }
-    if (view === "week") {
+    if (view === "week" || view === "threeDay") {
       const start = new Date(d);
-      start.setDate(start.getDate() - start.getDay());
+      if (view === "week") start.setDate(start.getDate() - start.getDay());
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
-      end.setDate(end.getDate() + 6);
+      end.setDate(end.getDate() + (view === "threeDay" ? 2 : 6));
       end.setHours(23, 59, 59, 999);
       return { start, end };
     }
@@ -127,6 +127,11 @@ export function CalendarPage() {
         for (const event of apiEvents) {
           await upsertCalendarEventFromProvider(activeAccountId, cal.id, event);
         }
+        if (provider.type === "ews") {
+          await removeMissingEventsInRange(
+            activeAccountId, cal.id, startTs, endTs, apiEvents.map((event) => event.remoteEventId),
+          );
+        }
       }
 
       // Reload events from DB
@@ -137,7 +142,8 @@ export function CalendarPage() {
       setCalendarError(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes("403") || message.includes("insufficient")) {
+      const account = useAccountStore.getState().accounts.find((a) => a.id === activeAccountId);
+      if (account?.provider === "gmail_api" && (message.includes("403") || message.includes("insufficient"))) {
         if (reauthDoneRef.current) {
           reauthDoneRef.current = false;
           setCalendarError(
@@ -149,6 +155,8 @@ export function CalendarPage() {
           setNeedsReauth(true);
         }
       } else {
+        setNeedsReauth(false);
+        setCalendarError(message);
         console.error("Failed to load calendar events:", err);
       }
     } finally {
@@ -167,6 +175,7 @@ export function CalendarPage() {
       const next = new Date(d);
       if (view === "month") next.setMonth(next.getMonth() - 1);
       else if (view === "week") next.setDate(next.getDate() - 7);
+      else if (view === "threeDay") next.setDate(next.getDate() - 3);
       else next.setDate(next.getDate() - 1);
       return next;
     });
@@ -177,6 +186,7 @@ export function CalendarPage() {
       const next = new Date(d);
       if (view === "month") next.setMonth(next.getMonth() + 1);
       else if (view === "week") next.setDate(next.getDate() + 7);
+      else if (view === "threeDay") next.setDate(next.getDate() + 3);
       else next.setDate(next.getDate() + 1);
       return next;
     });
@@ -334,8 +344,9 @@ export function CalendarPage() {
               onEventClick={handleEventClick}
             />
           )}
-          {view === "week" && (
+          {(view === "week" || view === "threeDay") && (
             <WeekView
+              dayCount={view === "threeDay" ? 3 : 7}
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}

@@ -1,6 +1,8 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, waitFor } from "@testing-library/react";
 import { EmailRenderer } from "./EmailRenderer";
 import type { DbAttachment } from "@/services/db/attachments";
+
+const themeState = vi.hoisted(() => ({ theme: "light" }));
 
 // Mock dependencies
 vi.mock("@/platform", () => ({
@@ -18,7 +20,7 @@ vi.mock("@/services/db/imageAllowlist", () => ({
 
 vi.mock("@/stores/uiStore", () => ({
   useUIStore: (selector: (s: { theme: string }) => string) =>
-    selector({ theme: "light" }),
+    selector(themeState),
 }));
 
 const mockFetchAttachment = vi.fn();
@@ -56,6 +58,54 @@ function makeAttachment(overrides: Partial<DbAttachment> = {}): DbAttachment {
 describe("EmailRenderer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    themeState.theme = "light";
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }));
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("darkens HTML colors and restores sender colors when switching to light mode", () => {
+    const html = '<p style="background-color: white; color: black">Hello</p>';
+    themeState.theme = "dark";
+    const { container, rerender } = render(<EmailRenderer html={html} text={null} />);
+    const iframe = container.querySelector("iframe")!;
+    const darkParagraph = iframe.contentDocument!.querySelector("p")!;
+    expect(darkParagraph.style.backgroundColor).not.toBe("white");
+    expect(darkParagraph.style.color).not.toBe("black");
+    themeState.theme = "light";
+    rerender(<EmailRenderer html={html} text={null} />);
+    const lightParagraph = iframe.contentDocument!.querySelector("p")!;
+    expect(lightParagraph.style.backgroundColor).toBe("white");
+    expect(lightParagraph.style.color).toBe("black");
+  });
+
+  it("honors the sender's light-only opt-out", () => {
+    themeState.theme = "dark";
+    const { container } = render(<EmailRenderer
+      html={'<meta name="color-scheme" content="light only"><p style="color: black; background: white">Hello</p>'}
+      text={null}
+    />);
+    expect(container.querySelector("iframe")!.contentDocument!.querySelector("p")!.style.color).toBe("black");
+  });
+
+  it("updates open emails when the system theme changes", () => {
+    themeState.theme = "system";
+    const query = { matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() };
+    vi.mocked(window.matchMedia).mockReturnValue(query as unknown as MediaQueryList);
+    const { container, unmount } = render(<EmailRenderer html='<p style="color: black">Hello</p>' text={null} />);
+    const doc = () => container.querySelector("iframe")!.contentDocument!;
+    expect(doc().querySelector("p")!.style.color).toBe("black");
+    const onChange = query.addEventListener.mock.calls[0]![1] as () => void;
+    act(() => { query.matches = true; onChange(); });
+    expect(doc().querySelector("p")!.style.color).not.toBe("black");
+    act(() => { query.matches = false; onChange(); });
+    expect(doc().querySelector("p")!.style.color).toBe("black");
+    unmount();
+    expect(query.removeEventListener).toHaveBeenCalledWith("change", onChange);
   });
 
   it("renders plain text when no html provided", () => {

@@ -5,6 +5,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+pub mod calendar;
+
 use base64::Engine;
 use quick_xml::events::Event;
 use quick_xml::Reader;

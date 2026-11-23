@@ -40,6 +40,17 @@ SuiteMail follows a **three-layer architecture** with clear separation of concer
 
 1. **Sync** -- Background sync every 60s. Gmail accounts use Gmail History API (delta sync, falls back to full sync if history expires ~30 days). IMAP accounts use UIDVALIDITY/last_uid tracking for efficient delta sync.
 2. **Storage** -- All messages, threads, labels, contacts, calendar events, and AI results stored in local SQLite (34 tables) with FTS5 full-text indexing.
+
+EWS accounts also support calendars through `EwsCalendarProvider`, using the existing
+mailbox OAuth session and Rust EWS transport. The adapter discovers the default and
+additional mailbox calendars, loads recurring occurrences with CalendarView, and
+supports event creation, edits, and deletion. Dense ranges are split rather than
+truncated. Successful range refreshes reconcile remotely deleted or moved events
+in the local cache. Edits carry Exchange change keys for conflict detection;
+meeting changes send invitations, updates, or cancellations to attendees.
+Like CalDAV, `syncEvents` currently performs a bounded full refresh (90 days back
+through one year ahead), while the calendar UI fetches the displayed date range.
+Shared/delegated calendar discovery and recurrence-rule editing are not included.
 3. **State** -- Eight Zustand stores manage UI state. No middleware, no persistence needed -- ephemeral state rebuilds from SQLite on startup.
 4. **Rendering** -- Email HTML is sanitized with DOMPurify and rendered in sandboxed iframes. Remote images blocked by default.
 5. **Background services** -- Seven interval checkers run continuously: sync (60s), snooze (60s), scheduled send (60s), follow-up reminders (60s), newsletter bundles (60s), offline queue processor (30s), and attachment pre-cache (15min).

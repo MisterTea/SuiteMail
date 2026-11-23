@@ -4,7 +4,33 @@ The `codex/android` branch adds an installable Android application using Capacit
 
 ## Build
 
-Requirements: Node 24+, npm, a rustup-managed stable Rust toolchain, JDK 21 (Android Studio's bundled JDK works), Android SDK platform 36, and an Android NDK installed under the SDK's `ndk/` directory.
+### Signed GitHub releases and app updates
+
+The release workflow builds a signed `SuiteMail-X.Y.Z-android.apk` containing ARM64 and x86_64 libraries alongside desktop artifacts. Version names come from `package.json`, and tag builds require a matching `vX.Y.Z` tag. Android version codes use `1 + major * 1000000 + minor * 1000 + patch`; minor and patch must each be at most 999, and major at most 2146. Always increase the version when publishing an update. Manual workflow runs upload artifacts without creating a release; select `android_only` to validate just Android.
+
+The app checks public `MisterTea/SuiteMail` GitHub releases at startup, every four hours while running, and on resume when due. Automatic check times persist across restarts. Settings offers a manual check. Drafts, prereleases, old versions, and releases without the named APK are ignored. No GitHub credentials are shipped to devices. Checks do not run through a scheduled background worker.
+
+Tap **Update Now** to download into private cache. SuiteMail checks the APK's package ID, newer version code, and certificate against the installed app, then opens Android's installer. Android may first ask you to allow SuiteMail to install from this source. You must confirm installation. Updates preserve existing app data; cancelling leaves the current version installed and allows retry.
+
+**One-time migration:** the old preview APK is debug-signed and cannot be updated with the new release key. Uninstalling it erases local accounts, downloaded mail, settings, and drafts. Save anything needed before uninstalling, install the signed release APK manually, and reconnect accounts. Subsequent signed releases update in place. Gmail in release APKs requires the additional certificate registration described in [Google account setup](android-google.md#direct-release-certificate).
+
+Repository secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. CI restores the keystore only in runner temporary storage and removes it on exit. Release assembly fails when signing variables are missing. Never regenerate this identity for routine releases. The initial backup is in `C:\Users\JasonGauci\.suitemail-signing`, restricted to that Windows account; keep an additional secure backup because GitHub secrets cannot be downloaded later.
+
+For a local signed build, set those signing variables plus `ANDROID_KEYSTORE_PATH` (the local keystore file), use JDK 21, and run:
+
+```sh
+ANDROID_ABIS=arm64-v8a,x86_64 npm run build:android -- --release
+```
+
+The default command below remains a debug build for development. The direct APK updater must be removed or disabled before distributing a build through Google Play.
+
+Validation on 2026-11-22: TypeScript checks, the Android web build, 16 targeted UI/service tests, four native release-selection unit tests, and signed release assembly passed. On an isolated API 33 x86_64 emulator, tests verified live public GitHub checks, automatic-check throttling, malformed APK rejection, certificate/version mismatch rejection, installer cancellation, the source-permission flow, and a signed 0.1.0 → 0.1.1 installation retaining a private-data sentinel. The newer APK was supplied as a local fixture to exercise native verification and installer handoff; downloading a published Android release from GitHub remains a first-release smoke check. The Gmail release certificate was registered on 2026-11-22; live release-APK authorization still needs validation after Google propagates the registration.
+
+Native unit tests run automatically in release builds. Optional device tests live in `AndroidUpdaterTest`; build with `-PsuiteMailTestRelease assembleReleaseAndroidTest` and the release signing environment. Use only a disposable emulator. Place a same-key APK with the next version code in the target app's external `updater-test/candidate.apk`, plus a copy re-signed with another key as `wrong-signer.apk`. The installer test is opt-in with instrumentation argument `openInstaller=true`, and requires confirming or cancelling within 60 seconds. To check data retention, run `retainsDataAcrossInstallation` before updating and again afterward with `verifyRetention=true`. Successful package replacement kills the old instrumentation process; verify the new version and retained data in a separate run.
+
+### Development build
+
+Requirements: Node 24+, npm, a rustup-managed stable Rust toolchain, JDK 21 (use Android Studio's bundled JDK if it is version 21+), Android SDK platform 36, and an Android NDK installed under the SDK's `ndk/` directory.
 
 On macOS, the script finds the SDK at `~/Library/Android/sdk` and Android Studio's bundled JDK automatically. On other systems set `ANDROID_HOME` and `JAVA_HOME`. Set `ANDROID_NDK_HOME` to choose a specific installed NDK.
 
@@ -55,6 +81,8 @@ Ctrl+C stops the server, restores and reinstalls the bundled app, and launches i
 
 ## Emulator tests and MP4 recordings
 
+Android messages render without an inset card or extra body padding. HTML content can scroll horizontally inside the message, while long threads retain vertical scrolling. `e2e/androidEmailLayout.spec.ts` checks full-width rendering, responsive content, fixed-width HTML, horizontal touch swipes, and vertical scrolling in the installed app. These scenarios passed on API 36 / WebView 133 on 2026-11-22. Use a current emulator image/WebView for the Playwright runner; older images can lack browser APIs required by the test tools and UI styles.
+
 Start an Android emulator in Android Studio, or use an existing configured AVD:
 
 ```sh
@@ -95,7 +123,7 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 - Proton Mail Bridge requires a desktop OS and is hidden on Android.
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.
 - Gmail has native periodic background checks through WorkManager, about every 15 minutes subject to Android scheduling. See [background sync behavior and testing](android-background-sync.md). Historical backfill, IMAP/EWS/calendar sync and scheduled sending remain foreground work; do not rely on scheduled send while the app is closed. Native push/instant notifications remain future work.
-- Native document picker/share-sheet integration, Android Keystore wrapping for the encryption key, hardware-device testing, and Play Store signing/release work remain future work.
+- Native document picker/share-sheet integration, Android Keystore wrapping for the encryption key, hardware-device testing, and Play Store distribution remain future work. Direct-download APK signing is configured separately above.
 
 The app's existing encryption key is stored in private app files, and account secrets remain encrypted in SQLite. This is not hardware-backed Keystore storage.
 

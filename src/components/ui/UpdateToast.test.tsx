@@ -82,4 +82,21 @@ describe("UpdateToast", () => {
     const lastCall = mockSetUpdateCallback.mock.calls[mockSetUpdateCallback.mock.calls.length - 1];
     expect(lastCall?.[0]).toBeNull();
   });
+
+  it("shows installation errors and allows retry", async () => {
+    mockGetAvailableUpdate.mockReturnValue({ version: "2.0.0", body: null });
+    mockInstallUpdate.mockRejectedValueOnce(new Error("Allow installation from this source"));
+    render(<UpdateToast />);
+    fireEvent.click(screen.getByText("Update Now"));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Allow installation"));
+    expect(screen.getByText("Update Now")).not.toBeDisabled();
+  });
+
+  it("restores update controls after installer cancellation", async () => {
+    mockGetAvailableUpdate.mockReturnValue({ version: "2.0.0", body: null });
+    mockInstallUpdate.mockResolvedValueOnce(undefined);
+    render(<UpdateToast />);
+    fireEvent.click(screen.getByText("Update Now"));
+    await waitFor(() => expect(screen.getByText("Update Now")).not.toBeDisabled());
+  });
 });

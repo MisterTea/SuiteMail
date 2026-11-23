@@ -101,6 +101,21 @@ export async function deleteEventsForCalendar(calendarId: string): Promise<void>
   await db.execute("DELETE FROM calendar_events WHERE calendar_id = $1", [calendarId]);
 }
 
+/** Reconcile a successful, complete provider range fetch, including remote deletions. */
+export async function removeMissingEventsInRange(
+  accountId: string, calendarId: string, start: number, end: number, remoteIds: string[],
+): Promise<void> {
+  const db = await getDb();
+  // JSON avoids SQLite's parameter limit for dense calendars.
+  await db.execute(
+    `DELETE FROM calendar_events
+     WHERE account_id = $1 AND calendar_id = $2 AND start_time < $4 AND end_time > $3
+       AND remote_event_id IS NOT NULL
+       AND remote_event_id NOT IN (SELECT value FROM json_each($5))`,
+    [accountId, calendarId, start, end, JSON.stringify(remoteIds)],
+  );
+}
+
 export async function getEventByRemoteId(
   calendarId: string,
   remoteEventId: string,

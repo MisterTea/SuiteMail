@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 (2026-11-22)
+
+* Add Gmail-style dark mode color transformation for HTML email bodies.
+* Add signed Android releases and in-app updates, with improved full-width email layouts.
+* Add Exchange calendar support and improve calendar reconciliation and navigation.
+
+
 ## [0.4.21](https://github.com/MisterTea/SuiteMail/compare/suitemail-v0.4.20...suitemail-v0.4.21) (2026-02-27)
 
 

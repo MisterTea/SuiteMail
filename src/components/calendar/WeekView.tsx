@@ -5,21 +5,24 @@ interface WeekViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
   onEventClick: (event: DbCalendarEvent) => void;
+  dayCount?: 3 | 7;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
-  const weekStart = new Date(currentDate);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  weekStart.setHours(0, 0, 0, 0);
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
+export function WeekView({ currentDate, events, onEventClick, dayCount = 7 }: WeekViewProps) {
+  const days = useMemo(() => {
+    const start = new Date(currentDate);
+    if (dayCount === 7) start.setDate(start.getDate() - start.getDay());
+    start.setHours(0, 0, 0, 0);
+    return Array.from({ length: dayCount }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+  }, [currentDate, dayCount]);
+  const gridStyle = { gridTemplateColumns: `44px repeat(${dayCount}, minmax(0, 1fr))` };
 
   const today = new Date();
   const todayStr = today.toDateString();
@@ -62,7 +65,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Day headers */}
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
+      <div className="grid border-b border-border-primary shrink-0" style={gridStyle}>
         <div className="border-r border-border-secondary" />
         {days.map((day, i) => {
           const isToday = day.toDateString() === todayStr;
@@ -80,7 +83,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
       </div>
 
       {/* All-day events row */}
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
+      <div className="grid border-b border-border-primary shrink-0" style={gridStyle}>
         <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">all-day</div>
         {days.map((day, i) => {
           const allDay = allDayByDay.get(day.getDate()) ?? [];
@@ -102,7 +105,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
 
       {/* Time grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
+        <div className="grid" style={gridStyle}>
           {HOURS.map((hour) => (
             <div key={hour} className="contents">
               <div className="border-r border-b border-border-secondary h-12 px-1 flex items-start justify-end">

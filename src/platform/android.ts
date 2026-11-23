@@ -14,10 +14,15 @@ if (Capacitor.getPlatform() === "android") {
   document.documentElement.classList.add("android-app");
   installAndroidViewport();
   const native = registerPlugin<NativeCore>("SuiteMail");
+  const updater = registerPlugin<{
+    check(options: { manual: boolean }): Promise<{ value: { version: string; body: string | null } | null }>;
+    install(): Promise<void>;
+  }>("AndroidUpdater");
   const invoke = async <T>(command: string, args: Record<string, unknown> = {}): Promise<T> => {
     if (["close_splashscreen", "set_tray_tooltip", "set_badge_count", "set_tray_icon"].includes(command)) return undefined as T;
     if (command === "get_app_version") return (await App.getInfo()).version as T;
-    if (command === "check_for_updates") return null as T;
+    if (command === "check_for_updates") return (await updater.check({ manual: args.manual === true })).value as T;
+    if (command === "install_update") return await updater.install() as T;
     return (await native.invoke({ command, args })).value as T;
   };
   // Paths are relative to the app's private files directory, never shared storage.
@@ -59,6 +64,9 @@ if (Capacitor.getPlatform() === "android") {
     on: () => () => {},
   };
   window.supermail = bridge;
+  App.addListener("appStateChange", ({ isActive }) => {
+    if (isActive) void import("../services/updateManager").then(({ checkForUpdateAutomatically }) => checkForUpdateAutomatically());
+  });
   App.addListener("backButton", () => {
     // Dismiss the topmost surface before navigating away from the message.
     const dialogs = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')];

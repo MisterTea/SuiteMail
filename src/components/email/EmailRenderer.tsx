@@ -1,4 +1,5 @@
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { Capacitor } from "@capacitor/core";
 import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } from "react";
 import { ImageOff } from "lucide-react";
 import { platformOpenUrl as openUrl } from "@/platform";
@@ -6,6 +7,7 @@ import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { auditTrackingPixels, type DetectedTracker } from "@/utils/trackingPixels";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
+import { applyEmailDarkMode, emailDisablesDarkMode } from "@/utils/emailDarkMode";
 import { useUIStore } from "@/stores/uiStore";
 import type { DbAttachment } from "@/services/db/attachments";
 
@@ -33,6 +35,7 @@ export function EmailRenderer({
   onTrackersDetected,
 }: EmailRendererProps) {
   const androidMobile = useAndroidMobile();
+  const android = Capacitor.getPlatform() === "android";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);
   const rafRef = useRef<number>(0);
@@ -40,8 +43,17 @@ export function EmailRenderer({
   const [cidMap, setCidMap] = useState<Map<string, string>>(new Map());
 
   const theme = useUIStore((s) => s.theme);
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-color-scheme: dark)");
+    const update = () => setSystemDark(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const isDark = theme === "dark"
-    || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    || (theme === "system" && systemDark);
+  const disableDarkMode = useMemo(() => html ? emailDisablesDarkMode(html) : false, [html]);
 
   const shouldBlock = blockImages && !senderAllowlisted && !overrideShow;
 
@@ -136,15 +148,14 @@ export function EmailRenderer({
     if (!doc) return;
 
     doc.open();
-    // Plain text: blend with app theme (dark text on light bg, light text on dark bg)
-    // HTML emails: always render on a light background since senders design for white/light
+    // Start HTML from sender colors, then selectively darken before the first paint.
     const plainTextDark = isDark && isPlainText;
-    const htmlDark = isDark && !isPlainText;
     doc.write(`<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes">
+  <meta name="color-scheme" content="light only">
   <style>
     *, *::before, *::after {
       box-sizing: border-box;
@@ -157,21 +168,27 @@ export function EmailRenderer({
       -moz-text-size-adjust: 100%;
       text-size-adjust: 100%;
     }
+    ${android ? `
+    html { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #80868b #e8eaed; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #e8eaed; }
+    ::-webkit-scrollbar-thumb { background: #80868b; border-radius: 4px; }
+    ` : ""}
     body {
-      padding: ${isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
+      padding: ${android ? "0" : isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
       font-family: -apple-system, BlinkMacSystemFont, "Roboto", "Segoe UI", system-ui, sans-serif;
       font-size: ${androidMobile ? 16 : 15}px;
       line-height: 1.65;
       color: ${plainTextDark ? "#e8eaed" : "#202124"};
-      background: ${htmlDark ? "#f8f9fa" : "transparent"};
+      background: ${isPlainText ? "transparent" : "#ffffff"};
       word-wrap: break-word;
       overflow-wrap: break-word;
-      overflow-x: auto;
-      touch-action: pan-y pinch-zoom;
+      overflow-x: ${android ? "visible" : "auto"};
+      touch-action: ${android ? "pan-x pan-y pinch-zoom" : "pan-y pinch-zoom"};
     }
     @media (min-width: 640px) {
       body {
-        padding: ${isPlainText ? "8px 2px 14px 2px" : "16px"};
+        padding: ${android ? "0" : isPlainText ? "8px 2px 14px 2px" : "16px"};
         font-size: ${androidMobile ? 16 : 14}px;
         line-height: 1.6;
       }
@@ -216,15 +233,19 @@ export function EmailRenderer({
 <body>${bodyHtml}</body>
 </html>`);
     doc.close();
+    if (isDark && !isPlainText && !disableDarkMode) {
+      applyEmailDarkMode(doc);
+    }
 
     // Calculate and set height synchronously before paint
     const applyHeight = () => {
       if (!doc.body) return;
-      const h = Math.max(
-        doc.body.scrollHeight,
-        doc.documentElement.scrollHeight,
-        doc.body.offsetHeight,
-      );
+      // Keep vertical scrolling in the thread. Reserve room for the horizontal
+      // scrollbar without including the iframe viewport's previous height.
+      const h = android
+        ? Math.max(doc.body.scrollHeight, doc.body.offsetHeight)
+          + (doc.documentElement.scrollWidth > doc.documentElement.clientWidth ? 8 : 0)
+        : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, doc.body.offsetHeight);
       if (h > 0) {
         iframe.style.height = h + "px";
       }
@@ -257,7 +278,7 @@ export function EmailRenderer({
       observerRef.current?.disconnect();
       cancelAnimationFrame(rafRef.current);
     };
-  }, [bodyHtml, isDark, isPlainText]);
+  }, [bodyHtml, isDark, isPlainText, disableDarkMode, android, androidMobile]);
 
   const handleLoadImages = useCallback(() => {
     setOverrideShow(true);
@@ -271,7 +292,7 @@ export function EmailRenderer({
   }, [accountId, senderAddress]);
 
   return (
-    <div>
+    <div data-email-renderer className="min-w-0 max-w-full">
       {blocked && (
         <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
           <ImageOff size={14} className="text-text-tertiary shrink-0" />
@@ -297,8 +318,8 @@ export function EmailRenderer({
       <iframe
         ref={iframeRef}
         sandbox="allow-same-origin"
-        className={`w-full border-0 ${isDark && !isPlainText ? "rounded-md" : ""}`}
-        style={{ overflow: "hidden" }}
+        className={`block w-full max-w-full min-w-0 border-0 ${!android && isDark && !isPlainText ? "rounded-md" : ""}`}
+        style={{ overflow: android ? "auto" : "hidden" }}
         title="Email content"
       />
     </div>

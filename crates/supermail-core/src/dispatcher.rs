@@ -6,6 +6,11 @@ use crate::msgraph;
 use crate::oauth;
 use serde_json::{json, Value};
 
+fn str_arg(args: &Value, name: &str) -> Result<String, String> {
+    args.get(name).and_then(Value::as_str).map(String::from)
+        .ok_or_else(|| format!("Missing string argument: {name}"))
+}
+
 pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
     match cmd {
         "imap_test_connection" => {
@@ -272,6 +277,32 @@ pub async fn dispatch(cmd: &str, args: Value) -> Result<Value, String> {
             let model = args.get("model").and_then(|v| v.as_str()).map(String::from);
             let res = ai_backend::aicore_generate(system_prompt, prompt, model).await?;
             Ok(json!(res))
+        }
+        "ews_calendar" => {
+            let token = str_arg(&args, "token")?;
+            let anchor = str_arg(&args, "anchor")?;
+            let operation = str_arg(&args, "operation")?;
+            match operation.as_str() {
+                "list" => ews::calendar::list(&token, &anchor).await,
+                "fetch" => ews::calendar::fetch(
+                    &token, &anchor, &str_arg(&args, "calendarId")?,
+                    &str_arg(&args, "start")?, &str_arg(&args, "end")?,
+                ).await,
+                "create" | "update" => {
+                    let id = if operation == "update" { Some(str_arg(&args, "eventId")?) } else { None };
+                    ews::calendar::save(
+                        &token, &anchor, &str_arg(&args, "calendarId")?, id.as_deref(),
+                        args.get("etag").and_then(|v| v.as_str()),
+                        args.get("event").ok_or("Missing calendar event.")?,
+                    ).await
+                }
+                "delete" => {
+                    ews::calendar::delete(&token, &anchor, &str_arg(&args, "eventId")?,
+                        args.get("etag").and_then(|v| v.as_str())).await?;
+                    Ok(Value::Null)
+                }
+                _ => Err("Unknown EWS calendar operation.".into()),
+            }
         }
         "ews_ping" => {
             let token = args["token"].as_str().unwrap_or("").to_string();

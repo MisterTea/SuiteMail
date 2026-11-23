@@ -396,7 +396,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
   return (
     <div className="flex h-full @container relative overflow-hidden bg-bg-primary/30">
-      <div className="flex flex-col flex-1 min-w-0">
+      <div className="flex flex-col flex-1 min-w-0 min-h-0">
         {/* Unified action bar */}
         <ActionBar
           thread={thread}
@@ -456,7 +456,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
         )}
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto overscroll-y-contain px-3 sm:px-6 pt-2.5 sm:pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] md:pb-6 @md:px-8 space-y-3.5">
+        <div data-thread-messages className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain px-3 sm:px-6 pt-2.5 sm:pt-4 pb-[calc(env(safe-area-inset-bottom,0px)+6rem)] md:pb-6 @md:px-8 space-y-3.5">
           <ErrorBoundary name="MessageList">
             {messages.map((msg, i) => (
               <MessageItem

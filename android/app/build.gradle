@@ -1,15 +1,25 @@
 apply plugin: 'com.android.application'
 
+def suiteVersion = new groovy.json.JsonSlurper().parse(file('../../package.json')).version
+if (!(suiteVersion ==~ /\d+\.\d+\.\d+/)) throw new GradleException('Android requires a stable X.Y.Z version')
+def versionParts = suiteVersion.split('\\.').collect { it.toLong() }
+if (versionParts[0] > 2146 || versionParts[1] > 999 || versionParts[2] > 999) throw new GradleException('Android version is out of range')
+def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+def signingVars = ['ANDROID_KEYSTORE_PATH', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD']
+if (releaseRequested && signingVars.any { !System.getenv(it) }) throw new GradleException('Release signing environment variables are required')
+
 android {
+    // Opt-in instrumentation against the actual release signing identity.
+    testBuildType project.hasProperty('suiteMailTestRelease') ? 'release' : 'debug'
     namespace = "com.suitemail.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.suitemail.app"
         minSdkVersion 26
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
+        versionCode = (1 + versionParts[0] * 1000000 + versionParts[1] * 1000 + versionParts[2]).intValue()
         ndk { abiFilters(*((project.findProperty("suiteMailAbis") ?: "arm64-v8a").split(","))) }
-        versionName "0.1.0"
+        versionName suiteVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -17,8 +27,19 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        release {
+            if (System.getenv('ANDROID_KEYSTORE_PATH')) {
+                storeFile file(System.getenv('ANDROID_KEYSTORE_PATH'))
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -41,6 +62,7 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
+    testImplementation 'org.json:json:20240303'
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')

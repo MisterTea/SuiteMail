@@ -9,6 +9,7 @@ import {
 export function UpdateToast() {
   const [version, setVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const toastRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -22,10 +23,13 @@ export function UpdateToast() {
 
   const handleInstall = useCallback(async () => {
     setInstalling(true);
+    setError(null);
     try {
       await installUpdate();
     } catch (err) {
       console.error("Update install failed:", err);
+      setError(err instanceof Error ? err.message : "Update failed. Please try again.");
+    } finally {
       setInstalling(false);
     }
   }, []);
@@ -50,6 +54,7 @@ export function UpdateToast() {
           <p className="text-sm font-medium text-text-primary">
             SuiteMail v{version} is available
           </p>
+          {error && <p role="alert" className="text-xs text-danger">{error}</p>}
           <div className="flex items-center gap-2">
             <button
               onClick={handleDismiss}
