@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 (2026-11-23)
+
+* Sync filters, Smart Labels, Smart Folders, and Quick Steps across devices connected to the same IMAP mailbox.
+* Keep appearance and notification preferences on each device.
+* Retry offline mail rule edits and deletions on the next IMAP sync.
+* Fix an intermittent socket reset in the Linux package upgrade tests.
+
 ## 0.1.2 (2026-11-23)
 
 * Show three-line AI inbox summaries using the configured AI provider.
