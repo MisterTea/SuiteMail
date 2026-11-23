@@ -39,6 +39,9 @@ export function generateVEvent(event: CreateEventInput | UpdateEventInput, uid?:
   }
 
   if ("attendees" in event && event.attendees) {
+    if (event.organizerEmail) {
+      lines.push(`ORGANIZER:mailto:${event.organizerEmail}`);
+    }
     for (const attendee of event.attendees) {
       lines.push(`ATTENDEE;RSVP=TRUE:mailto:${attendee.email}`);
     }

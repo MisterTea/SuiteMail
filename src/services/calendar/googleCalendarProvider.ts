@@ -64,6 +64,8 @@ export class GoogleCalendarProvider implements CalendarProvider {
       displayName: cal.summary,
       color: cal.backgroundColor ?? null,
       isPrimary: !!cal.primary,
+      canCreate: cal.accessRole === "owner" || cal.accessRole === "writer",
+      canInvite: cal.accessRole === "owner" || cal.accessRole === "writer",
     }));
   }
 
@@ -87,7 +89,7 @@ export class GoogleCalendarProvider implements CalendarProvider {
     const client = await this.getClient();
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const encodedId = encodeURIComponent(calendarRemoteId);
-    const url = `${CALENDAR_API_BASE}/calendars/${encodedId}/events`;
+    const url = `${CALENDAR_API_BASE}/calendars/${encodedId}/events${event.attendees?.length ? "?sendUpdates=all" : ""}`;
 
     const body: Record<string, unknown> = {
       summary: event.summary,

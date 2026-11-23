@@ -40,7 +40,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
   const isToday = new Date().toDateString() === currentDate.toDateString();
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header */}
       <div className="px-6 py-3 border-b border-border-primary flex items-center gap-3 shrink-0">
         <div className={`text-2xl font-bold w-10 h-10 flex items-center justify-center rounded-full ${
@@ -55,7 +55,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
 
       {/* All-day events */}
       {allDayEvents.length > 0 && (
-        <div className="px-6 py-2 border-b border-border-secondary space-y-1">
+        <div className="px-6 py-2 border-b border-border-secondary space-y-1 shrink-0 max-h-32 overflow-y-auto" style={{ touchAction: "pan-y pinch-zoom" }}>
           {allDayEvents.map((e) => (
             <button
               key={e.id}
@@ -69,7 +69,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
       )}
 
       {/* Time grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div aria-label="Time of day" className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ touchAction: "pan-y pinch-zoom" }}>
         {HOURS.map((hour) => {
           const hourEvents = hourEventMap.get(hour) ?? [];
           return (

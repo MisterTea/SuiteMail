@@ -63,7 +63,7 @@ export function WeekView({ currentDate, events, onEventClick, dayCount = 7 }: We
   }, [events, days]);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Day headers */}
       <div className="grid border-b border-border-primary shrink-0" style={gridStyle}>
         <div className="border-r border-border-secondary" />
@@ -83,7 +83,7 @@ export function WeekView({ currentDate, events, onEventClick, dayCount = 7 }: We
       </div>
 
       {/* All-day events row */}
-      <div className="grid border-b border-border-primary shrink-0" style={gridStyle}>
+      <div className="grid border-b border-border-primary shrink-0 max-h-32 overflow-y-auto" style={{ ...gridStyle, touchAction: "pan-y pinch-zoom" }}>
         <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">all-day</div>
         {days.map((day, i) => {
           const allDay = allDayByDay.get(day.getDate()) ?? [];
@@ -104,7 +104,7 @@ export function WeekView({ currentDate, events, onEventClick, dayCount = 7 }: We
       </div>
 
       {/* Time grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div aria-label="Time of day" className="flex-1 min-h-0 overflow-y-auto overscroll-contain" style={{ touchAction: "pan-y pinch-zoom" }}>
         <div className="grid" style={gridStyle}>
           {HOURS.map((hour) => (
             <div key={hour} className="contents">

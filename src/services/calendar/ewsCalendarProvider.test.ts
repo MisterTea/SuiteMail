@@ -29,7 +29,7 @@ describe("EWS calendars", () => {
   it("discovers calendars with the existing mailbox and refreshed OAuth session", async () => {
     const calendars = [{ remoteId: "calendar-id", displayName: "Calendar", color: null, isPrimary: true }];
     vi.mocked(platformInvoke).mockResolvedValue(calendars);
-    expect(await provider.listCalendars()).toEqual(calendars);
+    expect(await provider.listCalendars()).toEqual(calendars.map((calendar) => ({ ...calendar, canCreate: true, canInvite: true })));
     expect(ensureFreshToken).toHaveBeenCalledWith(account);
     expect(platformInvoke).toHaveBeenCalledWith("ews_calendar", {
       token: "refreshed-token", anchor: account.email, operation: "list",
@@ -45,6 +45,12 @@ describe("EWS calendars", () => {
     expect(platformInvoke).toHaveBeenLastCalledWith("ews_calendar", expect.objectContaining({
       operation: "delete", eventId: "event", etag: "next-key",
     }));
+  });
+
+  it("converts all-day form dates to the DateTime values required by EWS", async () => {
+    await provider.createEvent("cal", { summary: "Offsite", isAllDay: true, startTime: "2030-01-02", endTime: "2030-01-03" });
+    expect(platformInvoke).toHaveBeenLastCalledWith("ews_calendar", expect.objectContaining({ operation: "create",
+      event: expect.objectContaining({ startTime: "2030-01-02T00:00:00Z", endTime: "2030-01-03T00:00:00Z", isAllDay: true }) }));
   });
 
   it("splits a truncated CalendarView and deduplicates overlapping occurrences", async () => {

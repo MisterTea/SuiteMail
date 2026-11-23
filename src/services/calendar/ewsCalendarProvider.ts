@@ -24,8 +24,11 @@ export class EwsCalendarProvider implements CalendarProvider {
     }
   }
 
-  listCalendars(): Promise<CalendarInfo[]> {
-    return this.call("list");
+  async listCalendars(): Promise<CalendarInfo[]> {
+    const calendars = await this.call<CalendarInfo[]>("list");
+    return calendars.map((calendar) => ({ ...calendar,
+      canCreate: calendar.canCreate ?? calendar.isPrimary,
+      canInvite: calendar.canCreate ?? calendar.isPrimary }));
   }
 
   async fetchEvents(calendarId: string, start: string, end: string): Promise<CalendarEventData[]> {
@@ -44,6 +47,10 @@ export class EwsCalendarProvider implements CalendarProvider {
   }
 
   createEvent(calendarId: string, event: CreateEventInput): Promise<CalendarEventData> {
+    if (event.isAllDay) {
+      // EWS requires DateTime values even for whole-day events.
+      event = { ...event, startTime: `${event.startTime.slice(0, 10)}T00:00:00Z`, endTime: `${event.endTime.slice(0, 10)}T00:00:00Z` };
+    }
     return this.call("create", { calendarId, event });
   }
 

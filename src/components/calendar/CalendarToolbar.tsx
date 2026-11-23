@@ -35,7 +35,7 @@ export function CalendarToolbar({
   const title = formatTitle(currentDate, view);
 
   return (
-    <div className="flex min-w-0 flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:justify-between md:px-6 md:py-3 border-b border-border-primary">
+    <div className="flex min-w-0 shrink-0 flex-col gap-2 px-3 py-2 md:flex-row md:items-center md:justify-between md:px-6 md:py-3 border-b border-border-primary">
       <div className="flex min-w-0 items-center justify-between gap-2 md:gap-3">
         <h2 className="min-w-0 text-sm leading-tight font-semibold text-text-primary md:text-lg">{title}</h2>
         <div className="flex shrink-0 items-center gap-1">

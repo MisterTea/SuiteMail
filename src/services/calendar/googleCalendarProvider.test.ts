@@ -41,8 +41,8 @@ describe("GoogleCalendarProvider", () => {
         `${CALENDAR_API_BASE}/users/me/calendarList`,
       );
       expect(result).toEqual([
-        { remoteId: "primary", displayName: "My Calendar", color: "#0000ff", isPrimary: true },
-        { remoteId: "work@example.com", displayName: "Work", color: null, isPrimary: false },
+        { remoteId: "primary", displayName: "My Calendar", color: "#0000ff", isPrimary: true, canCreate: false, canInvite: false },
+        { remoteId: "work@example.com", displayName: "Work", color: null, isPrimary: false, canCreate: true, canInvite: true },
       ]);
     });
 
@@ -185,6 +185,7 @@ describe("GoogleCalendarProvider", () => {
 
       const body = JSON.parse(mockClient.request.mock.calls[0][1].body as string);
       expect(body.attendees).toEqual([{ email: "bob@example.com" }]);
+      expect(mockClient.request.mock.calls[0][0]).toBe(`${CALENDAR_API_BASE}/calendars/cal-1/events?sendUpdates=all`);
     });
   });
 

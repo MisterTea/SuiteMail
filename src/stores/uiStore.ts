@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { setSetting } from "@/services/db/settings";
 import type { ColorThemeId } from "@/constants/themes";
+import type { CalendarView } from "@/components/calendar/CalendarToolbar";
 
 type Theme = "light" | "dark" | "system";
 type ReadingPanePosition = "right" | "bottom" | "hidden";
@@ -30,6 +31,7 @@ interface UIState {
   colorTheme: ColorThemeId;
   sendAndArchive: boolean;
   inboxViewMode: InboxViewMode;
+  calendarView: CalendarView;
   taskSidebarVisible: boolean;
   sidebarNavConfig: SidebarNavItem[] | null;
   reduceMotion: boolean;
@@ -55,6 +57,7 @@ interface UIState {
   setColorTheme: (theme: ColorThemeId) => void;
   setSendAndArchive: (enabled: boolean) => void;
   setInboxViewMode: (mode: InboxViewMode) => void;
+  setCalendarView: (view: CalendarView) => void;
   toggleTaskSidebar: () => void;
   setTaskSidebarVisible: (visible: boolean) => void;
   setSidebarNavConfig: (config: SidebarNavItem[]) => void;
@@ -80,6 +83,7 @@ export const useUIStore = create<UIState>((set) => ({
   colorTheme: "leaf",
   sendAndArchive: false,
   inboxViewMode: "unified",
+  calendarView: "month",
   taskSidebarVisible: false,
   sidebarNavConfig: null,
   reduceMotion: false,
@@ -145,6 +149,10 @@ export const useUIStore = create<UIState>((set) => ({
   setInboxViewMode: (inboxViewMode) => {
     setSetting("inbox_view_mode", inboxViewMode).catch(() => {});
     set({ inboxViewMode });
+  },
+  setCalendarView: (calendarView) => {
+    setSetting("calendar_view", calendarView).catch(() => {});
+    set({ calendarView });
   },
   toggleTaskSidebar: () =>
     set((state) => {

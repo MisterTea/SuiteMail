@@ -39,7 +39,7 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
   }, [events, year, month, totalDays]);
 
   return (
-    <div className="flex flex-col flex-1 overflow-hidden">
+    <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Day headers */}
       <div className="grid grid-cols-7 border-b border-border-primary">
         {DAY_NAMES.map((name) => (
@@ -50,7 +50,7 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
       </div>
 
       {/* Day cells */}
-      <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto">
+      <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto" style={{ touchAction: "pan-y pinch-zoom" }}>
         {cells.map((day, idx) => {
           if (day === null) {
             return <div key={`empty-${idx}`} className="border-b border-r border-border-secondary bg-bg-tertiary/30" />;

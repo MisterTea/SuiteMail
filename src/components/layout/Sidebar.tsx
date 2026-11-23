@@ -568,7 +568,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
       {/* Compose and sync */}
       <div className={`px-3 py-2 flex gap-2 ${collapsed && !mobileSidebarOpen ? "flex-col items-center" : "items-center"}`}>
-        <button
+        {activeLabel !== "calendar" && <button
           type="button"
           aria-label="Compose"
           title="Compose"
@@ -579,7 +579,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           className="flex items-center justify-center h-9 w-9 shrink-0 bg-accent hover:bg-accent-hover text-white rounded-lg interactive-btn"
         >
           <PenSquare size={16} />
-        </button>
+        </button>}
         <button
           type="button"
           aria-label="Sync"

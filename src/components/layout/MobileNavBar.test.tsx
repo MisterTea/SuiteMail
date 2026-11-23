@@ -5,6 +5,11 @@ import { MobileNavBar } from "./MobileNavBar";
 const mockNavigateToLabel = vi.fn();
 const mockNavigateToSettings = vi.fn();
 const mockOpenComposer = vi.fn();
+const mockRoute = vi.hoisted(() => ({ label: "inbox", android: false }));
+
+vi.mock("@/hooks/useAndroidMobile", () => ({
+  useAndroidMobile: () => mockRoute.android,
+}));
 
 vi.mock("@/router/navigate", () => ({
   navigateToLabel: (...args: unknown[]) => mockNavigateToLabel(...args),
@@ -12,7 +17,7 @@ vi.mock("@/router/navigate", () => ({
 }));
 
 vi.mock("@/hooks/useRouteNavigation", () => ({
-  useActiveLabel: () => "inbox",
+  useActiveLabel: () => mockRoute.label,
   useSelectedThreadId: () => null,
 }));
 
@@ -29,6 +34,23 @@ vi.mock("@/stores/taskStore", () => ({
 describe("MobileNavBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRoute.label = "inbox";
+    mockRoute.android = false;
+  });
+
+  it.each([false, true])("hides Compose on Calendar (Android: %s)", (android) => {
+    mockRoute.android = android;
+    mockRoute.label = "calendar";
+    render(<MobileNavBar />);
+    expect(screen.queryByTitle("Compose Email")).not.toBeInTheDocument();
+    expect(screen.getByText("Calendar")).toBeInTheDocument();
+  });
+
+  it("keeps Compose available in the Android inbox", () => {
+    mockRoute.android = true;
+    render(<MobileNavBar />);
+    fireEvent.click(screen.getByTitle("Compose Email"));
+    expect(mockOpenComposer).toHaveBeenCalledWith({ mode: "new" });
   });
 
   it("renders nav buttons for Inbox, Starred, Calendar, Tasks, Settings and Compose", () => {

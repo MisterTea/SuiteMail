@@ -5,6 +5,8 @@ export interface CalendarInfo {
   displayName: string;
   color: string | null;
   isPrimary: boolean;
+  canCreate?: boolean;
+  canInvite?: boolean;
 }
 
 export interface CalendarEventData {
@@ -32,6 +34,7 @@ export interface CreateEventInput {
   endTime: string;   // ISO 8601
   isAllDay?: boolean;
   attendees?: { email: string }[];
+  organizerEmail?: string;
 }
 
 export interface UpdateEventInput {

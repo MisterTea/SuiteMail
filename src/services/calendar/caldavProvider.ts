@@ -10,10 +10,12 @@ import type {
 } from "./types";
 import { generateVEvent, parseVEvent } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
+import { platformFetch } from "@/platform";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
   private client: DAVClient | null = null;
+  private capabilities = new Map<string, { canCreate: boolean; canInvite: boolean }>();
 
   constructor(readonly accountId: string) {}
 
@@ -46,12 +48,30 @@ export class CalDAVProvider implements CalendarProvider {
     const client = await this.getClient();
     const calendars = await client.fetchCalendars();
 
-    return calendars.map((cal, index) => ({
+    return Promise.all(calendars.map(async (cal, index) => ({
       remoteId: cal.url,
       displayName: typeof cal.displayName === "string" ? cal.displayName : `Calendar ${index + 1}`,
       color: extractCalendarColor(cal) ?? null,
       isPrimary: index === 0,
-    }));
+      ...await this.getCapabilities(cal.url),
+    })));
+  }
+
+  private async getCapabilities(url: string) {
+    const client = await this.getClient();
+    let canCreate = false;
+    let canInvite = false;
+    try {
+      const privileges = await client.propfind({ url, depth: "0", props: { "d:current-user-privilege-set": {} } });
+      canCreate = privileges.some((response) => response.ok && hasDavPrivilege(response.props, ["bind", "write", "all"]));
+      const options = await platformFetch(url, { method: "OPTIONS", headers: client.authHeaders });
+      canInvite = canCreate && options.ok && (options.headers.get("DAV") ?? "").split(/[,\s]+/).includes("calendar-auto-schedule");
+    } catch {
+      // Unknown capabilities must never be presented as invitation support.
+    }
+    const result = { canCreate, canInvite };
+    this.capabilities.set(url, result);
+    return result;
   }
 
   async fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]> {
@@ -76,15 +96,22 @@ export class CalDAVProvider implements CalendarProvider {
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
     const client = await this.getClient();
+    if (event.attendees?.length) {
+      const capabilities = this.capabilities.get(calendarRemoteId) ?? await this.getCapabilities(calendarRemoteId);
+      if (!capabilities.canInvite) throw new Error("This calendar cannot send invitations. Choose another calendar.");
+      const account = await getAccount(this.accountId);
+      event = { ...event, organizerEmail: account?.email };
+    }
     const uid = crypto.randomUUID();
     const icalData = generateVEvent(event, uid);
     const filename = `${uid}.ics`;
 
-    await client.createCalendarObject({
+    const response = await client.createCalendarObject({
       calendar: { url: calendarRemoteId } as DAVCalendar,
       filename,
       iCalString: icalData,
     });
+    if (!response.ok) throw new Error(`Calendar could not create the event (${response.status}).`);
 
     const parsed = parseVEvent(icalData, `${calendarRemoteId}${filename}`);
     return parsed;
@@ -196,6 +223,12 @@ export class CalDAVProvider implements CalendarProvider {
       return { success: false, message: err instanceof Error ? err.message : "Connection failed" };
     }
   }
+}
+
+function hasDavPrivilege(value: unknown, names: string[]): boolean {
+  if (!value || typeof value !== "object") return false;
+  return Object.entries(value).some(([key, child]) =>
+    names.includes(key.split(":").pop() ?? "") || hasDavPrivilege(child, names));
 }
 
 function extractCalendarColor(cal: DAVCalendar): string | null {

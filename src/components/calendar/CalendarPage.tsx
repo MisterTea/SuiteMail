@@ -1,24 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAccountStore } from "@/stores/accountStore";
-import { getCalendarEventsInRangeMulti, upsertCalendarEvent, removeMissingEventsInRange, type DbCalendarEvent } from "@/services/db/calendarEvents";
+import { useUIStore } from "@/stores/uiStore";
+import { getCalendarEventsInRangeMulti, removeMissingEventsInRange, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
-import type { CalendarEventData, CreateEventInput } from "@/services/calendar/types";
-import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
+import { cacheProviderEvent, createCalendarEvent, loadEventTargets } from "@/services/calendar/eventCreation";
+import { CalendarToolbar } from "./CalendarToolbar";
 import { MonthView } from "./MonthView";
 import { WeekView } from "./WeekView";
 import { DayView } from "./DayView";
-import { EventCreateModal } from "./EventCreateModal";
+import { EventCreateModal, type EventFormValues } from "./EventCreateModal";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
+import { useCalendarSwipe } from "@/hooks/useCalendarSwipe";
 
 export function CalendarPage() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.id === activeAccountId) ?? null;
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState<CalendarView>("month");
+  const view = useUIStore((s) => s.calendarView);
+  const setView = useUIStore((s) => s.setCalendarView);
   const [events, setEvents] = useState<DbCalendarEvent[]>([]);
   const [calendars, setCalendars] = useState<DbCalendar[]>([]);
   const [loading, setLoading] = useState(false);
@@ -125,7 +128,7 @@ export function CalendarPage() {
         );
 
         for (const event of apiEvents) {
-          await upsertCalendarEventFromProvider(activeAccountId, cal.id, event);
+          await cacheProviderEvent(activeAccountId, cal.id, event);
         }
         if (provider.type === "ews") {
           await removeMissingEventsInRange(
@@ -196,62 +199,21 @@ export function CalendarPage() {
     setCurrentDate(new Date());
   }, []);
 
-  const handleCreateEvent = useCallback(async (eventData: {
-    summary: string;
-    description: string;
-    location: string;
-    startTime: string;
-    endTime: string;
-    calendarId?: string;
-  }) => {
+  const swipeHandlers = useCalendarSwipe(handlePrev, handleNext);
+
+  const handleCreateEvent = useCallback(async (eventData: EventFormValues) => {
     if (!activeAccountId) return;
-    try {
-      const provider = await getCalendarProvider(activeAccountId);
-
-      // Find the target calendar
-      let calendarRemoteId: string | undefined;
-      let calendarDbId: string | undefined;
-      if (eventData.calendarId) {
-        const cal = calendars.find((c) => c.id === eventData.calendarId);
-        if (cal) {
-          calendarRemoteId = cal.remote_id;
-          calendarDbId = cal.id;
-        }
-      }
-
-      // Fallback to primary calendar
-      if (!calendarRemoteId) {
-        const primary = calendars.find((c) => c.is_primary) ?? calendars[0];
-        if (primary) {
-          calendarRemoteId = primary.remote_id;
-          calendarDbId = primary.id;
-        }
-      }
-
-      if (!calendarRemoteId) {
-        // For Google, use "primary" as fallback
-        calendarRemoteId = "primary";
-      }
-
-      const input: CreateEventInput = {
-        summary: eventData.summary,
-        description: eventData.description || undefined,
-        location: eventData.location || undefined,
-        startTime: eventData.startTime,
-        endTime: eventData.endTime,
-      };
-
-      const created = await provider.createEvent(calendarRemoteId, input);
-
-      // Save to local DB
-      await upsertCalendarEventFromProvider(activeAccountId, calendarDbId ?? null, created);
-
-      setShowCreate(false);
-      loadEvents();
-    } catch (err) {
-      console.error("Failed to create event:", err);
-    }
-  }, [activeAccountId, calendars, loadEvents]);
+    const account = accounts.find((item) => item.id === activeAccountId);
+    if (!account) throw new Error("Account not found");
+    const { targets, errors } = await loadEventTargets([account]);
+    const target = eventData.calendarId
+      ? targets.find((item) => item.id === eventData.calendarId)
+      : targets.find((item) => item.is_primary && item.canCreate) ?? targets.find((item) => item.canCreate);
+    if (!target) throw new Error(errors[0] ?? "Choose a writable calendar first.");
+    await createCalendarEvent(target, eventData);
+    setShowCreate(false);
+    void loadEvents();
+  }, [activeAccountId, accounts, loadEvents]);
 
   const handleEventClick = useCallback((event: DbCalendarEvent) => {
     setSelectedEvent(event);
@@ -282,7 +244,7 @@ export function CalendarPage() {
   }
 
   return (
-    <div className="flex flex-col flex-1 min-w-0 overflow-hidden bg-bg-primary">
+    <div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden bg-bg-primary">
       <CalendarToolbar
         currentDate={currentDate}
         view={view}
@@ -336,7 +298,11 @@ export function CalendarPage() {
           />
         )}
 
-        <div className="flex-1 min-w-0">
+        <div
+          className="flex flex-col flex-1 min-h-0 min-w-0"
+          style={{ touchAction: "pan-y pinch-zoom" }}
+          {...swipeHandlers}
+        >
           {view === "month" && (
             <MonthView
               currentDate={currentDate}
@@ -381,30 +347,4 @@ export function CalendarPage() {
       )}
     </div>
   );
-}
-
-async function upsertCalendarEventFromProvider(
-  accountId: string,
-  calendarId: string | null,
-  event: CalendarEventData,
-): Promise<void> {
-  await upsertCalendarEvent({
-    accountId,
-    googleEventId: event.remoteEventId,
-    summary: event.summary,
-    description: event.description,
-    location: event.location,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    isAllDay: event.isAllDay,
-    status: event.status,
-    organizerEmail: event.organizerEmail,
-    attendeesJson: event.attendeesJson,
-    htmlLink: event.htmlLink,
-    calendarId,
-    remoteEventId: event.remoteEventId,
-    etag: event.etag,
-    icalData: event.icalData,
-    uid: event.uid,
-  });
 }

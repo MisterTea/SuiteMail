@@ -463,6 +463,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
                 key={msg.id}
                 ref={(el) => { messageRefs.current[i] = el; }}
                 message={msg}
+                contextMessages={messages}
                 isLast={i === messages.length - 1}
                 focused={i === focusedMsgIdx}
                 blockImages={blockImages}

@@ -19,6 +19,13 @@ fn text(node: &Node, field: &str) -> Option<String> {
     node.child(field).map(|n| n.text.clone())
 }
 
+fn can_create_in_folder(node: &Node) -> bool {
+    node.child("EffectiveRights")
+        .and_then(|rights| rights.child("CreateContents"))
+        .map(|value| value.text == "true")
+        .unwrap_or(false)
+}
+
 fn event(node: &Node) -> Result<Value, String> {
     let id = node.child("ItemId").ok_or("Calendar item has no ID.")?;
     let timestamp = |field| {
@@ -86,15 +93,15 @@ async fn get_events(token: &str, anchor: &str, ids: &[String]) -> Result<Vec<Val
 }
 
 pub async fn list(token: &str, anchor: &str) -> Result<Value, String> {
-    let root = ews_call(token, anchor, "GetFolder", "<m:GetFolder><m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape><m:FolderIds><t:DistinguishedFolderId Id=\"calendar\"/></m:FolderIds></m:GetFolder>".into()).await?;
+    let root = ews_call(token, anchor, "GetFolder", "<m:GetFolder><m:FolderShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI=\"folder:EffectiveRights\"/></t:AdditionalProperties></m:FolderShape><m:FolderIds><t:DistinguishedFolderId Id=\"calendar\"/></m:FolderIds></m:GetFolder>".into()).await?;
     checked(&root)?;
     let primary = root.find("CalendarFolder").ok_or("Exchange returned no default calendar.")?;
     let primary_id = primary.child("FolderId").and_then(|n| n.attr("Id")).ok_or("Calendar has no ID.")?;
-    let mut calendars = vec![json!({"remoteId": primary_id, "displayName": text(primary, "DisplayName"), "color": null, "isPrimary": true})];
+    let mut calendars = vec![json!({"remoteId": primary_id, "displayName": text(primary, "DisplayName"), "color": null, "isPrimary": true, "canCreate": can_create_in_folder(primary)})];
     for page in 0..100 {
         let offset = page * 100;
         let root = ews_call(token, anchor, "FindFolder", format!(
-            "<m:FindFolder Traversal=\"Deep\"><m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned=\"100\" Offset=\"{offset}\" BasePoint=\"Beginning\"/><m:ParentFolderIds><t:DistinguishedFolderId Id=\"msgfolderroot\"/></m:ParentFolderIds></m:FindFolder>"
+            "<m:FindFolder Traversal=\"Deep\"><m:FolderShape><t:BaseShape>Default</t:BaseShape><t:AdditionalProperties><t:FieldURI FieldURI=\"folder:EffectiveRights\"/></t:AdditionalProperties></m:FolderShape><m:IndexedPageFolderView MaxEntriesReturned=\"100\" Offset=\"{offset}\" BasePoint=\"Beginning\"/><m:ParentFolderIds><t:DistinguishedFolderId Id=\"msgfolderroot\"/></m:ParentFolderIds></m:FindFolder>"
         )).await?;
         checked(&root)?;
         let page_root = root.find("RootFolder").ok_or("Missing calendar folder page.")?;
@@ -102,7 +109,7 @@ pub async fn list(token: &str, anchor: &str) -> Result<Value, String> {
             for folder in folders.children("CalendarFolder") {
                 let id = folder.child("FolderId").and_then(|n| n.attr("Id")).ok_or("Calendar has no ID.")?;
                 if id != primary_id {
-                    calendars.push(json!({"remoteId": id, "displayName": text(folder, "DisplayName"), "color": null, "isPrimary": false}));
+                    calendars.push(json!({"remoteId": id, "displayName": text(folder, "DisplayName"), "color": null, "isPrimary": false, "canCreate": can_create_in_folder(folder)}));
                 }
             }
         }
@@ -208,6 +215,16 @@ pub async fn delete(token: &str, anchor: &str, id: &str, change_key: Option<&str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calendar_creation_requires_folder_permission() {
+        let folder = parse_xml("<CalendarFolder><EffectiveRights><CreateContents>true</CreateContents></EffectiveRights></CalendarFolder>").unwrap();
+        assert!(can_create_in_folder(folder.find("CalendarFolder").unwrap()));
+        let folder = parse_xml("<CalendarFolder><EffectiveRights><CreateContents>false</CreateContents></EffectiveRights></CalendarFolder>").unwrap();
+        assert!(!can_create_in_folder(folder.find("CalendarFolder").unwrap()));
+        let folder = parse_xml("<CalendarFolder/>").unwrap();
+        assert!(!can_create_in_folder(folder.find("CalendarFolder").unwrap()));
+    }
 
     #[test]
     fn calendar_item_maps_occurrence_times_and_attendees() {

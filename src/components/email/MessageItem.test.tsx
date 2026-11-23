@@ -4,6 +4,11 @@ import { createRef } from "react";
 import { MessageItem } from "./MessageItem";
 import type { DbMessage } from "@/services/db/messages";
 
+const { detectInvite } = vi.hoisted(() => ({ detectInvite: vi.fn(() => null as unknown) }));
+vi.mock("@/services/calendar/inviteDetector", () => ({ detectInviteFromMessage: detectInvite }));
+vi.mock("./CalendarInviteBanner", () => ({ CalendarInviteBanner: () => <div data-testid="calendar-invite" /> }));
+vi.mock("./CalendarSuggestions", () => ({ CalendarSuggestions: () => <div data-testid="calendar-suggestions" /> }));
+
 vi.mock("./EmailRenderer", () => ({
   EmailRenderer: () => <div data-testid="email-renderer" />,
 }));
@@ -59,6 +64,22 @@ function makeMessage(overrides: Partial<DbMessage> = {}): DbMessage {
 describe("MessageItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    detectInvite.mockReturnValue(null);
+  });
+
+  it("mounts AI calendar suggestions only when the email body is opened", async () => {
+    const message = makeMessage();
+    const { rerender } = render(<MessageItem message={message} isLast={false} blockImages={false} />);
+    expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
+    await act(async () => rerender(<MessageItem message={message} isLast={false} focused blockImages={false} />));
+    expect(screen.getByTestId("calendar-suggestions")).toBeInTheDocument();
+  });
+
+  it("preserves the RSVP banner and suppresses AI suggestions for actual invitations", async () => {
+    detectInvite.mockReturnValue({ uid: "invite" });
+    await act(async () => render(<MessageItem message={makeMessage()} isLast blockImages={false} />));
+    expect(screen.getByTestId("calendar-invite")).toBeInTheDocument();
+    expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
   });
 
   it("renders sender name", () => {

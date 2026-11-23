@@ -9,7 +9,7 @@ const MOCK_ICAL_DATA_2 =
 const mockLogin = vi.fn().mockResolvedValue(undefined);
 const mockFetchCalendars = vi.fn();
 const mockFetchCalendarObjects = vi.fn();
-const mockCreateCalendarObject = vi.fn().mockResolvedValue(undefined);
+const mockCreateCalendarObject = vi.fn().mockResolvedValue({ ok: true, status: 201 });
 const mockUpdateCalendarObject = vi.fn().mockResolvedValue(undefined);
 const mockDeleteCalendarObject = vi.fn().mockResolvedValue(undefined);
 
@@ -53,8 +53,8 @@ describe("CalDAVProvider", () => {
       const calendars = await provider.listCalendars();
 
       expect(calendars).toEqual([
-        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true },
-        { remoteId: "/cal/work/", displayName: "Work", color: "#ff0000", isPrimary: false },
+        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true, canCreate: false, canInvite: false },
+        { remoteId: "/cal/work/", displayName: "Work", color: "#ff0000", isPrimary: false, canCreate: false, canInvite: false },
       ]);
     });
 

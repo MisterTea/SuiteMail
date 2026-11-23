@@ -11,10 +11,9 @@ import { AuthWarningBanner } from "./AuthWarningBanner";
 import { CalendarInviteBanner } from "./CalendarInviteBanner";
 import { TrackingPixelBadge } from "./TrackingPixelBadge";
 import { PackageTrackingCard } from "./PackageTrackingCard";
-import { DetectedEventChip } from "./DetectedEventChip";
+import { CalendarSuggestions } from "./CalendarSuggestions";
 import { detectInviteFromMessage } from "@/services/calendar/inviteDetector";
 import { detectShipmentsAndFlights } from "@/utils/trackingDetector";
-import { detectDateTime } from "@/utils/dateTimeDetector";
 import { messageHasContract, stripContractMarkup } from "@/services/contracts/contractMessage";
 import { ContractCard } from "./ContractCard";
 import type { DetectedTracker } from "@/utils/trackingPixels";
@@ -22,6 +21,7 @@ import { spamThread } from "@/services/emailActions";
 
 interface MessageItemProps {
   message: DbMessage;
+  contextMessages?: DbMessage[];
   isLast: boolean;
   blockImages?: boolean | null;
   senderAllowlisted?: boolean;
@@ -32,7 +32,7 @@ interface MessageItemProps {
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu }, ref) {
+export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, contextMessages, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
@@ -46,11 +46,6 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
   const trackingItems = useMemo(
     () => detectShipmentsAndFlights(message.body_text || message.snippet),
-    [message.body_text, message.snippet],
-  );
-
-  const detectedMeetingTime = useMemo(
-    () => detectDateTime(message.body_text || message.snippet),
     [message.body_text, message.snippet],
   );
 
@@ -226,13 +221,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             <CalendarInviteBanner message={message} invite={calendarInvite} />
           )}
 
-          {!calendarInvite && detectedMeetingTime && (
-            <DetectedEventChip
-              detected={detectedMeetingTime}
-              accountId={message.account_id}
-              defaultTitle={message.subject || "Meeting"}
-            />
-          )}
+          {!calendarInvite && <CalendarSuggestions message={message} context={contextMessages} />}
 
           {trackingItems.length > 0 && (
             <PackageTrackingCard items={trackingItems} />

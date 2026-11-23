@@ -268,6 +268,12 @@ export default function App() {
           ui.setReadingPanePosition(savedPanePos);
         }
 
+        // Restore the last calendar view before rendering Calendar.
+        const savedCalendarView = await getSetting("calendar_view");
+        if (savedCalendarView === "day" || savedCalendarView === "threeDay" || savedCalendarView === "week" || savedCalendarView === "month") {
+          ui.setCalendarView(savedCalendarView);
+        }
+
         // Restore read filter
         const savedReadFilter = await getSetting("read_filter");
         if (savedReadFilter === "all" || savedReadFilter === "read" || savedReadFilter === "unread") {
