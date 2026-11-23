@@ -21,7 +21,7 @@ describe("UpdateToast", () => {
   it("does not render when no update is available", () => {
     mockGetAvailableUpdate.mockReturnValue(null);
     const { container } = render(<UpdateToast />);
-    expect(container.querySelector(".glass-panel")).toBeNull();
+    expect(container.querySelector("[data-update-toast]")).toBeNull();
   });
 
   it("renders when an update is available on mount", () => {

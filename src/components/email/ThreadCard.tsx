@@ -1,5 +1,5 @@
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
-import { memo, useMemo, useState, useRef, useEffect } from "react";
+import { memo, useId, useMemo, useState, useRef, useEffect } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
@@ -18,6 +18,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 interface ThreadCardProps {
   thread: Thread;
+  summarize?: boolean;
   isSelected: boolean;
   onClick: (thread: Thread) => void;
   onContextMenu?: (e: React.MouseEvent, threadId: string) => void;
@@ -48,7 +49,7 @@ function highlightMatch(text: string | null | undefined, query?: string | null) 
   );
 }
 
-export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
+export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consumedLongPress = useRef(false);
   useEffect(() => () => {if(longPressTimer.current) clearTimeout(longPressTimer.current);}, []);
@@ -62,6 +63,41 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const searchQuery = useThreadStore((s) => s.searchQuery);
   const isSpam = thread.labelIds.includes("SPAM");
   const isDraft = thread.labelIds.includes("DRAFT");
+  const previewId = useId();
+  const previewRef = useRef<HTMLSpanElement>(null);
+  const canSummarize = summarize && emailDensity !== "compact" && !isSpam && !isDraft && !searchQuery?.trim();
+  const { accountId, id, subject, lastMessageAt, messageCount } = thread;
+  const summaryKey = JSON.stringify([accountId, id, lastMessageAt, messageCount]);
+  const [previewSummary, setPreviewSummary] = useState<{ key: string; text: string }>();
+  const summary = canSummarize && previewSummary?.key === summaryKey ? previewSummary.text : null;
+
+  useEffect(() => {
+    const preview = previewRef.current;
+    if (!canSummarize || summary || !preview || typeof IntersectionObserver === "undefined") return;
+
+    let request: AbortController | undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) {
+        request?.abort();
+        request = undefined;
+        return;
+      }
+      if (request) return;
+      request = new AbortController();
+      const { signal } = request;
+      void import("@/services/ai/aiService")
+        .then(({ summarizeInboxThread }) => signal.aborted ? null : summarizeInboxThread({ accountId, id, subject, lastMessageAt, messageCount }, signal))
+        .then((text) => {
+          if (text && !signal.aborted) setPreviewSummary({ key: summaryKey, text });
+        })
+        .catch(() => { /* Keep the message preview if generation fails. */ });
+    });
+    observer.observe(preview);
+    return () => {
+      observer.disconnect();
+      request?.abort();
+    };
+  }, [canSummarize, summary, summaryKey, accountId, id, subject, lastMessageAt, messageCount]);
 
   // Read selectedThreadIds lazily for drag — avoids subscribing all cards to the Set reference
   const dragData: DragData = useMemo(() => ({
@@ -380,6 +416,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
           transition: isExiting ? "transform 0.2s ease-out, opacity 0.2s ease-out" : touchOffset === 0 ? "transform 0.2s ease-out" : undefined,
         }}
         aria-label={`${isDraft ? "Draft: " : thread.isRead ? "" : "Unread email from "}${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
+        aria-describedby={summary ? previewId : undefined}
         aria-selected={isSelected || isMultiSelected}
         className={`w-full text-left group hover-lift press-scale border-l-2 transition-colors ${
           isMultiSelected || !thread.isRead || thread.isPinned ? "border-l-accent" : "border-l-transparent"
@@ -584,14 +621,16 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
             {highlightMatch(thread.subject ?? "(No subject)", searchQuery)}
           </div>
 
-          {/* Snippet + indicators */}
-          <div className={`flex items-center gap-1.5 mt-1 sm:mt-0.5 ${emailDensity === "compact" ? "hidden" : ""}`}>
+          {/* Preview + indicators */}
+          <div className={`flex items-start gap-1.5 mt-1 sm:mt-0.5 ${emailDensity === "compact" ? "hidden" : ""}`}>
             <span
-              className={`text-xs leading-relaxed truncate flex-1 ${
+              id={previewId}
+              ref={previewRef}
+              className={`text-xs leading-relaxed line-clamp-3 min-h-[1lh] min-w-0 flex-1 [overflow-wrap:anywhere] ${
                 thread.isRead ? "text-text-tertiary" : "text-text-secondary font-medium"
               }`}
             >
-              {highlightMatch(thread.snippet, searchQuery)}
+              {summary ?? highlightMatch(thread.snippet, searchQuery)}
             </span>
             {showCategoryBadge && category && category !== "Primary" && CATEGORY_COLORS[category] && (
               <span className={`shrink-0 text-[0.625rem] px-1.5 rounded-full leading-normal ${CATEGORY_COLORS[category]}`}>

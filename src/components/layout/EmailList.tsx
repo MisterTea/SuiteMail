@@ -23,6 +23,7 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
+import { addSettingChangeListener, getSetting } from "@/services/db/settings";
 import { archiveThread, trashThread, permanentDeleteThread, spamThread, markThreadRead, starThread } from "@/services/emailActions";
 import { BatchActionBar } from "../email/BatchActionBar";
 import { MoveToFolderDialog } from "../email/MoveToFolderDialog";
@@ -68,6 +69,35 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const selectAll = useThreadStore((s) => s.selectAll);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const activeLabel = useActiveLabel();
+  const isInboxView = activeLabel === "inbox" || activeLabel === "focused" || activeLabel === "other";
+  const [inboxSummariesEnabled, setInboxSummariesEnabled] = useState(false);
+
+  useEffect(() => {
+    if (!activeAccountId || !isInboxView || typeof IntersectionObserver === "undefined") return;
+    let check = 0;
+    const update = async () => {
+      const current = ++check;
+      setInboxSummariesEnabled(false);
+      try {
+        if ((await getSetting("ai_auto_summarize")) === "false" || current !== check) return;
+        const { isAiAvailable } = await import("@/services/ai/providerManager");
+        const available = await isAiAvailable();
+        if (current === check) setInboxSummariesEnabled(available);
+      } catch {
+        // Keep the message preview if AI settings are unavailable.
+      }
+    };
+    void update();
+    const unsubscribe = addSettingChangeListener(({ key }) => {
+      if (["ai_enabled", "ai_auto_summarize", "ai_provider", "pi_server_url", "ollama_server_url"].includes(key) || key.endsWith("_api_key")) {
+        void update();
+      }
+    });
+    return () => {
+      check++;
+      unsubscribe();
+    };
+  }, [activeAccountId, isInboxView]);
   const readFilter = useUIStore((s) => s.readFilter);
   const setReadFilter = useUIStore((s) => s.setReadFilter);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
@@ -706,6 +736,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                     <div key={thread.id} className="pl-4">
                       <ThreadCard
                         thread={thread}
+                        summarize={isInboxView && inboxSummariesEnabled}
                         isSelected={thread.id === selectedThreadId}
                         onClick={handleThreadClick}
                         onContextMenu={handleThreadContextMenu}
@@ -754,6 +785,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   )}
                   <ThreadCard
                     thread={thread}
+                    summarize={isInboxView && inboxSummariesEnabled}
                     isSelected={thread.id === selectedThreadId}
                     onClick={handleThreadClick}
                     onContextMenu={handleThreadContextMenu}

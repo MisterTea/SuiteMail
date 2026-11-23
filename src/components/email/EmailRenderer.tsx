@@ -169,10 +169,10 @@ export function EmailRenderer({
       text-size-adjust: 100%;
     }
     ${android ? `
-    html { overflow-x: auto; scrollbar-width: thin; scrollbar-color: #80868b #e8eaed; }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: #e8eaed; }
-    ::-webkit-scrollbar-thumb { background: #80868b; border-radius: 4px; }
+    html { overflow-x: auto; overflow-y: hidden; }
+    * { scrollbar-width: none !important; }
+    ::-webkit-scrollbar { display: none; }
+    body { display: flow-root; }
     ` : ""}
     body {
       padding: ${android ? "0" : isPlainText ? "8px 2px 14px 2px" : "12px 10px"};
@@ -240,11 +240,10 @@ export function EmailRenderer({
     // Calculate and set height synchronously before paint
     const applyHeight = () => {
       if (!doc.body) return;
-      // Keep vertical scrolling in the thread. Reserve room for the horizontal
-      // scrollbar without including the iframe viewport's previous height.
+      // Size Android's frame to the body, including its children's margins.
+      // The document's scrollHeight also includes the previous frame height.
       const h = android
         ? Math.max(doc.body.scrollHeight, doc.body.offsetHeight)
-          + (doc.documentElement.scrollWidth > doc.documentElement.clientWidth ? 8 : 0)
         : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight, doc.body.offsetHeight);
       if (h > 0) {
         iframe.style.height = h + "px";
@@ -319,7 +318,7 @@ export function EmailRenderer({
         ref={iframeRef}
         sandbox="allow-same-origin"
         className={`block w-full max-w-full min-w-0 border-0 ${!android && isDark && !isPlainText ? "rounded-md" : ""}`}
-        style={{ overflow: android ? "auto" : "hidden" }}
+        style={{ overflow: "hidden" }}
         title="Email content"
       />
     </div>

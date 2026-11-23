@@ -1492,7 +1492,7 @@ export function SettingsPage() {
                     />
                     <ToggleRow
                       label="Auto-summarize threads"
-                      description="Show AI summaries on multi-message threads"
+                      description="Generate short previews for inbox conversations"
                       checked={aiAutoSummarize}
                       onToggle={async () => {
                         const newVal = !aiAutoSummarize;

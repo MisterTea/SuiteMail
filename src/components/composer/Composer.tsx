@@ -15,6 +15,7 @@ import { AiAssistPanel } from "./AiAssistPanel";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { ContractEditor } from "./ContractEditor";
 import { ScheduleSendDialog } from "./ScheduleSendDialog";
+import { MeetingTimesDialog, meetingTimesHtml } from "./MeetingTimesDialog";
 import { SignatureSelector } from "./SignatureSelector";
 import { TemplatePicker } from "./TemplatePicker";
 import { SnippetSuggestionPopup } from "./SnippetSuggestionPopup";
@@ -107,6 +108,7 @@ export function Composer() {
   const displayCc = isOpen ? cc : cachedDisplayRef.current.cc;
   const displayBcc = isOpen ? bcc : cachedDisplayRef.current.bcc;
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showMeetingTimes, setShowMeetingTimes] = useState(false);
   const [showAiAssist, setShowAiAssist] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isRecipientsExpanded, setIsRecipientsExpanded] = useState(true);
@@ -121,6 +123,10 @@ export function Composer() {
   snippetIndexRef.current = snippetIndex;
   const dragCounterRef = useRef(0);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) setShowMeetingTimes(false);
+  }, [isOpen]);
 
   const applySnippet = useCallback(
     async (tmpl: DbTemplate, range?: { from: number; to: number }) => {
@@ -365,13 +371,13 @@ export function Composer() {
   useEffect(() => {
     if (!isOpen || !androidMobile) return;
     const onEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || confirmDiscard || showSchedule || document.querySelectorAll('[role="dialog"]').length > 1) return;
+      if (event.key !== "Escape" || confirmDiscard || showSchedule || showMeetingTimes || document.querySelectorAll('[role="dialog"]').length > 1) return;
       event.preventDefault();
       void handleSaveClose();
     };
     document.addEventListener("keydown", onEscape);
     return () => document.removeEventListener("keydown", onEscape);
-  }, [isOpen, androidMobile, confirmDiscard, showSchedule, handleSaveClose]);
+  }, [isOpen, androidMobile, confirmDiscard, showSchedule, showMeetingTimes, handleSaveClose]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -997,6 +1003,12 @@ export function Composer() {
         )}
 
         {/* Editor toolbar */}
+        <div className="px-4 py-1 border-b border-border-secondary">
+          <Button type="button" disabled={!editor} aria-haspopup="dialog" aria-expanded={showMeetingTimes}
+            className="min-h-[40px] sm:min-h-0" onClick={() => setShowMeetingTimes(true)}>
+            Suggest meeting times
+          </Button>
+        </div>
         {(!androidMobile || showFormatting) && <EditorToolbar
           editor={editor}
           onToggleAiAssist={() => setShowAiAssist(!showAiAssist)}
@@ -1197,6 +1209,18 @@ export function Composer() {
         <div className="p-4"><p className="text-sm">This deletes your saved draft and current changes.</p><div className="mt-4 flex flex-wrap gap-2"><button autoFocus type="button" disabled={discarding} className="min-h-[48px] px-4 rounded-lg border border-border-primary" onClick={() => setConfirmDiscard(false)}>Keep editing</button><button type="button" disabled={discarding} className="min-h-[48px] px-4 rounded-lg bg-danger text-white" onClick={() => void handleDiscard()}>{discarding ? "Discarding…" : "Discard draft"}</button></div></div>
       </Modal>
       {sendReviewDialog}
+      {isOpen && showMeetingTimes && (
+        <MeetingTimesDialog
+          onClose={() => setShowMeetingTimes(false)}
+          onAccept={(spans) => {
+            if (editor) {
+              editor.chain().focus().insertContentAt(editor.state.selection.to, meetingTimesHtml(spans)).run();
+            }
+            if (!useComposerStore.getState().subject.trim()) setSubject("Finding a time to meet");
+            setShowMeetingTimes(false);
+          }}
+        />
+      )}
       {showSchedule && (
         <ScheduleSendDialog
           onSchedule={handleSchedule}

@@ -33,7 +33,7 @@ export function MobileNavBar() {
           <Icon size={24} /><span>{label}</span>
         </button>)}
       </nav>
-      {activeLabel !== "calendar" && !selectedThreadId && !selectedCount && <button data-mobile-nav title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
+      {activeLabel !== "settings" && activeLabel !== "calendar" && !selectedThreadId && !selectedCount && <button data-mobile-nav title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
         className="fixed right-4 z-30 flex min-h-14 items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-base font-semibold text-white shadow-lg active:bg-accent-hover"
         style={{bottom:"calc(88px + var(--safe-area-inset-bottom, 0px))"}}>
         <Plus size={24}/><span>Compose</span>
@@ -98,7 +98,7 @@ export function MobileNavBar() {
       </button>
 
       {/* Compose Center Pill / FAB */}
-      {activeLabel !== "calendar" && <button
+      {activeLabel !== "settings" && activeLabel !== "calendar" && <button
         onClick={() => {
           setMobileSidebarOpen(false);
           openComposer({ mode: "new" });

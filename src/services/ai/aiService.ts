@@ -1,9 +1,11 @@
 import { getActiveProvider } from "./providerManager";
 import { getAiCache, setAiCache } from "@/services/db/aiCache";
 import { AiError } from "./errors";
-import type { DbMessage } from "@/services/db/messages";
+import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
+import type { Thread } from "@/stores/threadStore";
 import {
   SUMMARIZE_PROMPT,
+  INBOX_SUMMARY_PROMPT,
   COMPOSE_PROMPT,
   REPLY_PROMPT,
   IMPROVE_PROMPT,
@@ -64,6 +66,56 @@ export async function summarizeThread(
   // Cache the result
   await setAiCache(accountId, threadId, "summary", summary);
   return summary;
+}
+
+const INBOX_SUMMARY_CACHE_TYPE = "inbox_summary";
+let inboxSummaryQueue: Promise<void> = Promise.resolve();
+
+function inboxMessageText(message: DbMessage): string {
+  if (message.body_text?.trim()) return message.body_text.trim();
+  if (message.body_html) {
+    const template = document.createElement("template");
+    template.innerHTML = message.body_html.replace(/<\/(?:p|div|li|td)>|<br\s*\/?>/gi, "$& ");
+    template.content.querySelectorAll("script, style").forEach((node) => node.remove());
+    const text = template.content.textContent?.trim();
+    if (text) return text;
+  }
+  return message.snippet?.trim() ?? "";
+}
+
+export async function summarizeInboxThread(
+  { accountId, id, subject, lastMessageAt, messageCount }: Pick<Thread, "accountId" | "id" | "subject" | "lastMessageAt" | "messageCount">,
+  signal: AbortSignal,
+): Promise<string | null> {
+  const revision = `${lastMessageAt}:${messageCount}\n`;
+  const readCachedSummary = async () => {
+    const cached = await getAiCache(accountId, id, INBOX_SUMMARY_CACHE_TYPE);
+    return cached?.startsWith(revision) ? cached.slice(revision.length) : null;
+  };
+
+  const cached = await readCachedSummary();
+  if (cached || signal.aborted) return cached;
+
+  // Keep scrolling from firing a burst of concurrent model requests.
+  const request = inboxSummaryQueue.then(async () => {
+    if (signal.aborted) return null;
+    const cached = await readCachedSummary();
+    if (cached || signal.aborted) return cached;
+
+    const messages = await getMessagesForThread(accountId, id);
+    if (messages.length !== messageCount || !messages.length || signal.aborted) return null;
+
+    const recent = messages.slice(-4).map((message, index, selected) => ({
+      from: message.from_name || message.from_address,
+      body: inboxMessageText(message).slice(0, index === selected.length - 1 ? 3200 : 900),
+    }));
+    const content = JSON.stringify({ subject, messages: recent });
+    const summary = (await callAi(INBOX_SUMMARY_PROMPT, content)).replace(/\s+/g, " ").trim();
+    if (summary) await setAiCache(accountId, id, INBOX_SUMMARY_CACHE_TYPE, revision + summary);
+    return summary || null;
+  });
+  inboxSummaryQueue = request.then(() => undefined, () => undefined);
+  return request;
 }
 
 export async function composeFromPrompt(instructions: string): Promise<string> {

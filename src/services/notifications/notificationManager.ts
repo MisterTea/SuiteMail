@@ -83,7 +83,8 @@ export async function initNotifications(): Promise<void> {
     await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
       openNotification(notification.extra as NotificationContext | undefined);
     }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
-  } else if (notificationsEnabled) {
+  }
+  if (notificationsEnabled) {
     void requestMailNotificationPermission().catch(() => {});
   }
   digestChecker.start();

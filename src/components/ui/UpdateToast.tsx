@@ -48,7 +48,8 @@ export function UpdateToast() {
     >
       <div
         ref={toastRef}
-        className="fixed bottom-4 right-4 z-50 glass-panel rounded-lg shadow-lg overflow-hidden max-w-xs"
+        data-update-toast
+        className="fixed bottom-[calc(10rem+var(--safe-area-inset-bottom,env(safe-area-inset-bottom,0px)))] md:bottom-4 right-4 z-50 bg-bg-primary border border-border-primary rounded-lg shadow-lg overflow-hidden w-80 max-w-[calc(100vw-2rem)]"
       >
         <div className="px-4 py-3 space-y-2">
           <p className="text-sm font-medium text-text-primary">
