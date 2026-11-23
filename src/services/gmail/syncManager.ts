@@ -14,8 +14,11 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
 import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents";
+import { classifyError } from "@/utils/networkErrors";
 
 const SYNC_INTERVAL_MS = 60_000; // 60 seconds — delta syncs are lightweight (single API call when idle)
+const ANDROID_RESUME_WINDOW_MS = 15_000;
+const ANDROID_RESUME_RETRY_MS = 1_000;
 
 /** Map IMAP sync phases to the SyncProgress phases the UI understands. */
 function mapImapPhase(phase: string): "labels" | "threads" | "messages" | "done" {
@@ -29,10 +32,22 @@ function mapImapPhase(phase: string): "labels" | "threads" | "messages" | "done"
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let syncPromise: Promise<void> | null = null;
 let pendingAccountIds: string[] | null = null;
+let androidSyncForeground: boolean | undefined;
+let androidResumedAt: number | undefined;
+
+export function setAndroidSyncForeground(isActive: boolean | undefined): void {
+  if (androidSyncForeground === isActive) return;
+  androidSyncForeground = isActive;
+  androidResumedAt = isActive ? Date.now() : undefined;
+}
+
+function isAndroidSyncPaused(): boolean {
+  return androidSyncForeground === false;
+}
 
 export type SyncStatusCallback = (
   accountId: string,
-  status: "syncing" | "done" | "error",
+  status: "syncing" | "done" | "interrupted" | "error",
   progress?: SyncProgress,
   error?: string,
 ) => void;
@@ -215,7 +230,9 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
  * Run a sync for a single account (initial or delta).
  * Routes to Gmail or IMAP sync based on account provider.
  */
-async function syncAccountInternal(accountId: string): Promise<void> {
+async function syncAccountInternal(accountId: string, canRetry = true): Promise<void> {
+  const resumedAtStart = androidResumedAt;
+  const startedOnResume = resumedAtStart !== undefined && Date.now() - resumedAtStart < ANDROID_RESUME_WINDOW_MS;
   try {
     const account = await getAccount(accountId);
 
@@ -277,13 +294,30 @@ async function syncAccountInternal(accountId: string): Promise<void> {
       console.warn(`[syncManager] Calendar sync error for ${accountId}:`, err);
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err ?? "Unknown error");
+    const { type, message } = classifyError(err);
+    if (type === "network") {
+      if (isAndroidSyncPaused()) {
+        statusCallback?.(accountId, "interrupted");
+        return;
+      }
+      if (canRetry && androidSyncForeground && (startedOnResume || resumedAtStart !== androidResumedAt)) {
+        console.warn(`[syncManager] Retrying account ${accountId} after Android resumed:`, message);
+        await new Promise<void>((resolve) => setTimeout(resolve, ANDROID_RESUME_RETRY_MS));
+        if (androidSyncForeground) {
+          await syncAccountInternal(accountId, false);
+        } else {
+          statusCallback?.(accountId, "interrupted");
+        }
+        return;
+      }
+    }
     console.error(`[syncManager] Sync failed for account ${accountId}:`, message);
     statusCallback?.(accountId, "error", undefined, message);
   }
 }
 
 async function runSync(accountIds: string[]): Promise<void> {
+  if (isAndroidSyncPaused()) return;
   if (syncPromise) {
     // Queue these accounts, merging with any already-pending IDs
     const existing = new Set(pendingAccountIds ?? []);
@@ -294,8 +328,9 @@ async function runSync(accountIds: string[]): Promise<void> {
 
   syncPromise = (async () => {
     try {
-      await importBackgroundMail();
+      await importBackgroundMail().catch((error) => console.warn("Background mail import failed:", error));
       for (const id of accountIds) {
+        if (isAndroidSyncPaused()) break;
         await syncAccountInternal(id);
       }
     } finally {

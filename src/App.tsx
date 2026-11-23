@@ -20,12 +20,13 @@ import { getSetting } from "./services/db/settings";
 import {
   startBackgroundSync,
   stopBackgroundSync,
+  setAndroidSyncForeground,
   syncAccount,
   triggerSync,
   onSyncStatus,
 } from "./services/gmail/syncManager";
 import { App as AndroidApp } from "@capacitor/app";
-import { hasAndroidBackgroundSync, importBackgroundMail } from "./services/gmail/androidBackgroundSync";
+import { hasAndroidBackgroundSync } from "./services/gmail/androidBackgroundSync";
 import { initializeClients } from "./services/gmail/tokenManager";
 import {
   startSnoozeChecker,
@@ -127,7 +128,7 @@ export default function App() {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const accountCount = useAccountStore((s) => s.accounts.length);
-  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [syncFailure, setSyncFailure] = useState<{ accountId: string; message: string } | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [showAskInbox, setShowAskInbox] = useState(false);
@@ -367,7 +368,6 @@ export default function App() {
         // Initialize Gmail clients for existing accounts
         await initializeClients();
         await initNotifications();
-        await importBackgroundMail();
 
         // Fetch send-as aliases in background for active Gmail accounts
         const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
@@ -480,19 +480,29 @@ export default function App() {
 
   useEffect(() => {
     if (!initialized || !hasAndroidBackgroundSync()) return;
-    let disposed=false;
-    let foreground=true;
-    const onStateChange=({isActive}:{isActive:boolean})=>{
-      foreground=isActive;
-      if(!isActive){stopBackgroundSync();return;}
-      importBackgroundMail().catch(error=>console.warn("Background mail import failed:",error)).finally(()=>{
-        if(!disposed && foreground)startBackgroundSync(useAccountStore.getState().accounts.filter(account=>account.isActive).map(account=>account.id));
-      });
+    let disposed = false;
+    let foreground: boolean | undefined;
+    const onStateChange = ({ isActive }: { isActive: boolean }) => {
+      if (disposed || foreground === isActive) return;
+      foreground = isActive;
+      setAndroidSyncForeground(isActive);
+      if (!isActive) {
+        stopBackgroundSync();
+        return;
+      }
+      const activeIds = useAccountStore.getState().accounts.filter((account) => account.isActive).map((account) => account.id);
+      if (activeIds.length) startBackgroundSync(activeIds);
     };
-    const listener=AndroidApp.addListener("appStateChange",onStateChange);
-    AndroidApp.getState().then(state=>{if(!disposed && !state.isActive)onStateChange(state);}).catch(()=>{});
-    return ()=>{disposed=true;listener.then(handle=>handle.remove());};
-  },[initialized]);
+    const listener = AndroidApp.addListener("appStateChange", onStateChange);
+    void AndroidApp.getState().then((state) => {
+      if (foreground === undefined && !state.isActive) onStateChange(state);
+    }).catch(() => {});
+    return () => {
+      disposed = true;
+      setAndroidSyncForeground(undefined);
+      void listener.then((handle) => handle.remove()).catch(() => {});
+    };
+  }, [initialized]);
 
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
@@ -500,6 +510,7 @@ export default function App() {
     const unsub = onSyncStatus((accountId, status, _progress, error) => {
       useUIStore.getState().setAccountSyncing(accountId, status === "syncing");
       if (status === "done") {
+        setSyncFailure((failure) => failure?.accountId === accountId ? null : failure);
         window.dispatchEvent(new Event("suitemail-sync-done"));
         updateBadgeCount();
 
@@ -510,16 +521,22 @@ export default function App() {
             .then(({ backfillUncategorizedThreads }) => backfillUncategorizedThreads(accountId))
             .catch((err) => console.error("Backfill error:", err));
         }
-      } else if (status === "error") {
-        setSyncStatus(error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed");
+      } else if (status === "error" || status === "interrupted") {
+        if (status === "error") {
+          setSyncFailure({ accountId, message: error ? `Sync failed: ${formatSyncError(error)}` : "Sync failed" });
+        }
         // Still dispatch sync-done so the UI refreshes with any partially stored data
         window.dispatchEvent(new Event("suitemail-sync-done"));
-        // Auto-clear the error after 8 seconds
-        setTimeout(() => setSyncStatus(null), 8_000);
       }
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!syncFailure) return;
+    const timeout = setTimeout(() => setSyncFailure(null), 8_000);
+    return () => clearTimeout(timeout);
+  }, [syncFailure]);
 
   // Sync theme class to <html> element
   useEffect(() => {
@@ -658,16 +675,14 @@ export default function App() {
 
       <MobileNavBar />
 
-      {/* Sync status bar */}
-      {syncStatus && (
+      {syncFailure && (
         <div
-          className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
+          role="status"
+          className={`fixed bottom-0 left-0 right-0 glass-panel bg-danger/90 text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
             sidebarCollapsed ? "md:left-16" : "md:left-60"
-          } ${
-            syncStatus.startsWith("Sync failed") ? "bg-danger/90" : "bg-accent/90"
           }`}
         >
-          {syncStatus}
+          {syncFailure.message}
         </div>
       )}
 

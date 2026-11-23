@@ -52,6 +52,7 @@ import {
   syncAccount,
   startBackgroundSync,
   stopBackgroundSync,
+  setAndroidSyncForeground,
   triggerSync,
   onSyncStatus,
 } from "./syncManager";
@@ -108,6 +109,7 @@ describe("syncManager", () => {
 
   afterEach(() => {
     stopBackgroundSync();
+    setAndroidSyncForeground(undefined);
   });
 
   describe("syncAccount", () => {
@@ -312,6 +314,72 @@ describe("syncManager", () => {
 
       expect(errors).toHaveLength(1);
       expect(errors[0]).toBe("Unknown error");
+    });
+  });
+
+  describe("Android foreground sync", () => {
+    it.each([true, false])("retries one transport failure on resume (recovers: %s)", async (recovers) => {
+      vi.useFakeTimers();
+      const status = vi.fn();
+      const unsubscribe = onSyncStatus(status);
+      try {
+        mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "100"));
+        mockDeltaSync.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+        if (!recovers) mockDeltaSync.mockRejectedValueOnce(new Error("Connection timed out"));
+        setAndroidSyncForeground(false);
+        setAndroidSyncForeground(true);
+
+        const finished = syncAccount("a1");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(mockDeltaSync).toHaveBeenCalledTimes(1);
+        expect(status.mock.calls.map(([, state]) => state)).toEqual(["syncing"]);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        await finished;
+        expect(mockDeltaSync).toHaveBeenCalledTimes(2);
+        expect(status.mock.calls.map(([, state]) => state)).toEqual(["syncing", "syncing", recovers ? "done" : "error"]);
+      } finally {
+        unsubscribe();
+        vi.useRealTimers();
+      }
+    });
+
+    it("waits for the next foreground sync if a request is interrupted in the background", async () => {
+      mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "100"));
+      const status = vi.fn();
+      const unsubscribe = onSyncStatus(status);
+      try {
+        mockDeltaSync.mockImplementationOnce(async () => {
+          setAndroidSyncForeground(false);
+          throw new TypeError("Failed to fetch");
+        });
+        await syncAccount("a1");
+        await syncAccount("a1");
+        expect(mockDeltaSync).toHaveBeenCalledTimes(1);
+        expect(status.mock.calls.map(([, state]) => state)).toEqual(["syncing", "interrupted"]);
+
+        setAndroidSyncForeground(true);
+        await syncAccount("a1");
+        expect(mockDeltaSync).toHaveBeenCalledTimes(2);
+        expect(status).toHaveBeenLastCalledWith("a1", "done");
+      } finally {
+        unsubscribe();
+      }
+    });
+
+    it("reports an authentication error immediately after resume", async () => {
+      mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "100"));
+      mockDeltaSync.mockRejectedValueOnce(new Error("Authentication failed"));
+      const status = vi.fn();
+      const unsubscribe = onSyncStatus(status);
+      try {
+        setAndroidSyncForeground(true);
+        await syncAccount("a1");
+        expect(mockDeltaSync).toHaveBeenCalledTimes(1);
+        expect(status).toHaveBeenLastCalledWith("a1", "error", undefined, "Authentication failed");
+      } finally {
+        unsubscribe();
+      }
     });
   });
 });
