@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MeetingTimesDialog, formatMeetingSpan, meetingTimesHtml } from "./MeetingTimesDialog";
 
 vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: () => false }));
@@ -16,36 +16,38 @@ describe("meeting time suggestions", () => {
   it("adds drag selections in either direction, retains them across weeks, and removes spans", () => {
     const onAccept = vi.fn();
     render(<MeetingTimesDialog onAccept={onAccept} onClose={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "Insert meeting times" })).toBeDisabled();
+    const insert = screen.getByText("Insert meeting times", { selector: "button" });
+    expect(insert).toBeDisabled();
     const day = screen.getAllByTestId("meeting-day")[0]!;
     // Half-hour cells are 24px tall: 9:00 through 10:30.
     fireEvent.pointerDown(day, { button: 0, clientY: 18 * 24 + 1 });
     fireEvent.pointerMove(day, { clientY: 20 * 24 + 1 });
     fireEvent.pointerUp(day, { clientY: 20 * 24 + 1 });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Next week" }));
+    fireEvent.click(screen.getByLabelText("Next week"));
     const nextDay = screen.getAllByTestId("meeting-day")[1]!;
     fireEvent.pointerDown(nextDay, { button: 0, clientY: 22 * 24 + 1 });
     fireEvent.pointerUp(nextDay, { clientY: 21 * 24 + 1 });
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: "Insert meeting times" }));
+    fireEvent.click(insert);
     const spans = onAccept.mock.calls[0]![0];
     expect(spans[0].start.getHours()).toBe(9);
     expect(spans[0].end.getHours()).toBe(10);
     expect(spans[0].end.getMinutes()).toBe(30);
     expect(+spans[1].end - +spans[1].start).toBe(60 * 60000);
-    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0]!);
+    fireEvent.click(within(screen.getAllByRole("listitem")[0]!).getByRole("button", { name: /^Remove / }));
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
   });
 
   it("supports keyboard activation, avoids duplicate spans, and cancels without accepting", () => {
     const onAccept = vi.fn(), onClose = vi.fn();
     render(<MeetingTimesDialog onAccept={onAccept} onClose={onClose} />);
-    const slot = screen.getAllByRole("button", { name: /^Add / })[18]!;
+    const day = screen.getAllByTestId("meeting-day")[0]!;
+    const slot = within(day).getAllByLabelText(/^Add /)[18]!;
     fireEvent.click(slot, { detail: 0 });
     fireEvent.click(slot, { detail: 0 });
     expect(screen.getAllByRole("listitem")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByText("Cancel", { selector: "button" }));
     expect(onClose).toHaveBeenCalledOnce();
     expect(onAccept).not.toHaveBeenCalled();
   });
@@ -56,7 +58,7 @@ describe("meeting time suggestions", () => {
     fireEvent.pointerDown(day, { button: 0, clientY: 200 });
     fireEvent.pointerCancel(day);
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
-    expect(screen.getByRole("button", { name: "Insert meeting times" })).toBeDisabled();
+    expect(screen.getByText("Insert meeting times", { selector: "button" })).toBeDisabled();
   });
 
   it("formats chronological email options with dates, time zones, and a request for preferences", () => {

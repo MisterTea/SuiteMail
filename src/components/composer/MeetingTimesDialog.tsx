@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -47,7 +47,14 @@ export function MeetingTimesDialog({ onAccept, onClose }: {
   const [spans, setSpans] = useState<MeetingSpan[]>([]);
   const [drag, setDrag] = useState<{ day: Date; first: number; last: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const days = Array.from({ length: 7 }, (_, i) => dayAt(week, i));
+  const days = useMemo(() => Array.from({ length: 7 }, (_, i) => {
+    const day = dayAt(week, i);
+    const slotLabels = SLOTS.map((slot) => `Add ${formatMeetingSpan(spanFor(day, slot, slot))}`);
+    return { day, slotLabels };
+  }), [week]);
+  const hourLabels = useMemo(() => SLOTS.map((slot) => slot % 2 === 0
+    ? new Date(2000, 0, 1, slot / 2).toLocaleTimeString(undefined, { hour: "numeric" })
+    : ""), []);
   const preview = drag ? spanFor(drag.day, drag.first, drag.last) : null;
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -86,15 +93,15 @@ export function MeetingTimesDialog({ onAccept, onClose }: {
             <div className="min-w-[640px]">
               <div className="sticky top-0 z-10 grid bg-bg-primary border-b border-border-primary" style={{ gridTemplateColumns: "56px repeat(7, minmax(0, 1fr))" }}>
                 <div />
-                {days.map((day) => <div key={+day} className="text-xs text-center py-2 border-l border-border-secondary font-medium">
+                {days.map(({ day }) => <div key={+day} className="text-xs text-center py-2 border-l border-border-secondary font-medium">
                   {day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
                 </div>)}
               </div>
               <div className="grid" style={{ gridTemplateColumns: "56px repeat(7, minmax(0, 1fr))" }}>
                 <div aria-hidden="true">{SLOTS.map((slot) => <div key={slot} style={{ height: SLOT_HEIGHT }} className="text-[10px] text-right pr-1 text-text-tertiary">
-                  {slot % 2 === 0 ? new Date(2000, 0, 1, slot / 2).toLocaleTimeString(undefined, { hour: "numeric" }) : ""}
+                  {hourLabels[slot]}
                 </div>)}</div>
-                {days.map((day) => (
+                {days.map(({ day, slotLabels }) => (
                   <div key={+day} data-testid="meeting-day" className="relative border-l border-border-secondary select-none" style={{ touchAction: "none" }}
                     onPointerDown={(e) => {
                       if (e.button !== 0) return;
@@ -113,7 +120,7 @@ export function MeetingTimesDialog({ onAccept, onClose }: {
                     onPointerCancel={() => setDrag(null)}
                     onLostPointerCapture={() => setDrag(null)}>
                     {SLOTS.map((slot) => <button key={slot} type="button"
-                      aria-label={`Add ${formatMeetingSpan(spanFor(day, slot, slot))}`}
+                      aria-label={slotLabels[slot]}
                       onClick={(e) => { if (e.detail === 0) addSpan(spanFor(day, slot, slot)); }}
                       style={{ height: SLOT_HEIGHT }}
                       className="block w-full border-b border-border-secondary hover:bg-accent/10 focus-visible:bg-accent/20 focus-visible:outline-2 focus-visible:outline-accent cursor-crosshair" />)}
