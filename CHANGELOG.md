@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.4 (2026-11-23)
+
+* Show AI summaries in Android new-mail notifications and use the message preview when a summary is unavailable.
+* Move Translate into the More menu and put three-line Quick Replies below the Reply and Forward controls.
+* Add compact Compose and floating bug-reporting buttons on Android.
+* Set up Android AiCore automatically and ask before downloading a model over a metered connection.
+
 ## 0.1.3 (2026-11-23)
 
 * Sync filters, Smart Labels, Smart Folders, and Quick Steps across devices connected to the same IMAP mailbox.
