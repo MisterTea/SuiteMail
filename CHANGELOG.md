@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 (2026-11-23)
+
+* Show three-line AI inbox summaries using the configured AI provider.
+* Suggest meeting times from the composer and review AI-detected calendar events before adding them.
+* Improve Android email scrolling, notification startup, and sync recovery when returning to the app.
+* Improve Linux desktop integration and test Debian and AppImage upgrades, including Wayland desktop behavior.
+
 ## 0.1.1 (2026-11-22)
 
 * Add Gmail-style dark mode color transformation for HTML email bodies.
