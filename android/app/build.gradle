@@ -54,6 +54,8 @@ repositories {
 
 dependencies {
     implementation "com.google.mlkit:genai-prompt:1.0.0-beta4"
+    // ML Kit beta4 requires coroutines 1.11+ to finish or cancel a model download.
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
     implementation "androidx.work:work-runtime:2.11.2"
     implementation "com.google.android.gms:play-services-auth:22.0.0"
     implementation fileTree(include: ['*.jar'], dir: 'libs')

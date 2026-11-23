@@ -67,7 +67,7 @@ public class SuiteMailPlugin extends Plugin {
             try {
                 if (command.equals("aicore_is_available") || command.equals("aicore_generate") || command.equals("aicore_prepare")) {
                     JSObject result = new JSObject();
-                    result.put("value", aiCore.invoke(command, args));
+                    result.put("value", aiCore.invoke(command, args, getContext()));
                     call.resolve(result);
                     return;
                 }

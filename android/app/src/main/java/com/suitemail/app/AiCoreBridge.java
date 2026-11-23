@@ -1,16 +1,23 @@
 package com.suitemail.app;
 
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.google.mlkit.genai.common.DownloadCallback;
 import com.google.mlkit.genai.common.FeatureStatus;
+import com.google.mlkit.genai.common.GenAiException;
 import com.google.mlkit.genai.prompt.*;
 import com.google.mlkit.genai.prompt.java.GenerativeModelFutures;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** On-device inference only. Never substitutes a cloud provider or a smaller model. */
 final class AiCoreBridge {
     private GenerativeModelFutures model;
+    private final Object modelOperations = new Object();
+    private volatile ModelDownload activeDownload;
 
     static GenerationConfig fullConfiguration() {
         ModelConfig.Builder config = new ModelConfig.Builder();
@@ -21,13 +28,15 @@ final class AiCoreBridge {
         return generation.build();
     }
 
-    private GenerativeModelFutures client() {
+    private synchronized GenerativeModelFutures client() {
         if (model == null) model = GenerativeModelFutures.from(Generation.INSTANCE.getClient(fullConfiguration()));
         return model;
     }
 
-    synchronized Object invoke(String command, JSObject args) throws Exception {
+    Object invoke(String command, JSObject args, Context context) throws Exception {
         if (command.equals("aicore_is_available")) {
+            ModelDownload download = activeDownload;
+            if (download != null) return download.status;
             try { return describe(client().checkStatus().get(30, TimeUnit.SECONDS)); }
             catch (Exception e) {
                 if (e instanceof InterruptedException) Thread.currentThread().interrupt();
@@ -36,11 +45,36 @@ final class AiCoreBridge {
                 return result;
             }
         }
+        synchronized (modelOperations) {
+            return invokeModel(command, args, context);
+        }
+    }
+
+    private Object invokeModel(String command, JSObject args, Context context) throws Exception {
         int status = client().checkStatus().get(30, TimeUnit.SECONDS);
         if (command.equals("aicore_prepare")) {
             if (status == FeatureStatus.DOWNLOADABLE) {
-                client().download(new DownloadCallback() {}).get(20, TimeUnit.MINUTES);
-                status = client().checkStatus().get(30, TimeUnit.SECONDS);
+                JSObject blocked = checkDownloadConnection(context, Boolean.TRUE.equals(args.getBool("allowMeteredDownload")));
+                if (blocked != null) return blocked;
+                ModelDownload download = new ModelDownload();
+                activeDownload = download;
+                try {
+                    var future = client().download(download);
+                    try {
+                        future.get(20, TimeUnit.MINUTES);
+                    } catch (TimeoutException e) {
+                        future.cancel(true);
+                        throw new IllegalStateException("AiCore setup timed out. Check availability and try again.");
+                    } catch (InterruptedException e) {
+                        future.cancel(true);
+                        Thread.currentThread().interrupt();
+                        throw e;
+                    }
+                    if (download.failure != null) throw download.failure;
+                    status = client().checkStatus().get(30, TimeUnit.SECONDS);
+                } finally {
+                    activeDownload = null;
+                }
             }
             return describe(status);
         }
@@ -63,6 +97,63 @@ final class AiCoreBridge {
         return response.getCandidates().get(0).getText();
     }
 
+    private static JSObject checkDownloadConnection(Context context, boolean allowMeteredDownload) {
+        ConnectivityManager manager = context.getSystemService(ConnectivityManager.class);
+        NetworkCapabilities network = manager == null ? null : manager.getNetworkCapabilities(manager.getActiveNetwork());
+        if (network == null || !network.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+            JSObject offline = describe(FeatureStatus.DOWNLOADABLE);
+            offline.put("message", "Connect to the internet to download the AiCore model.");
+            return offline;
+        }
+        if (!allowMeteredDownload && !(network.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+                && network.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED))) {
+            JSObject consent = describe(FeatureStatus.DOWNLOADABLE);
+            consent.put("downloadRequiresConsent", true);
+            return consent;
+        }
+        return null;
+    }
+
+    private static final class ModelDownload implements DownloadCallback {
+        private volatile JSObject status = describe(FeatureStatus.DOWNLOADING);
+        private volatile GenAiException failure;
+        private long totalBytes;
+        private long downloadedBytes;
+        private boolean completed;
+
+        @Override public synchronized void onDownloadStarted(long bytesToDownload) {
+            totalBytes = bytesToDownload;
+            updateProgress(downloadedBytes);
+        }
+
+        @Override public synchronized void onDownloadProgress(long totalBytesDownloaded) {
+            updateProgress(totalBytesDownloaded);
+        }
+
+        @Override public synchronized void onDownloadCompleted() {
+            completed = true;
+            JSObject finishing = describe(FeatureStatus.DOWNLOADING);
+            finishing.put("downloadPercentage", 100);
+            finishing.put("message", "Finishing AiCore setup…");
+            status = finishing;
+        }
+
+        @Override public void onDownloadFailed(GenAiException error) {
+            failure = error;
+        }
+
+        private void updateProgress(long bytes) {
+            if (completed) return;
+            downloadedBytes = Math.max(downloadedBytes, bytes);
+            JSObject progress = describe(FeatureStatus.DOWNLOADING);
+            progress.put("downloadedBytes", downloadedBytes);
+            if (totalBytes > 0) {
+                progress.put("downloadPercentage", (int) Math.min(100, downloadedBytes * 100.0 / totalBytes));
+            }
+            status = progress;
+        }
+    }
+
     static JSObject describe(int status) {
         JSObject result = new JSObject();
         result.put("available", status == FeatureStatus.AVAILABLE);
@@ -78,7 +169,7 @@ final class AiCoreBridge {
     private static String message(int status) {
         if (status == FeatureStatus.AVAILABLE) return "AiCore FULL is ready.";
         if (status == FeatureStatus.DOWNLOADABLE) return "Download the on-device model using Set up AiCore.";
-        if (status == FeatureStatus.DOWNLOADING) return "The on-device model is downloading. Check again when it finishes.";
+        if (status == FeatureStatus.DOWNLOADING) return "Downloading the on-device model…";
         return "AiCore FULL is not supported or is not ready on this device.";
     }
 }

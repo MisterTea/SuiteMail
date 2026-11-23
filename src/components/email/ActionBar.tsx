@@ -11,7 +11,7 @@ import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { SnoozeDialog } from "./SnoozeDialog";
 import { FollowUpDialog } from "./FollowUpDialog";
-import { Archive, Trash2, MailOpen, Mail, Star, Clock, Ban, Pin, MailMinus, BellRing, VolumeX, Reply, ReplyAll, Forward, FolderInput, Printer, Download, ExternalLink, PanelRightClose, PanelRightOpen, ListTodo, ArrowLeft, Menu, MoreHorizontal } from "lucide-react";
+import { Archive, Trash2, MailOpen, Mail, Star, Clock, Ban, Pin, MailMinus, BellRing, VolumeX, Reply, ReplyAll, Forward, FolderInput, Printer, Download, ExternalLink, PanelRightClose, PanelRightOpen, ListTodo, ArrowLeft, Menu, MoreHorizontal, Languages } from "lucide-react";
 import type { DbMessage } from "@/services/db/messages";
 import { insertFollowUpReminder, getFollowUpForThread, cancelFollowUpForThread } from "@/services/db/followUpReminders";
 import { Button } from "@/components/ui/Button";
@@ -30,6 +30,9 @@ interface ActionBarProps {
   onReply?: () => void;
   onReplyAll?: () => void;
   onForward?: () => void;
+  onTranslate?: () => void;
+  translationLabel?: string;
+  translating?: boolean;
   onPrint?: () => void;
   onExport?: () => void;
   onPopOut?: () => void;
@@ -41,7 +44,7 @@ function Separator() {
   return <div className="w-px h-4 bg-border-primary/50 mx-1.5 shrink-0" />;
 }
 
-export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar }: ActionBarProps) {
+export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onTranslate, translationLabel = "Translate", translating, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar }: ActionBarProps) {
   const androidMobile = useAndroidMobile();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showMore, setShowMore] = useState(false);
@@ -337,50 +340,51 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   return (
     <>
       {androidMobile && (
-        <>
-          <div data-testid="android-message-actions" className="grid grid-cols-5 shrink-0 border-b border-border-primary bg-bg-primary px-1 py-1">
-            {[
-              {label:"Back", title:"Back to list", icon:ArrowLeft, action:()=>navigateToLabel(activeLabel)},
-              {label:"Archive", title:"Archive (e)", icon:Archive, action:handleArchive},
-              {label:activeLabel === "trash" ? "Delete forever" : "Trash", title:activeLabel === "trash" ? "Delete permanently (#)" : "Delete (#)", icon:Trash2, action:()=>activeLabel === "trash" ? setConfirmDelete(true) : handleDelete()},
-              {label:thread.isStarred ? "Starred" : "Star", title:thread.isStarred ? "Unstar (s)" : "Star (s)", icon:Star, action:handleToggleStar},
-              {label:"More", title:"More message actions", icon:MoreHorizontal, action:()=>setShowMore(true)},
-            ].map(({label,title,icon:Icon,action}) => (
-              <button key={label} title={title} aria-label={title === "More message actions" ? title : label === "Back" ? "Back to list" : label}
-                aria-pressed={Icon === Star ? thread.isStarred : undefined}
-                onClick={action} className="flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-xl text-xs font-medium text-text-secondary active:bg-accent/10">
-                <Icon size={22} className={Icon === Star && thread.isStarred ? "fill-amber-400 text-amber-500" : ""} />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-          <Modal isOpen={showMore} onClose={()=>setShowMore(false)} title="Message actions" width="w-full max-w-md">
-            <div className="px-3 pb-4 space-y-1">
-              <p className="px-3 py-2 text-sm text-text-tertiary truncate">{thread.subject}</p>
-              {[
-                ...(hasLastMessage ? [
-                  {label:"Reply", title:"Reply (r)", icon:Reply, action:onReply, disabled:noReply},
-                  {label:"Reply all", title:"Reply All (a)", icon:ReplyAll, action:onReplyAll, disabled:noReply},
-                  {label:"Forward", title:"Forward (f)", icon:Forward, action:onForward},
-                ] : []),
-                {label:thread.isRead ? "Mark unread" : "Mark read", title:thread.isRead ? "Mark unread" : "Mark read", icon:Mail, action:handleToggleRead},
-                {label:thread.isPinned ? "Unpin from top" : "Pin to top", title:thread.isPinned ? "Unpin (p)" : "Pin (p)", icon:Pin, action:handleTogglePin},
-                {label:"Snooze", title:"Snooze (h)", icon:Clock, action:()=>setShowSnooze(true)},
-                {label:"Move to folder", title:"Move to folder (v)", icon:FolderInput, action:()=>window.dispatchEvent(new CustomEvent("suitemail-move-to-folder",{detail:{threadIds:[thread.id]}}))},
-                {label:isSpamView ? "Not spam" : "Report spam", title:isSpamView ? "Not Spam (!)" : "Report Spam (!)", icon:Ban, action:handleSpam},
-                ...(hasUnsubscribe ? [{label:unsubscribeStatus === "loading" ? "Unsubscribing…" : unsubscribeStatus === "done" ? "Unsubscribe requested" : "Unsubscribe & archive", title:"Unsubscribe (u)", icon:MailMinus, action:handleUnsubscribe, disabled:unsubscribeStatus !== "idle"}] : []),
-                {label:thread.isMuted ? "Unmute" : "Mute conversation", title:"Mute conversation", icon:VolumeX, action:handleToggleMute},
-                {label:hasFollowUp ? "Cancel reminder" : "Remind me if no reply", title:"Follow-up reminder", icon:BellRing, action:hasFollowUp ? handleCancelFollowUp : ()=>setShowFollowUp(true)},
-              ].map(({label,title,icon:Icon,action,disabled}) => (
-                <button key={title} title={title} disabled={disabled} onClick={()=>{setShowMore(false);action?.();}}
-                  className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left text-base text-text-primary active:bg-accent/10 disabled:opacity-50">
-                  <Icon size={22} className="shrink-0 text-text-secondary" /><span>{label}</span>
-                </button>
-              ))}
-            </div>
-          </Modal>
-        </>
+        <div data-testid="android-message-actions" className="grid grid-cols-5 shrink-0 border-b border-border-primary bg-bg-primary px-1 py-1">
+          {[
+            {label:"Back", title:"Back to list", icon:ArrowLeft, action:()=>navigateToLabel(activeLabel)},
+            {label:"Archive", title:"Archive (e)", icon:Archive, action:handleArchive},
+            {label:activeLabel === "trash" ? "Delete forever" : "Trash", title:activeLabel === "trash" ? "Delete permanently (#)" : "Delete (#)", icon:Trash2, action:()=>activeLabel === "trash" ? setConfirmDelete(true) : handleDelete()},
+            {label:thread.isStarred ? "Starred" : "Star", title:thread.isStarred ? "Unstar (s)" : "Star (s)", icon:Star, action:handleToggleStar},
+            {label:"More", title:"More message actions", icon:MoreHorizontal, action:()=>setShowMore(true)},
+          ].map(({label,title,icon:Icon,action}) => (
+            <button key={label} title={title} aria-label={title === "More message actions" ? title : label === "Back" ? "Back to list" : label}
+              aria-pressed={Icon === Star ? thread.isStarred : undefined}
+              onClick={action} className="flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-xl text-xs font-medium text-text-secondary active:bg-accent/10">
+              <Icon size={22} className={Icon === Star && thread.isStarred ? "fill-amber-400 text-amber-500" : ""} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
       )}
+      <Modal isOpen={showMore} onClose={()=>setShowMore(false)} title="Message actions" width="w-full max-w-md">
+        <div className="px-3 pb-4 space-y-1">
+          <p className="px-3 py-2 text-sm text-text-tertiary truncate">{thread.subject}</p>
+          {[
+            ...(androidMobile && hasLastMessage ? [
+              {label:"Reply", title:"Reply (r)", icon:Reply, action:onReply, disabled:noReply},
+              {label:"Reply all", title:"Reply All (a)", icon:ReplyAll, action:onReplyAll, disabled:noReply},
+              {label:"Forward", title:"Forward (f)", icon:Forward, action:onForward},
+            ] : []),
+            ...(onTranslate ? [{label:translationLabel, title:translationLabel, icon:Languages, action:onTranslate, disabled:translating}] : []),
+            ...(androidMobile ? [
+              {label:thread.isRead ? "Mark unread" : "Mark read", title:thread.isRead ? "Mark unread" : "Mark read", icon:Mail, action:handleToggleRead},
+              {label:thread.isPinned ? "Unpin from top" : "Pin to top", title:thread.isPinned ? "Unpin (p)" : "Pin (p)", icon:Pin, action:handleTogglePin},
+              {label:"Snooze", title:"Snooze (h)", icon:Clock, action:()=>setShowSnooze(true)},
+              {label:"Move to folder", title:"Move to folder (v)", icon:FolderInput, action:()=>window.dispatchEvent(new CustomEvent("suitemail-move-to-folder",{detail:{threadIds:[thread.id]}}))},
+              {label:isSpamView ? "Not spam" : "Report spam", title:isSpamView ? "Not Spam (!)" : "Report Spam (!)", icon:Ban, action:handleSpam},
+              ...(hasUnsubscribe ? [{label:unsubscribeStatus === "loading" ? "Unsubscribing…" : unsubscribeStatus === "done" ? "Unsubscribe requested" : "Unsubscribe & archive", title:"Unsubscribe (u)", icon:MailMinus, action:handleUnsubscribe, disabled:unsubscribeStatus !== "idle"}] : []),
+              {label:thread.isMuted ? "Unmute" : "Mute conversation", title:"Mute conversation", icon:VolumeX, action:handleToggleMute},
+              {label:hasFollowUp ? "Cancel reminder" : "Remind me if no reply", title:"Follow-up reminder", icon:BellRing, action:hasFollowUp ? handleCancelFollowUp : ()=>setShowFollowUp(true)},
+            ] : []),
+          ].map(({label,title,icon:Icon,action,disabled}) => (
+            <button key={title} title={title} disabled={disabled} onClick={()=>{setShowMore(false);action?.();}}
+              className="flex w-full items-center gap-4 rounded-xl px-4 py-3 text-left text-base text-text-primary active:bg-accent/10 disabled:opacity-50">
+              <Icon size={22} className="shrink-0 text-text-secondary" /><span>{label}</span>
+            </button>
+          ))}
+        </div>
+      </Modal>
       {!androidMobile && (<>
       <div className="flex items-center flex-nowrap gap-1 px-2 md:px-3.5 py-1.5 border-b border-border-primary/80 bg-bg-secondary/70 backdrop-blur-md overflow-x-auto scrollbar-none touch-pan-x shrink-0">
         {/* Mobile Back & Menu buttons */}
@@ -405,6 +409,18 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
             className="w-12 h-12 min-w-[48px] min-h-[48px] text-text-secondary hover:bg-bg-hover active:scale-90 transition-all rounded-full touch-manipulation"
           />
         </div>
+        {onTranslate && (
+          <Button
+            variant="secondary"
+            iconOnly
+            icon={<MoreHorizontal size={18} />}
+            onClick={() => setShowMore(true)}
+            title="More message actions"
+            aria-label="More message actions"
+            aria-haspopup="dialog"
+            className="w-12 h-12 min-w-[48px] min-h-[48px] sm:w-auto sm:h-auto sm:min-w-0 sm:min-h-0 touch-manipulation shrink-0"
+          />
+        )}
         {/* Reply / Forward group */}
         {hasLastMessage && (
           <>

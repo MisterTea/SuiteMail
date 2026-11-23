@@ -72,6 +72,14 @@ describe("providerManager", () => {
   });
 
   describe("getActiveProviderName", () => {
+    it.each([[null, "aicore"], ["claude", "claude"], ["openai", "openai"]])("resolves Android provider %s to %s", async (saved, expected) => {
+      vi.stubGlobal("navigator", { userAgent: "Android" });
+      try {
+        mockGetSetting.mockResolvedValue(saved);
+        expect(await getActiveProviderName()).toBe(expected);
+      } finally { vi.unstubAllGlobals(); }
+    });
+
     it.each(["ollama", "pi"])("uses AiCore instead of a saved %s provider on Android", async (saved) => {
       vi.stubGlobal("navigator", { userAgent: "Android" });
       try {

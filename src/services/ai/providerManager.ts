@@ -23,8 +23,10 @@ let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } 
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
-  if (isAndroidAiRuntime() && (setting === "pi" || (setting === "ollama" && !(await isAndroidEmulator())))) return "aicore";
+  const android = isAndroidAiRuntime();
+  if (android && (setting === "pi" || (setting === "ollama" && !(await isAndroidEmulator())))) return "aicore";
   if (
+    setting === "claude" ||
     setting === "openai" ||
     setting === "gemini" ||
     setting === "ollama" ||
@@ -35,7 +37,7 @@ export async function getActiveProviderName(): Promise<AiProvider> {
     return setting;
   }
 
-  return "claude";
+  return android ? "aicore" : "claude";
 }
 
 export async function getActiveProvider(): Promise<AiProviderClient> {

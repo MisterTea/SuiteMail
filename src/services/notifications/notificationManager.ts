@@ -4,6 +4,7 @@ import { navigateToLabel } from "../../router/navigate";
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { getDb } from "../db/connection";
+import { getThreadById } from "../db/threads";
 import { getVipSenders } from "../db/notificationVips";
 import { useAccountStore } from "@/stores/accountStore";
 import { getAccountNotificationPreferences, isDuringQuietHours } from "./notificationPreferences";
@@ -11,6 +12,7 @@ import { createBackgroundChecker } from "../backgroundCheckers";
 import { normalizeEmail } from "@/utils/emailUtils";
 
 let nextNotificationId = Date.now() % 1_000_000_000;
+const SUMMARY_TIMEOUT_MS = 5_000;
 
 export async function requestMailNotificationPermission(): Promise<boolean> {
   if (Capacitor.getPlatform() === "android") {
@@ -21,16 +23,60 @@ export async function requestMailNotificationPermission(): Promise<boolean> {
   return Notification.permission === "granted" || (Notification.permission === "default" && await Notification.requestPermission() === "granted");
 }
 
-async function notifyPlatform(title: string, body: string, context?: NotificationContext): Promise<void> {
+async function getNotificationSummary(accountId: string, threadId: string, signal: AbortSignal): Promise<string | null> {
+  if ((await getSetting("ai_auto_summarize")) === "false" || signal.aborted) return null;
+  const { isAiAvailable } = await import("../ai/providerManager");
+  const available = !signal.aborted && await isAiAvailable();
+  if (!available || signal.aborted) return null;
+  const thread = await getThreadById(accountId, threadId);
+  if (!thread || signal.aborted) return null;
+  const { summarizeInboxThread } = await import("../ai/aiService");
+  if (signal.aborted) return null;
+  return summarizeInboxThread({
+    accountId,
+    id: threadId,
+    subject: thread.subject,
+    lastMessageAt: thread.last_message_at ?? 0,
+    messageCount: thread.message_count,
+  }, signal);
+}
+
+async function getNotificationPreview(snippet: string, context?: NotificationContext): Promise<string> {
+  const fallback = snippet.replace(/\s+/g, " ").trim();
+  if (!context?.accountId || !context.threadId) return fallback;
+
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        resolve(null);
+      }, SUMMARY_TIMEOUT_MS);
+    });
+    const summary = await Promise.race([
+      getNotificationSummary(context.accountId, context.threadId, controller.signal).catch(() => null),
+      timeout,
+    ]);
+    return summary || fallback;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function notifyPlatform(title: string, body: string, context?: NotificationContext, snippet?: string): Promise<void> {
   if (!notificationsEnabled) return;
   try {
     if (Capacitor.getPlatform() === "android") {
       if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
+      const preview = snippet === undefined ? "" : await getNotificationPreview(snippet, context);
+      if (!notificationsEnabled) return;
       await LocalNotifications.schedule({ notifications: [
         {
           id: ++nextNotificationId,
           title,
-          body,
+          body: preview ? `${body} — ${preview}` : body,
+          ...(preview ? { largeBody: `${body}\n${preview}` } : {}),
           smallIcon: "ic_launcher_foreground",
           isExactNotification: false,
           extra: context ?? {},
@@ -125,6 +171,7 @@ export function queueNewEmailNotification(
   threadId?: string,
   accountId?: string,
   fromAddress?: string,
+  snippet = "",
 ): void {
   if (!notificationsEnabled) return;
   void (async () => {
@@ -152,7 +199,7 @@ export function queueNewEmailNotification(
 
     if (!notifyTimer) notifyTimer = setTimeout(() => {
       if (pendingCount === 1) {
-        void notifyPlatform(from, subject || "(No subject)", ctx);
+        void notifyPlatform(from, subject || "(No subject)", ctx, snippet);
       } else if (pendingCount > 1) {
         void notifyPlatform("SuiteMail", `${pendingCount} new emails`);
       }

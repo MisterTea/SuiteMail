@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from "react";
-import { MessageItem } from "./MessageItem";
+import { MessageItem, type MessageTranslation } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { useUIStore } from "@/stores/uiStore";
 import type { Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
+import { useToastStore } from "@/stores/toastStore";
 import { markThreadRead, archiveThread } from "@/services/emailActions";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
@@ -279,6 +280,39 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // Message-level keyboard navigation (ArrowUp / ArrowDown)
   const [focusedMsgIdx, setFocusedMsgIdx] = useState(-1);
   const messageRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const [expandedMessageId, setExpandedMessageId] = useState<string>();
+  const [translations, setTranslations] = useState<Partial<Record<string, MessageTranslation>>>({});
+  const translationTarget = messages.find((msg) => msg.id === expandedMessageId) ?? messages[focusedMsgIdx] ?? lastMessage;
+  const translation = translationTarget && translations[translationTarget.id];
+  const translationLabel = translation?.status === "translating" ? "Translating…"
+    : translation?.visible ? "Show Original" : "Translate";
+
+  const hideTranslation = useCallback((messageId: string) => {
+    setTranslations((current) => {
+      const item = current[messageId];
+      return item?.status === "ready" ? { ...current, [messageId]: { ...item, visible: false } } : current;
+    });
+  }, []);
+
+  const handleTranslate = async () => {
+    if (!translationTarget || translation?.status === "translating") return;
+    const { id, body_text, snippet } = translationTarget;
+    if (translation?.status === "ready") {
+      setTranslations((current) => ({ ...current, [id]: { ...translation, visible: !translation.visible } }));
+      return;
+    }
+
+    setTranslations((current) => ({ ...current, [id]: { status: "translating" } }));
+    try {
+      const { translateEmail } = await import("@/services/ai/aiService");
+      const text = await translateEmail(body_text || snippet || "", "English");
+      setTranslations((current) => ({ ...current, [id]: { status: "ready", text, visible: true } }));
+    } catch (error) {
+      setTranslations((current) => ({ ...current, [id]: undefined }));
+      console.error("Translation error:", error);
+      useToastStore.getState().showToast({ message: "Couldn’t translate the message." });
+    }
+  };
 
   // Reset focused index when thread changes
   useEffect(() => {
@@ -308,12 +342,14 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
       if (e.key === "ArrowDown") {
         e.preventDefault();
+      setExpandedMessageId(undefined);
         setFocusedMsgIdx((prev) => {
           const next = prev + 1;
           return next < messages.length ? next : prev;
         });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+      setExpandedMessageId(undefined);
         setFocusedMsgIdx((prev) => {
           const next = prev - 1;
           return next >= 0 ? next : prev;
@@ -408,6 +444,9 @@ export function ThreadView({ thread }: ThreadViewProps) {
           onReply={handleReply}
           onReplyAll={handleReplyAll}
           onForward={handleForward}
+          onTranslate={translationTarget ? handleTranslate : undefined}
+          translationLabel={translationLabel}
+          translating={translation?.status === "translating"}
           onPrint={handlePrint}
           onExport={handleExport}
           onPopOut={() => handlePopOut(thread)}
@@ -469,20 +508,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
                 blockImages={blockImages}
                 senderAllowlisted={msg.from_address ? allowlistedSenders.has(msg.from_address) : false}
                 isSpam={thread.labelIds.includes("SPAM")}
+                translation={translations[msg.id]}
+                onExpand={setExpandedMessageId}
+                onHideTranslation={hideTranslation}
                 onContextMenu={(e) => handleMessageContextMenu(e, msg)}
               />
             ))}
           </ErrorBoundary>
-
-          {/* Smart Reply Suggestions */}
-          {activeAccountId && messages.length > 0 && (
-            <SmartReplySuggestions
-              threadId={thread.id}
-              accountId={activeAccountId}
-              messages={messages}
-              noReply={noReply}
-            />
-          )}
 
           {/* Inline Reply */}
           {activeAccountId && (
@@ -497,6 +529,15 @@ export function ThreadView({ thread }: ThreadViewProps) {
                   .then(setMessages)
                   .catch(console.error);
               }}
+            />
+          )}
+
+          {activeAccountId && messages.length > 0 && (
+            <SmartReplySuggestions
+              threadId={thread.id}
+              accountId={activeAccountId}
+              messages={messages}
+              noReply={noReply}
             />
           )}
         </div>

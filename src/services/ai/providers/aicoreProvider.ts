@@ -6,6 +6,17 @@ export interface AiCoreStatus {
   supported_models: string[];
   status?: "available" | "downloadable" | "downloading" | "unavailable";
   message?: string;
+  downloadPercentage?: number;
+  downloadedBytes?: number;
+  downloadRequiresConsent?: boolean;
+}
+
+export const AICORE_READY_EVENT = "suitemail-aicore-ready";
+
+export async function prepareAiCore(allowMeteredDownload = false): Promise<AiCoreStatus> {
+  const status = await invoke<AiCoreStatus>("aicore_prepare", { allowMeteredDownload });
+  if (status.available) window.dispatchEvent(new Event(AICORE_READY_EVENT));
+  return status;
 }
 
 let instance: AiProviderClient | null = null;

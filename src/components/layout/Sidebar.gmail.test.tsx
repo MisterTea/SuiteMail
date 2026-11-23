@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { DndContext } from "@dnd-kit/core";
+import { Capacitor } from "@capacitor/core";
 import { Sidebar } from "./Sidebar";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -17,6 +18,8 @@ vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveLabel: () => "inbox",
   useActiveCategory: () => "Primary",
 }));
+
+vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: () => false }));
 
 vi.mock("@/services/db/threads", () => ({
   getDraftCountForAccount: vi.fn(async () => 0),
@@ -54,6 +57,17 @@ describe("Sidebar Gmail labels", () => {
     navigateToLabel.mockClear();
     useUIStore.setState({ sidebarNavConfig: null, mobileSidebarOpen: false, inboxViewMode: "unified" });
     useAccountStore.setState({ accounts: [], activeAccountId: null });
+  });
+
+  it("leaves feedback to the floating Android control", async () => {
+    const platform = vi.spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+    try {
+      renderSidebar();
+      await settle();
+      expect(screen.queryByRole("button", { name: "Report bug or request feature" })).not.toBeInTheDocument();
+    } finally {
+      platform.mockRestore();
+    }
   });
 
   it("shows Gmail's common labels for a Gmail account", async () => {

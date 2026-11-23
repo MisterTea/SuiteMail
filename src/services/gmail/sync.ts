@@ -411,6 +411,7 @@ export async function deltaSync(
                   parsed.threadId,
                   accountId,
                   fromAddr,
+                  parsed.snippet,
                 );
               }
             }

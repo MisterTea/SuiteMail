@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useDroppable } from "@dnd-kit/core";
+import { Capacitor } from "@capacitor/core";
 import { FeedbackButton } from "../feedback/FeedbackButton";
 import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
@@ -593,7 +594,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         >
           <RefreshCw size={16} className={isSyncing ? "animate-spin" : ""} />
         </button>
-        <FeedbackButton />
+        {Capacitor.getPlatform() !== "android" && <FeedbackButton />}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">

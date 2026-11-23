@@ -6,7 +6,11 @@ const mocks = vi.hoisted(() => ({
   checkPermissions: vi.fn(),
   requestPermissions: vi.fn(),
   addListener: vi.fn(),
+  schedule: vi.fn(),
   start: vi.fn(),
+  getThreadById: vi.fn(),
+  isAiAvailable: vi.fn(),
+  summarizeInboxThread: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: mocks.getPlatform } }));
@@ -14,8 +18,12 @@ vi.mock("@capacitor/local-notifications", () => ({ LocalNotifications: {
   checkPermissions: mocks.checkPermissions,
   requestPermissions: mocks.requestPermissions,
   addListener: mocks.addListener,
+  schedule: mocks.schedule,
 } }));
 vi.mock("../db/settings", () => ({ getSetting: mocks.getSetting, addSettingChangeListener: vi.fn() }));
+vi.mock("../db/threads", () => ({ getThreadById: mocks.getThreadById }));
+vi.mock("../ai/providerManager", () => ({ isAiAvailable: mocks.isAiAvailable }));
+vi.mock("../ai/aiService", () => ({ summarizeInboxThread: mocks.summarizeInboxThread }));
 vi.mock("../backgroundCheckers", () => ({ createBackgroundChecker: () => ({ start: mocks.start }) }));
 vi.mock("../../router/navigate", () => ({ navigateToLabel: vi.fn() }));
 
@@ -78,5 +86,48 @@ describe("notification startup", () => {
 
     expect(requestPermission).toHaveBeenCalledOnce();
     expect(mocks.requestPermissions).not.toHaveBeenCalled();
+  });
+});
+
+describe("Android new mail notifications", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mocks.checkPermissions.mockResolvedValue({ display: "granted" });
+    mocks.getThreadById.mockResolvedValue({ subject: "Quick question", last_message_at: 123, message_count: 1 });
+    mocks.isAiAvailable.mockResolvedValue(true);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it("includes the inbox summary and preserves the notification's thread context", async () => {
+    mocks.summarizeInboxThread.mockResolvedValue("Christian asks to meet on Tuesday.");
+    const { queueNewEmailNotification } = await import("./notificationManager");
+
+    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", "sender@example.com", "Hi, are you free Tuesday?");
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.dynamicImportSettled();
+
+    expect(mocks.schedule).toHaveBeenCalledExactlyOnceWith({ notifications: [expect.objectContaining({
+      title: "Christian",
+      body: "Quick question — Christian asks to meet on Tuesday.",
+      largeBody: "Quick question\nChristian asks to meet on Tuesday.",
+      extra: { threadId: "thread-1", accountId: "account-1", fromAddress: "sender@example.com", subject: "Quick question" },
+    })] });
+  });
+
+  it("shows the message preview when the summary takes too long", async () => {
+    mocks.summarizeInboxThread.mockImplementation(() => new Promise(() => {}));
+    const { queueNewEmailNotification } = await import("./notificationManager");
+
+    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", undefined, "  Hi,\nare you free Tuesday?  ");
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.dynamicImportSettled();
+    expect(mocks.summarizeInboxThread).toHaveBeenCalledOnce();
+    expect(mocks.schedule).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(mocks.schedule).toHaveBeenCalledExactlyOnceWith({ notifications: [expect.objectContaining({
+      largeBody: "Quick question\nHi, are you free Tuesday?",
+    })] });
   });
 });

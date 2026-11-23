@@ -10,6 +10,7 @@ import { CommandPalette } from "./components/search/CommandPalette";
 import { ShortcutsHelp } from "./components/search/ShortcutsHelp";
 import { AskInbox } from "./components/search/AskInbox";
 import { AgentConsentPopover } from "./components/ai/AgentConsentPopover";
+import { AiCoreStartup } from "./components/ai/AiCoreStartup";
 import { OutgoingSyncPopover } from "./components/sync/OutgoingSyncPopover";
 import { useUIStore } from "./stores/uiStore";
 import { hasMailAccount, useAccountStore } from "./stores/accountStore";
@@ -26,6 +27,7 @@ import {
   onSyncStatus,
 } from "./services/gmail/syncManager";
 import { App as AndroidApp } from "@capacitor/app";
+import { Capacitor } from "@capacitor/core";
 import { hasAndroidBackgroundSync } from "./services/gmail/androidBackgroundSync";
 import { initializeClients } from "./services/gmail/tokenManager";
 import {
@@ -674,6 +676,7 @@ export default function App() {
       </div>
 
       <MobileNavBar />
+      {Capacitor.getPlatform() === "android" && <AiCoreStartup canPrompt={!showAddAccount} />}
 
       {syncFailure && (
         <div

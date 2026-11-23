@@ -24,6 +24,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
 import { addSettingChangeListener, getSetting } from "@/services/db/settings";
+import { AICORE_READY_EVENT } from "@/services/ai/providers/aicoreProvider";
 import { archiveThread, trashThread, permanentDeleteThread, spamThread, markThreadRead, starThread } from "@/services/emailActions";
 import { BatchActionBar } from "../email/BatchActionBar";
 import { MoveToFolderDialog } from "../email/MoveToFolderDialog";
@@ -93,9 +94,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         void update();
       }
     });
+    window.addEventListener(AICORE_READY_EVENT, update);
     return () => {
       check++;
       unsubscribe();
+      window.removeEventListener(AICORE_READY_EVENT, update);
     };
   }, [activeAccountId, isInboxView]);
   const readFilter = useUIStore((s) => s.readFilter);

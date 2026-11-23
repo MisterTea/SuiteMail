@@ -100,15 +100,15 @@ export function SmartReplySuggestions({ threadId, accountId, messages, noReply }
         </div>
       )}
       {replies && (
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-1 gap-2 @xl:grid-cols-3">
           {replies.map((reply, i) => (
             <button
               key={i}
               onClick={() => handleReplyClick(reply)}
-              className="px-3 py-1.5 text-xs text-text-primary bg-bg-primary border border-border-primary rounded-full hover:bg-bg-hover hover:border-accent/40 transition-colors max-w-[280px] truncate"
+              className="min-h-18 min-w-0 rounded-xl border border-border-primary bg-bg-primary px-3 py-2 text-left text-sm leading-[1.125rem] text-text-primary transition-colors hover:border-accent/40 hover:bg-bg-hover"
               title={reply}
             >
-              {reply}
+              <span className="line-clamp-3 wrap-anywhere">{reply}</span>
             </button>
           ))}
         </div>

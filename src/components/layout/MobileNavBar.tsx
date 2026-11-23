@@ -1,6 +1,8 @@
 import { useThreadStore } from "@/stores/threadStore";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { Capacitor } from "@capacitor/core";
 import { Mail, Star, Calendar, ListTodo, Plus, Settings, Menu } from "lucide-react";
+import { FeedbackButton } from "../feedback/FeedbackButton";
 import { useActiveLabel, useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { useComposerStore } from "@/stores/composerStore";
@@ -13,9 +15,21 @@ export function MobileNavBar() {
   const selectedCount = useThreadStore((s)=>s.selectedThreadIds.size);
   const activeLabel = useActiveLabel();
   const openComposer = useComposerStore((s) => s.openComposer);
+  const composerOpen = useComposerStore((s) => s.isOpen);
   const incompleteTaskCount = useTaskStore((s) => s.incompleteCount);
   const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+  const showFloatingCompose = androidMobile && !composerOpen && activeLabel !== "settings" && activeLabel !== "calendar" && !selectedThreadId && !selectedCount;
+  const floatingFeedback = (androidMobile || Capacitor.getPlatform() === "android") && (
+    <div
+      data-android-feedback
+      data-bulk-selected={androidMobile && selectedCount > 0 ? "true" : undefined}
+      data-composer-open={composerOpen ? "true" : undefined}
+      className={`fixed z-[70] ${showFloatingCompose ? "right-20" : "right-4"}`}
+    >
+      <FeedbackButton floating />
+    </div>
+  );
 
   if (androidMobile) {
     const destinations = [
@@ -25,6 +39,7 @@ export function MobileNavBar() {
       {label:"Folders", id:"folders", icon:Menu},
     ];
     return <>
+      {floatingFeedback}
       <nav data-mobile-nav aria-label="Mobile navigation" className="fixed bottom-0 inset-x-0 z-30 grid grid-cols-4 border-t border-border-primary bg-bg-primary px-2 pt-1">
         {destinations.map(({label,id,icon:Icon}) => <button key={id} data-testid={id === "folders" ? "mobile-nav-menu" : undefined}
           aria-label={id === "folders" ? "Open folders menu" : label} aria-current={activeLabel === id ? "page" : undefined}
@@ -33,15 +48,15 @@ export function MobileNavBar() {
           <Icon size={24} /><span>{label}</span>
         </button>)}
       </nav>
-      {activeLabel !== "settings" && activeLabel !== "calendar" && !selectedThreadId && !selectedCount && <button data-mobile-nav title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
-        className="fixed right-4 z-30 flex min-h-14 items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-base font-semibold text-white shadow-lg active:bg-accent-hover"
-        style={{bottom:"calc(88px + var(--safe-area-inset-bottom, 0px))"}}>
-        <Plus size={24}/><span>Compose</span>
+      {showFloatingCompose && <button data-mobile-nav data-android-compose title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
+        className="fixed right-4 z-30 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg active:bg-accent-hover">
+        <Plus size={24} aria-hidden="true" />
       </button>}
     </>;
   }
 
-  return (
+  return <>
+    {floatingFeedback}
     <nav
       aria-label="Mobile navigation"
       className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around px-2 py-1.5 border-t border-border-primary bg-bg-primary/95 backdrop-blur-md glass-panel shadow-lg select-none"
@@ -104,10 +119,10 @@ export function MobileNavBar() {
           openComposer({ mode: "new" });
         }}
         title="Compose Email"
-        className="flex flex-col items-center justify-center px-3 py-1 -mt-2.5 rounded-full bg-accent text-white shadow-md hover:bg-accent-hover transition-all active:scale-95"
+        aria-label="Compose email"
+        className="flex size-11 shrink-0 items-center justify-center -mt-2.5 rounded-full bg-accent text-white shadow-md hover:bg-accent-hover transition-all active:scale-95"
       >
-        <Plus size={18} />
-        <span className="text-[10px] font-semibold leading-tight">Compose</span>
+        <Plus size={24} aria-hidden="true" />
       </button>}
 
       {/* Calendar */}
@@ -161,5 +176,5 @@ export function MobileNavBar() {
         <span className="mt-0.5">Settings</span>
       </button>
     </nav>
-  );
+  </>;
 }

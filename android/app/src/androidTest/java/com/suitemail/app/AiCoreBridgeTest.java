@@ -1,6 +1,7 @@
 package com.suitemail.app;
 
 import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.core.app.ApplicationProvider;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import com.getcapacitor.JSObject;
@@ -21,7 +22,7 @@ public class AiCoreBridgeTest {
         assertEquals("downloadable", status.getString("status"));
     }
     @Test public void checksActualDeviceSupportWithoutDownloading() throws Exception {
-        JSObject status = (JSObject) new AiCoreBridge().invoke("aicore_is_available", new JSObject());
+        JSObject status = (JSObject) new AiCoreBridge().invoke("aicore_is_available", new JSObject(), ApplicationProvider.getApplicationContext());
         assertNotNull(status.getString("status"));
         assertEquals("available".equals(status.getString("status")), status.getBoolean("available"));
     }

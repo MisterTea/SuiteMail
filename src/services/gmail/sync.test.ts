@@ -148,6 +148,7 @@ describe("deltaSync notifications", () => {
       "thread-1",
       "account-1",
       "sender@example.com",
+      "snippet",
     );
   });
 

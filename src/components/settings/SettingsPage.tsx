@@ -2,7 +2,7 @@ import { AccountNotificationSettings } from "./AccountNotificationSettings";
 import { isElectron, platformInvoke } from "@/platform";
 import { requestMailNotificationPermission } from "@/services/notifications/notificationManager";
 import { SEND_CHECKS } from "../composer/SendChecks";
-import { isAndroidEmulator, resolveOllamaServerUrl } from "@/services/ai/androidHostAi";
+import { isAndroidAiRuntime, isAndroidEmulator, resolveOllamaServerUrl } from "@/services/ai/androidHostAi";
 import { SandboxAccountSettings } from "./SandboxAccountSettings";
 import { AiCoreSettings } from "./AiCoreSettings";
 import { AndroidBackgroundSyncSettings } from "./AndroidBackgroundSyncSettings";
@@ -203,18 +203,12 @@ export function SettingsPage() {
       }
 
       // Load AI settings
-      let isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
-      if (isAndroid) {
-        setIsAndroidPlatform(true);
-      }
+      setIsAndroidPlatform(isAndroidAiRuntime());
 
       const emulator = await isAndroidEmulator();
       setAndroidEmulator(emulator);
-      const savedProvider = await getSetting("ai_provider");
-      const provider = isAndroid && (savedProvider === "pi" || (savedProvider === "ollama" && !emulator)) ? "aicore" : savedProvider;
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "pi" || provider === "aicore") {
-        setAiProvider(provider);
-      }
+      const { getActiveProviderName } = await import("@/services/ai/providerManager");
+      setAiProvider(await getActiveProviderName());
       const ollamaUrl = await getSetting("ollama_server_url");
       setOllamaServerUrl(await resolveOllamaServerUrl(ollamaUrl));
       const ollamaModelVal = await getSetting("ollama_model");

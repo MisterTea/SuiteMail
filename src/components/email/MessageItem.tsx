@@ -19,6 +19,8 @@ import { ContractCard } from "./ContractCard";
 import type { DetectedTracker } from "@/utils/trackingPixels";
 import { spamThread } from "@/services/emailActions";
 
+export type MessageTranslation = { status: "translating" } | { status: "ready"; text: string; visible: boolean };
+
 interface MessageItemProps {
   message: DbMessage;
   contextMessages?: DbMessage[];
@@ -29,10 +31,13 @@ interface MessageItemProps {
   threadId?: string;
   isSpam?: boolean;
   focused?: boolean;
+  translation?: MessageTranslation;
+  onExpand?: (messageId: string) => void;
+  onHideTranslation?: (messageId: string) => void;
   onContextMenu?: (e: React.MouseEvent) => void;
 }
 
-export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, contextMessages, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onContextMenu }, ref) {
+export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, contextMessages, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, translation, onExpand, onHideTranslation, onContextMenu }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
@@ -49,39 +54,14 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     [message.body_text, message.snippet],
   );
 
-  const [translatedText, setTranslatedText] = useState<string | null>(null);
-  const [translating, setTranslating] = useState(false);
-  const [showTranslation, setShowTranslation] = useState(false);
+  const showTranslation = translation?.status === "ready" && translation.visible;
+  const translating = translation?.status === "translating";
 
   const handleReportSpam = async () => {
     const accId = accountId ?? message.account_id;
     const thrId = threadId ?? message.thread_id;
     if (accId && thrId) {
       await spamThread(accId, thrId, [], true);
-    }
-  };
-
-  const handleTranslate = async () => {
-    if (showTranslation) {
-      setShowTranslation(false);
-      return;
-    }
-    if (translatedText) {
-      setShowTranslation(true);
-      return;
-    }
-
-    setTranslating(true);
-    try {
-      const { translateEmail } = await import("@/services/ai/aiService");
-      const content = message.body_text || message.snippet || "";
-      const res = await translateEmail(content, "English");
-      setTranslatedText(res);
-      setShowTranslation(true);
-    } catch (err) {
-      console.error("Translation error:", err);
-    } finally {
-      setTranslating(false);
     }
   };
 
@@ -103,18 +83,19 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     }
   }, [isLast]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-expand when focused via keyboard navigation
+  // Open the card when the user navigates to it or requests a translation.
   useEffect(() => {
-    if (focused && !expanded) {
+    if ((focused || translating || showTranslation) && !expanded) {
       setExpanded(true);
       loadAttachments();
     }
-  }, [focused]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focused, translating, showTranslation]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleToggle = () => {
     const willExpand = !expanded;
     setExpanded(willExpand);
     if (willExpand) {
+      onExpand?.(message.id);
       loadAttachments();
     }
   };
@@ -227,8 +208,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             <PackageTrackingCard items={trackingItems} />
           )}
 
-          <div className="flex items-center gap-3 mb-2 flex-wrap">
-            {message.list_unsubscribe && (
+          {message.list_unsubscribe && (
+            <div className="mb-2">
               <UnsubscribeLink
                 header={message.list_unsubscribe}
                 postHeader={message.list_unsubscribe_post}
@@ -237,18 +218,12 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
                 fromAddress={message.from_address}
                 fromName={message.from_name}
               />
-            )}
-            <button
-              onClick={handleTranslate}
-              disabled={translating}
-              className="inline-flex items-center gap-1.5 text-xs text-text-tertiary hover:text-text-primary px-3 py-1.5 min-h-[40px] sm:min-h-0 sm:px-2.5 sm:py-1 rounded-md bg-bg-tertiary/40 hover:bg-bg-hover active:scale-95 border border-border-secondary/50 transition-all touch-manipulation"
-            >
-              <Languages size={14} className="text-text-tertiary shrink-0" />
-              <span>{translating ? "Translating..." : showTranslation ? "Show Original" : "Translate"}</span>
-            </button>
-          </div>
+            </div>
+          )}
 
-          {showTranslation && translatedText && (
+          {translating && <p role="status" className="mb-3 text-xs text-text-tertiary">Translating…</p>}
+
+          {showTranslation && (
             <div className="mb-3 p-3 rounded-lg border border-accent/30 bg-accent/5 text-xs text-text-primary leading-relaxed">
               <div className="flex items-center justify-between font-semibold text-accent mb-1.5">
                 <span className="flex items-center gap-1.5">
@@ -256,13 +231,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
                   <span>English Translation (AI)</span>
                 </span>
                 <button
-                  onClick={() => setShowTranslation(false)}
+                  onClick={() => onHideTranslation?.(message.id)}
                   className="text-text-tertiary hover:text-text-primary text-[11px]"
                 >
                   Hide
                 </button>
               </div>
-              <p className="whitespace-pre-wrap">{translatedText}</p>
+              <p className="whitespace-pre-wrap">{translation.text}</p>
             </div>
           )}
 
