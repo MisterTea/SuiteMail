@@ -59,6 +59,10 @@ let lastNotificationContext: NotificationContext | null = null;
 const recentContexts = new Map<string, NotificationContext>();
 
 export async function showAndFocusMainWindow(): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.isElectron && window.supermail.invoke) {
+    await window.supermail.invoke('show_main_window');
+    return;
+  }
   if (typeof window !== "undefined") {
     window.focus();
   }

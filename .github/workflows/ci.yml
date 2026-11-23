@@ -42,5 +42,129 @@ jobs:
       - name: Run Unit Tests
         run: npm test
 
+      - name: Test desktop integration
+        run: npm run test:electron
+
       - name: Build Web Bundle
         run: npm run build
+
+  linux-desktop:
+    name: Linux packages and upgrade
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install desktop test dependencies
+        run: sudo apt-get update && sudo apt-get install -y xvfb dbus-x11 openbox desktop-file-utils xdotool libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libnotify4 libxtst6 libatk-bridge2.0-0
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - run: npm run build:rust:release
+      - run: npm run build
+      - name: Verify startup recovery and first-run grace
+        run: xvfb-run -a dbus-run-session -- node scripts/test-desktop-startup.mjs
+      - name: Build current packages
+        run: npx electron-builder --linux --x64 --publish never
+      - name: Build a newer release for upgrade testing
+        shell: bash
+        run: |
+          NEXT_VERSION=$(node -p 'const v=require("./package.json").version.split("."); `${v[0]}.${v[1]}.${Number(v[2])+1}`')
+          npx electron-builder --linux --x64 --publish never --config.extraMetadata.version="$NEXT_VERSION" --config.directories.output=dist-electron-update
+      - name: Install Debian package and validate desktop registration
+        run: |
+          sudo apt-get install -y ./dist-electron/*.deb
+          desktop-file-validate /usr/share/applications/com.suitemail.app.desktop
+          test -x /opt/SuiteMail/suitemail
+      - name: Exercise both packages and upgrades
+        run: xvfb-run -a dbus-run-session -- npm run test:linux -- dist-electron dist-electron-update
+        env:
+          SUITEMAIL_TEST_INSTALLED: '1'
+      - name: Verify Debian package upgrade
+        run: |
+          sudo apt-get install -y ./dist-electron-update/*.deb
+          SUITEMAIL_TEST_INSTALLED=1 xvfb-run -a dbus-run-session -- npm run test:linux -- dist-electron-update
+      - name: Share the baseline package with desktop tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-desktop-package
+          path: dist-electron/*.deb
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: linux-package-diagnostics
+          path: |
+            dist-electron/*debug*
+            test-results/linux-desktop.log
+            test-results/linux-desktop.png
+
+  linux-wayland:
+    name: Wayland (${{ matrix.label }})
+    needs: linux-desktop
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    container:
+      image: ${{ matrix.image }}
+      options: --shm-size=1g
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: GNOME 46
+            image: ubuntu:24.04
+            desktop: gnome
+            packages: gnome-shell gjs xdg-desktop-portal-gnome
+            consent: '0'
+          - label: GNOME 50 and shortcut consent
+            image: ubuntu:26.04
+            desktop: gnome
+            packages: gnome-shell gjs gnome-control-center python3-pyatspi xdg-desktop-portal-gnome
+            consent: '1'
+          - label: KDE Plasma 5.27
+            image: ubuntu:24.04
+            desktop: kde
+            packages: kwin-wayland qtwayland5 xdg-desktop-portal-kde
+            consent: '0'
+    steps:
+      # Plain Ubuntu images have no Node runtime for JavaScript actions in act.
+      - name: Bootstrap container action runtime
+        run: apt-get update -qq && apt-get install -y --no-install-recommends nodejs ca-certificates
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-desktop-package
+          path: dist-electron-ci
+      - name: Install the desktop and baseline package
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          DESKTOP_PACKAGES: ${{ matrix.packages }}
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends $DESKTOP_PACKAGES xvfb xauth dbus-x11 xdotool libcap2-bin libglib2.0-bin libgtk-3-0t64 libnss3 libasound2t64 libgbm1 libxss1 libnotify4 libxtst6
+          apt-get install -y ./dist-electron-ci/*.deb
+          if test -f /usr/bin/kwin_wayland; then setcap -r /usr/bin/kwin_wayland || true; fi
+          useradd -m -s /bin/bash mailtest
+          install -d -o mailtest -g mailtest /tmp/suitemail-reports
+          mkdir -p /run/dbus
+          dbus-daemon --system --fork
+          /usr/lib/systemd/systemd-logind > /tmp/logind.log 2>&1 &
+          gdbus wait --system --timeout=10 org.freedesktop.login1
+      - run: npm ci --ignore-scripts
+      - name: Exercise native Wayland as a regular user
+        env:
+          DESKTOP: ${{ matrix.desktop }}
+          TEST_CONSENT: ${{ matrix.consent }}
+        run: runuser -u mailtest -- env SUITEMAIL_ISOLATED_DESKTOP_TEST=1 SUITEMAIL_TEST_SHORTCUT_CONSENT=$TEST_CONSENT SUITEMAIL_DESKTOP_REPORT_DIR=/tmp/suitemail-reports xvfb-run -a bash scripts/run-linux-wayland.sh $DESKTOP node scripts/test-linux-wayland.mjs /opt/SuiteMail/suitemail
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wayland-${{ matrix.desktop }}-${{ matrix.image == 'ubuntu:26.04' && '26' || '24' }}
+          path: /tmp/suitemail-reports/

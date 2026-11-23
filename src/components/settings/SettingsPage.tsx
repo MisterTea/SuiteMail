@@ -1,4 +1,5 @@
 import { AccountNotificationSettings } from "./AccountNotificationSettings";
+import { isElectron, platformInvoke } from "@/platform";
 import { requestMailNotificationPermission } from "@/services/notifications/notificationManager";
 import { SEND_CHECKS } from "../composer/SendChecks";
 import { isAndroidEmulator, resolveOllamaServerUrl } from "@/services/ai/androidHostAi";
@@ -20,6 +21,7 @@ import { triggerSync, forceFullSync, resyncAccount } from "@/services/gmail/sync
 import {
   registerComposeShortcut,
   getCurrentShortcut,
+  getComposeShortcutError,
   DEFAULT_SHORTCUT,
 } from "@/services/globalShortcut";
 import {
@@ -125,6 +127,7 @@ export function SettingsPage() {
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
   const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot" | "pi" | "aicore">("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
@@ -194,7 +197,10 @@ export function SettingsPage() {
       setSyncPeriodDays(syncDays ?? "365");
 
       // Load autostart state
-      setAutostartEnabled(false);
+      if (isElectron()) {
+        try { setAutostartEnabled(await platformInvoke<boolean>("get_autostart")); }
+        catch (error) { setAutostartError(String(error)); }
+      }
 
       // Load AI settings
       let isAndroid = typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
@@ -338,8 +344,12 @@ export function SettingsPage() {
   }, [accounts]);
 
   const handleAutostartToggle = useCallback(async () => {
-    setAutostartEnabled((prev) => !prev);
-  }, []);
+    setAutostartError(null);
+    try {
+      if (!isElectron()) throw new Error("Launch at login is available in the desktop app.");
+      setAutostartEnabled(await platformInvoke<boolean>("set_autostart", { enabled: !autostartEnabled }));
+    } catch (error) { setAutostartError(error instanceof Error ? error.message : String(error)); }
+  }, [autostartEnabled]);
 
   const handleRemoveAccount = useCallback(
     async (accountId: string) => {
@@ -588,10 +598,11 @@ export function SettingsPage() {
                   <Section title="Startup">
                     <ToggleRow
                       label="Launch at login"
-                      description="Start SuiteMail automatically when you log in (minimized to tray)"
+                      description="Start SuiteMail in the background when you log in. On Linux it stays accessible in the taskbar."
                       checked={autostartEnabled}
                       onToggle={handleAutostartToggle}
                     />
+                    {autostartError && <p role="alert" className="text-xs text-danger mt-1">{autostartError}</p>}
                   </Section>
 
                   <Section title="Privacy & Security">
@@ -1853,6 +1864,7 @@ function DeveloperTab() {
         <div className="flex items-center justify-between">
           <div>
             <span className="text-sm text-text-secondary">Software updates</span>
+            {platformLabel === "Linux" && <p className="text-xs text-text-tertiary mt-0.5">AppImage updates replace the original file, which must be writable. Debian package updates may ask for administrator authentication.</p>}
             {updateError && <p role="alert" className="text-xs text-danger mt-0.5">{updateError}</p>}
             {updateVersion && (
               <p className="text-xs text-accent mt-0.5">
@@ -1995,6 +2007,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 function ShortcutsTab() {
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const keyMap = useShortcutStore((s) => s.keyMap);
   const setKey = useShortcutStore((s) => s.setKey);
   const resetKey = useShortcutStore((s) => s.resetKey);
@@ -2008,6 +2021,7 @@ function ShortcutsTab() {
   useEffect(() => {
     const current = getCurrentShortcut();
     if (current) setComposeShortcut(current);
+    setShortcutError(getComposeShortcutError());
   }, []);
 
   const handleGlobalRecord = useCallback((e: React.KeyboardEvent) => {
@@ -2024,10 +2038,10 @@ function ShortcutsTab() {
     if (key !== "Control" && key !== "Meta" && key !== "Shift" && key !== "Alt") {
       parts.push(key.length === 1 ? key.toUpperCase() : key);
       const shortcut = parts.join("+");
-      setComposeShortcut(shortcut);
       setRecordingGlobal(false);
-      registerComposeShortcut(shortcut).catch((err) => {
-        console.error("Failed to register shortcut:", err);
+      setShortcutError(null);
+      registerComposeShortcut(shortcut).then(() => setComposeShortcut(shortcut)).catch((err) => {
+        setShortcutError(err instanceof Error ? err.message : String(err));
       });
     }
   }, [recordingGlobal]);
@@ -2059,12 +2073,16 @@ function ShortcutsTab() {
   return (
     <>
       <Section title="Global Shortcut">
+        {shortcutError && <p role="alert" className="text-xs text-danger mb-2">{shortcutError}</p>}
         <div className="flex items-center justify-between">
           <div>
             <span className="text-sm text-text-secondary">Quick compose</span>
             <p className="text-xs text-text-tertiary mt-0.5">
               Open compose window from any app
             </p>
+            {/linux/i.test(navigator.userAgent) && !/android/i.test(navigator.userAgent) && (
+              <p className="text-xs text-text-tertiary mt-0.5">On Wayland, approve the shortcut in your desktop's permission dialog. Your desktop settings control the final binding.</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <kbd className="text-xs bg-bg-tertiary px-2 py-1 rounded border border-border-primary font-mono">

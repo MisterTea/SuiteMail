@@ -3,7 +3,8 @@ import { useComposerStore } from "../stores/composerStore";
 import { escapeHtml } from "../utils/sanitize";
 
 async function handleUrl(url: string): Promise<void> {
-  if (!url || !url.startsWith("mailto:")) return;
+  if (!url || !/^mailto:/i.test(url)) return;
+  url = url.replace(/^mailto:/i, "mailto:");
 
   const fields = parseMailtoUrl(url);
 

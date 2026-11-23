@@ -11,8 +11,9 @@ await mkdir(cache, { recursive: true });
 const fixture = await mkdtemp(path.join(cache, 'startup-test-'));
 const mainURL = pathToFileURL(path.resolve('electron/main.js')).href;
 try {
-  for (const scenario of ['healthy', 'failed-load', 'stalled']) {
+  for (const scenario of ['healthy', 'failed-load', 'stalled', 'first-run-stalled']) {
     const userData = await mkdtemp(path.join(os.tmpdir(), 'suitemail-startup-'));
+    if (scenario === 'stalled') await writeFile(path.join(userData, '.startup-ready'), 'ready\n');
     const entry = path.join(fixture, `${scenario}.mjs`);
     await writeFile(entry, `
       import { app, BrowserWindow, dialog } from 'electron';
@@ -24,7 +25,7 @@ try {
       };
       const loadFile = BrowserWindow.prototype.loadFile;
       BrowserWindow.prototype.loadFile = function(file, ...args) {
-        if (file.endsWith('/dist/index.html') && ${JSON.stringify(scenario)} !== 'healthy') {
+        if (file.replaceAll('\\\\', '/').endsWith('/dist/index.html') && ${JSON.stringify(scenario)} !== 'healthy') {
           if (${JSON.stringify(scenario)} === 'failed-load') return Promise.reject(new Error('Test: missing page'));
           return new Promise(() => {});
         }
@@ -34,7 +35,8 @@ try {
     `);
     let app;
     try {
-      app = await electron.launch({ args: [entry], env: { ...process.env, NODE_ENV: 'production' } });
+      const flags = process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'] : [];
+      app = await electron.launch({ args: [...flags, entry], env: { ...process.env, NODE_ENV: 'production' } });
       if (scenario === 'healthy') {
         const page = app.windows().find(page => page.url().includes('/dist/index.html')) || await app.waitForEvent('window', {
           predicate: page => page.url().includes('/dist/index.html'),
@@ -44,6 +46,19 @@ try {
         await page.waitForTimeout(5500);
         assert.equal(await app.evaluate(() => globalThis.startupErrors.length), 0);
         assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, 'Splash should close');
+      } else if (scenario === 'first-run-stalled') {
+        await app.firstWindow();
+        await new Promise(resolve => setTimeout(resolve, 5500));
+        assert.equal(await app.evaluate(() => globalThis.startupErrors.length), 0, 'First launch must allow database preparation past five seconds');
+        const deadline = Date.now() + 28000;
+        let errors = [];
+        while (Date.now() < deadline) {
+          errors = await app.evaluate(() => globalThis.startupErrors);
+          if (errors.length) break;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        assert.equal(errors.length, 1, 'A genuinely stalled first launch must still offer recovery');
+        assert.match(errors[0].detail, /thirty seconds/);
       } else {
         await app.firstWindow();
         const deadline = Date.now() + 8000;
@@ -63,7 +78,7 @@ try {
         await app.evaluate(({ app }) => app.exit(0)).catch(() => {});
         await app.close().catch(() => {});
       }
-      await rm(userData, { recursive: true, force: true });
+      await rm(userData, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
     }
   }
 } finally {

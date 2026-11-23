@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage, globalShortcut } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { loadSupermailCore } from './loadAddon.js';
 import { showStartupError } from './startupError.js';
 import { setupUpdater, checkForUpdates, installUpdate } from './updater.js';
+import { DESKTOP_NAME, createAutostart, createComposeShortcut, createMailtoQueue, backgroundWindow, cancelBackgrounding, queryGlobalShortcutPortal } from './desktopIntegration.js';
+
+if (process.platform === 'linux') app.setDesktopName(DESKTOP_NAME);
 
 // Avoid VPN / corporate proxy interception on local development ports
 app.commandLine.appendSwitch('no-proxy-server');
@@ -31,6 +34,31 @@ let isQuitting = false;
 let startupTimer = null;
 let startupReady = false;
 let startupErrorShown = false;
+const startupMarker = path.join(app.getPath('userData'), '.startup-ready');
+const firstStartup = !fs.existsSync(startupMarker);
+let startHidden = process.argv.includes('--hidden');
+let pendingCompose = false;
+let shortcutPortalSupport;
+const autostart = createAutostart(app);
+function showMainWindow() {
+  startHidden = false;
+  if (!mainWindow || mainWindow.isDestroyed() || isQuitting) return;
+  cancelBackgrounding(mainWindow);
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  // show() already activates a hidden window. On Wayland, avoid issuing a
+  // second activation request that can consume/replace a one-use desktop token.
+  if (mainWindow.isVisible()) mainWindow.focus();
+  else mainWindow.show();
+}
+const mailtoQueue = createMailtoQueue(process.argv, (url) => {
+  showMainWindow();
+  mainWindow?.webContents.send('supermail:open-url', url);
+});
+const composeShortcut = createComposeShortcut(globalShortcut, () => {
+  showMainWindow();
+  if (startupReady) mainWindow?.webContents.send('supermail:compose');
+  else pendingCompose = true;
+});
 
 function reportStartupError(detail) {
   if (startupReady || startupErrorShown || isQuitting) return;
@@ -51,26 +79,21 @@ function reportStartupError(detail) {
 // 1. Single instance lock
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
+  isQuitting = true;
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.show();
-      mainWindow.focus();
-
-      // Forward deep link or launch args
-      mainWindow.webContents.send('single-instance-args', argv);
-      const mailtoArg = argv.find((arg) => arg.startsWith('mailto:'));
-      if (mailtoArg) {
-        mainWindow.webContents.send('supermail:open-url', mailtoArg);
-      }
-    }
+    const hasMailto = argv.some(arg => typeof arg === 'string' && /^mailto:/i.test(arg));
+    mailtoQueue.push(argv);
+    if (!hasMailto) showMainWindow();
   });
 }
 
-// Register mailto scheme
-app.setAsDefaultProtocolClient('mailto');
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  mailtoQueue.push([url]);
+});
+app.on('activate', showMainWindow);
 
 function isDevMode() {
   if (process.env.NODE_ENV === 'development') return true;
@@ -99,10 +122,7 @@ function createTray() {
     {
       label: 'Show SuiteMail',
       click: () => {
-        if (mainWindow) {
-          mainWindow.show();
-          mainWindow.focus();
-        }
+        showMainWindow();
       },
     },
     {
@@ -122,12 +142,8 @@ function createTray() {
   ]);
 
   tray.setContextMenu(contextMenu);
-  tray.on('double-click', () => {
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
+  tray.on('click', showMainWindow);
+  tray.on('double-click', showMainWindow);
 }
 
 function createSplashWindow() {
@@ -172,11 +188,18 @@ async function createMainWindow() {
     },
   });
 
-  // Minimize to tray instead of quitting
+  // Keep syncing in the background; Linux stays reachable without a tray.
   mainWindow.on('close', (event) => {
     if (!isQuitting) {
       event.preventDefault();
-      mainWindow.hide();
+      backgroundWindow(mainWindow, process.platform, Boolean(tray));
+    }
+  });
+
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && input.control && !input.alt && !input.shift && input.key.toLowerCase() === 'q') {
+      event.preventDefault();
+      app.quit();
     }
   });
 
@@ -184,8 +207,8 @@ async function createMainWindow() {
 
   // Start the watchdog before navigation: a failed page never finishes loading.
   startupTimer = setTimeout(() => {
-    reportStartupError('Startup has taken more than five seconds. The mail window has not become ready.');
-  }, 5000);
+    reportStartupError(`Startup has taken more than ${firstStartup ? 'thirty' : 'five'} seconds. The mail window has not become ready.`);
+  }, firstStartup ? 30000 : 5000);
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
     if (isMainFrame && errorCode !== -3) {
@@ -271,6 +294,9 @@ function openThreadWindow(threadId, accountId) {
 }
 
 app.whenReady().then(() => {
+  // ESM imports can finish after Electron becomes ready. A losing second
+  // instance must not create windows in an already-resolved ready callback.
+  if (!gotTheLock || isQuitting) return;
   // 0. Set macOS dock icon
   if (process.platform === 'darwin' && app.dock) {
     const dockIcon = nativeImage.createFromPath(appIconPath);
@@ -290,22 +316,18 @@ app.whenReady().then(() => {
   }
 
   // 2. Setup System Tray
-  createTray();
+  try { createTray(); } catch (error) { console.warn('[Tray] Unavailable:', error); }
 
   // 3. Open splash and main windows
-  createSplashWindow();
+  if (!startHidden || mailtoQueue.hasPending()) createSplashWindow();
   createMainWindow();
 
   // 4. Setup electron-updater
   setupUpdater(mainWindow);
 
-  // Handle autostart hidden flag
-  if (process.argv.includes('--hidden')) {
-    mainWindow?.hide();
-    splashWindow?.close();
-    splashWindow = null;
-  }
 });
+
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 app.on('before-quit', () => {
   clearTimeout(startupTimer);
@@ -338,16 +360,42 @@ ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   if (cmd === 'close_splashscreen') {
     startupReady = true;
     clearTimeout(startupTimer);
+    if (firstStartup) {
+      try { fs.writeFileSync(startupMarker, 'ready\n', { mode: 0o600 }); }
+      catch (error) { console.warn('[Startup] Could not save startup state:', error.message); }
+    }
     if (splashWindow) {
       splashWindow.close();
       splashWindow = null;
     }
-    if (mainWindow) {
-      mainWindow.show();
-      mainWindow.focus();
+    if (startHidden && !mailtoQueue.hasPending() && !pendingCompose) backgroundWindow(mainWindow, process.platform, Boolean(tray));
+    else if (!mailtoQueue.hasPending()) showMainWindow();
+    mailtoQueue.ready();
+    if (pendingCompose) {
+      pendingCompose = false;
+      mainWindow?.webContents.send('supermail:compose');
     }
     return undefined;
   }
+
+  if (cmd === 'get_autostart') return autostart.get();
+  if (cmd === 'set_autostart') {
+    if (typeof args.enabled !== 'boolean') throw new Error('Expected an enabled boolean');
+    return autostart.set(args.enabled);
+  }
+  if (cmd === 'register_compose_shortcut') {
+    const ozone = app.commandLine.getSwitchValue('ozone-platform');
+    if (process.platform === 'linux' && ozone !== 'x11' && (ozone === 'wayland' || process.env.WAYLAND_DISPLAY)) {
+      shortcutPortalSupport ??= queryGlobalShortcutPortal();
+      if (await shortcutPortalSupport === false) {
+        throw new Error('This desktop does not provide global shortcuts on Wayland. Use GNOME 48 or newer, a compatible KDE desktop, or launch SuiteMail with --ozone-platform=x11.');
+      }
+    }
+    return composeShortcut.register(args.shortcut);
+  }
+  if (cmd === 'unregister_compose_shortcut') return composeShortcut.unregister();
+  if (cmd === 'get_app_version') return app.getVersion();
+  if (cmd === 'show_main_window') return showMainWindow();
 
   if (cmd === 'set_tray_tooltip') {
     if (tray && args.tooltip) tray.setToolTip(args.tooltip);
@@ -385,7 +433,7 @@ ipcMain.handle('window:toggleMaximize', () => {
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
   else mainWindow.maximize();
 });
-ipcMain.handle('window:close', () => mainWindow?.hide());
+ipcMain.handle('window:close', () => backgroundWindow(mainWindow, process.platform, Boolean(tray)));
 ipcMain.handle('window:openThread', (_event, threadId, accountId) => openThreadWindow(threadId, accountId));
 
 // Filesystem operations

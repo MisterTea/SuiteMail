@@ -58,7 +58,7 @@ export async function checkForUpdates() {
   }
   try {
     const result = await autoUpdater.checkForUpdates();
-    if (result?.updateInfo) {
+    if (result?.isUpdateAvailable && result.updateInfo) {
       const info = result.updateInfo;
       latestUpdate = {
         version: info.version,
@@ -73,7 +73,7 @@ export async function checkForUpdates() {
     return null;
   } catch (err) {
     console.warn('[Updater] Failed to check for updates:', err?.message || err);
-    return null;
+    throw err;
   }
 }
 

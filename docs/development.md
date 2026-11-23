@@ -5,6 +5,9 @@
 - [Node.js](https://nodejs.org/) (v22.12+)
 - [Rust](https://www.rust-lang.org/tools/install) (latest stable)
 
+For Linux dependencies, installation, desktop behavior and package/upgrade tests,
+see [Linux desktop support](linux.md). CI and release builds use Node.js 24.
+
 ## Commands
 
 ```bash

@@ -1,6 +1,7 @@
 {
   "appId": "com.suitemail.app",
   "productName": "SuiteMail",
+  "protocols": [{ "name": "Email", "schemes": ["mailto"] }],
   "publish": [
     {
       "provider": "github",
@@ -35,6 +36,15 @@
     "category": "public.app-category.productivity"
   },
   "linux": {
+    "executableName": "suitemail",
+    "syncDesktopName": true,
+    "desktop": {
+      "entry": {
+        "StartupWMClass": "com.suitemail.app",
+        "Categories": "Network;Email;",
+        "StartupNotify": "true"
+      }
+    },
     "target": [
       "AppImage",
       "deb"

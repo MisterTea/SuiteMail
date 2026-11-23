@@ -1,9 +1,10 @@
 [Desktop Entry]
 Name=SuiteMail
 Comment=Fast, beautiful desktop email client
-Exec=suitemail
+Exec=suitemail %U
 Icon=com.suitemail.app
 Type=Application
 Categories=Network;Email;
-StartupWMClass=SuiteMail
+StartupWMClass=com.suitemail.app
 StartupNotify=true
+MimeType=x-scheme-handler/mailto;

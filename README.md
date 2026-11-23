@@ -125,6 +125,9 @@ Download the latest release for your platform:
 
 No build tools or programming knowledge required -- just download, install, and run.
 
+Linux x64 users: see [Linux installation and desktop support](docs/linux.md) for
+dependencies, AppImage integration, updates and the desktop validation checklist.
+
 ### Android preview
 
 An experimental Android APK can be built from the Android branch. See [Android build, emulator tests, and storyboard recordings](docs/android.md) for commands and current limitations.
