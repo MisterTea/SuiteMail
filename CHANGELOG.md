@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 (2026-11-24)
+
+* Reflow fixed-width HTML newsletters on narrow screens and show the thread count only when there are multiple messages.
+* Turn off email reminders for a Google Calendar event series from its reminder email while preserving pop-up reminders.
+* Manage trusted image senders in Settings and sync that list across devices connected to the same IMAP mailbox.
+* Improve swipe feedback and completion for Android inbox actions.
+* Add standalone Proton Mail support in opt-in Android debug builds and improve IMAP message fetching.
+
 ## 0.1.4 (2026-11-23)
 
 * Show AI summaries in Android new-mail notifications and use the message preview when a summary is unavailable.

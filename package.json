@@ -5,7 +5,7 @@
   "homepage": "https://github.com/MisterTea/SuiteMail",
   "author": "SuiteMail Team",
   "desktopName": "com.suitemail.app.desktop",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
