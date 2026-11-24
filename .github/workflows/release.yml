@@ -1,170 +1,55 @@
-name: Release
-
-on:
-  push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
-    inputs:
-      android_only:
-        description: Build only Android for signing and updater validation
-        type: boolean
-        default: false
-
+name: Apple Silicon release fallback
+on: workflow_dispatch
 permissions:
   contents: read
-
 jobs:
-  build:
-    name: Build ${{ matrix.platform }}
-    if: github.event_name != 'workflow_dispatch' || inputs.android_only != true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: macos-arm64
-            os: macos-latest
-            args: --mac --arm64
-          - platform: macos-x64
-            os: macos-15-intel
-            args: --mac --x64
-          - platform: windows-x64
-            os: windows-latest
-            args: --win --x64
-          - platform: linux-x64
-            os: ubuntu-22.04
-            args: --linux --x64
-    runs-on: ${{ matrix.os }}
+  macos-arm64:
+    name: Cross-build Apple Silicon on Intel macOS
+    runs-on: macos-15-intel
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: v0.1.6
+      - name: Verify release source
+        run: test "$(git rev-parse HEAD)" = fd1252ed9a338da1a8d92a011c411165932e2270
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      # Keep the stock Electron distribution intact for electron-builder.
-      - name: Install dependencies
-        run: npm ci --ignore-scripts
-      - name: Install Electron
-        run: node node_modules/electron/install.js
-      - name: Build native backend
-        run: npx napi build --platform --release --manifest-path crates/supermail-core/Cargo.toml --output-dir crates/supermail-core
-      - name: Verify native backend
-        run: node --input-type=module -e "import { loadSupermailCore } from './electron/loadAddon.js'; const core = loadSupermailCore(); if (typeof core.invoke !== 'function') throw new Error('Native backend missing');"
-      - name: Build interface
-        run: npm run build
+        with:
+          key: macos-arm64-cross
+      - run: npm ci --ignore-scripts
+      - run: node node_modules/electron/install.js
+      - name: Build native module for Apple Silicon
+        run: |
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          npx napi build --platform --release --target aarch64-apple-darwin --manifest-path crates/supermail-core/Cargo.toml --output-dir crates/supermail-core
+          test "$(lipo -archs crates/supermail-core/index.darwin-arm64.node)" = arm64
+      - run: npm run build
       - name: Package installers
-        run: npx electron-builder ${{ matrix.args }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      - name: Install Linux smoke-test dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y xvfb dbus-x11 openbox desktop-file-utils xdotool libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libnotify4 libxtst6 libatk-bridge2.0-0
-      - name: Verify Linux packages and updater manifest
-        if: runner.os == 'Linux'
+        run: npx electron-builder --mac --arm64 --publish never
+      - name: Verify packaged architectures
         run: |
-          test -s dist-electron/latest-linux.yml
-          xvfb-run -a dbus-run-session -- npm run test:linux
+          app="$(find dist-electron -type d -name SuiteMail.app -print -quit)"
+          launcher="$app/Contents/MacOS/SuiteMail"
+          addon="$app/Contents/Resources/app.asar.unpacked/crates/supermail-core/index.darwin-arm64.node"
+          test "$(lipo -archs "$launcher")" = arm64
+          test "$(lipo -archs "$addon")" = arm64
+          test -s dist-electron/SuiteMail-0.1.6-mac-arm64.dmg
+          test -s dist-electron/SuiteMail-0.1.6-mac-arm64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: SuiteMail-${{ matrix.platform }}
+          name: SuiteMail-macos-arm64
           if-no-files-found: error
           path: |
             dist-electron/*.dmg
             dist-electron/*.zip
-            dist-electron/*.exe
-            dist-electron/*.AppImage
-            dist-electron/*.deb
             dist-electron/*.blockmap
-            dist-electron/latest-linux*.yml
 
-  android:
-    name: Build Android
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.7'
-          cache-dependency-path: submodules/proton-bridge/go.sum
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - name: Install Android toolchain
-        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0' 'ndk;27.2.12479018'
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,x86_64-linux-android
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: android
-      - run: npm ci --ignore-scripts
-      - name: Build signed APK
-        shell: bash
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          ANDROID_ABIS: arm64-v8a,x86_64
-          RELEASE_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-        run: |
-          set -euo pipefail
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/suitemail-release.jks"
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
-          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
-          umask 077
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
-          chmod +x android/gradlew
-          npm run build:android -- --release
-          unzip -t dist-android/*-android.apk lib/arm64-v8a/libproton_android.so lib/x86_64/libproton_android.so
-          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist-android/*-android.apk
-      - name: Package the Android build source
-        shell: bash
-        run: |
-          source_dir="$(mktemp -d)"
-          trap 'rm -rf "$source_dir"' EXIT
-          version="$(node -p 'require("./package.json").version')"
-          git archive --format=tar HEAD | tar -xf - -C "$source_dir"
-          mkdir -p "$source_dir/submodules/proton-bridge"
-          git -C submodules/proton-bridge archive --format=tar HEAD | tar -xf - -C "$source_dir/submodules/proton-bridge"
-          tar -czf "dist-android/SuiteMail-${version}-android-source.tar.gz" -C "$source_dir" .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: SuiteMail-android
-          if-no-files-found: error
-          path: |
-            dist-android/*-android.apk
-            dist-android/*-android-source.tar.gz
-
-  publish:
-    name: Publish release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build, android]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-          merge-multiple: true
-      - name: Publish GitHub Actions artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          gh release create "$RELEASE_TAG" artifacts/* --verify-tag --title "SuiteMail ${RELEASE_TAG#v}" --notes "SuiteMail ${RELEASE_TAG#v} for macOS (Apple Silicon and Intel), Windows x64, Linux x64, and Android (ARM64 and x86_64). Android APKs are signed with the SuiteMail release key; allow installation from your browser for the first install, then from SuiteMail for in-app updates. Existing debug Android builds require a one-time uninstall (erasing local data) before installing the release APK. Desktop builds are not signed with platform developer certificates or notarized."
