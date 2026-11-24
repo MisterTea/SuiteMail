@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7 (2026-11-24)
+
+* Move SuiteMail Google OAuth registrations to the `suiteleaf` Google Cloud project and bundle desktop OAuth credentials in release builds.
+* Refine Android mail list scrolling, mobile navigation, and Settings layout.
+* Add opt-in startup diagnostics and harden release dependencies.
+* Publish the SuiteMail landing page on GitHub Pages.
+
 ## 0.1.6 (2026-11-24)
 
 * Check for Android updates immediately on a cold launch, including after a force-stop.
