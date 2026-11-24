@@ -129,7 +129,7 @@ The app's existing encryption key is stored in private app files, and account se
 
 ## Proton Mail
 
-The experimental Proton build runs the bundled Go Bridge inside the Android app. The device talks directly to Proton. Android Keystore protects the key for Bridge's encrypted vault, and SuperMail's Rust backend talks to Bridge through private TLS credentials on loopback. The normal Android account database stores the email address and connection type. Login passwords and Bridge-generated passwords are kept out of that database.
+The experimental Proton build runs the bundled Go Bridge inside the Android app. The device talks directly to Proton. Android Keystore protects the key for Bridge's encrypted vault, and SuperMail's Rust backend talks to Bridge over TLS on loopback using an app-generated trust root. The normal Android account database stores the email address and connection type. Login passwords and Bridge-generated passwords are kept out of that database.
 
 Enable the experiment with Go 1.26.7 on `PATH` and the pinned Bridge submodule initialized. From PowerShell:
 
@@ -142,7 +142,7 @@ npm run build:android
 
 The `dist-android/*-proton-debug.apk` installs as `com.suitemail.app.protondev` alongside the standard app. In **Add Account → Proton Mail**, enter a paid Proton account's email or username and password. Fill in the authenticator code and separate mailbox password if the account uses them. Check initial inbox sync, sending a message, and reopening the app after a force-stop. This prototype supports foreground sync and authenticator codes. Hardware-key-only sign-in and Proton's interactive human verification require further work.
 
-For emulator tests, set `ANDROID_ABIS=x86_64` and `ANDROID_PROTON_FIXTURE=1` before building. Install the `*-proton-fixture-debug.apk` on a clean emulator, set `SUITEMAIL_ANDROID_PROTON=1`, and run `npx playwright test --config playwright.android.config.ts androidProton`. The fixture serves synthetic accounts on Android loopback. It exists only in the fixture APK. Clear that environment variable before building a physical-device APK. The release build excludes this experiment.
+For emulator tests, set `ANDROID_ABIS=x86_64` and `ANDROID_PROTON_FIXTURE=1` before building. Install the `*-proton-fixture-debug.apk` on a clean emulator, set `SUITEMAIL_ANDROID_PROTON=1`, and run `npx playwright test --config playwright.android.config.ts androidProton`. The fixture serves synthetic accounts on Android loopback. The x86_64 API 36 test verifies rejected credentials, sign-in, IMAP folder listing and message retrieval, SMTP delivery, and account removal. Clear `ANDROID_PROTON_FIXTURE` before building a physical-device APK. The release build excludes this experiment.
 
 ## Gmail initial-download behavior
 

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"net/http/cookiejar"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +71,8 @@ var state struct {
 
 func start(directory string, vaultKey []byte) (*engine, error) {
 	logrus.SetLevel(logrus.ErrorLevel)
+	// Bridge shares the Android process with the WebView and Rust backend.
+	debug.SetMemoryLimit(192 * 1024 * 1024)
 	if !filepath.IsAbs(directory) || len(vaultKey) != 32 {
 		return nil, errors.New("invalid Android vault location or key")
 	}

@@ -1,6 +1,6 @@
 use async_imap::{types::Flag, Authenticator, Client, Session};
 use base64::Engine;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use mail_parser::{MessageParser, MimeHeaders};
 use std::time::Duration;
 use std::sync::Arc;
@@ -314,30 +314,23 @@ pub async fn fetch_messages(
         mailbox.uid_next.unwrap_or(0),
     );
 
-    // Try UID FETCH first; if the stream is empty, fall back to sequence-number FETCH.
-    // Some IMAP servers return empty streams for UID FETCH despite valid UIDs.
+    // Some servers return an empty or unparseable stream despite valid UIDs.
     let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
         let stream = session
-            .uid_fetch(uid_range, "UID FLAGS INTERNALDATE BODY.PEEK[]")
+            .uid_fetch(uid_range, "(UID FLAGS INTERNALDATE BODY.PEEK[])")
             .await
             .map_err(|e| format!("UID FETCH {folder} uids={uid_range} failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|error| {
+            // The codec can report the same parse error without consuming input.
+            // Stop at the first error and retry with the raw parser.
+            log::warn!("IMAP fetch stream error in {folder}: {error}");
+            format!("ASYNC_IMAP_EMPTY:{folder}")
+        })
     })
     .await
     .map_err(|_| format!("UID FETCH {folder} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?;
 
-    let raw_fetches: Vec<_> = fetches?;
-    let mut fetch_ok = 0u32;
-    let mut fetch_err = 0u32;
-    let mut fetches = Vec::new();
-    for r in raw_fetches {
-        match r {
-            Ok(f) => { fetch_ok += 1; fetches.push(f); }
-            Err(e) => { fetch_err += 1; log::warn!("IMAP fetch stream error in {folder}: {e}"); }
-        }
-    }
-    log::info!("IMAP FETCH {folder}: {fetch_ok} ok, {fetch_err} errors from uid_fetch");
-
+    let fetches = fetches?;
     // If async-imap returned nothing but messages exist, fallback to raw TCP fetch
     if fetches.is_empty() && mailbox.exists > 0 {
         log::warn!("IMAP {folder}: async-imap returned 0 items but exists={}. Falling back to raw TCP fetch...", mailbox.exists);
@@ -397,17 +390,14 @@ pub async fn fetch_message_body(
     let uid_str = uid.to_string();
     let fetches: Vec<_> = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
         let stream = session
-            .uid_fetch(&uid_str, "UID FLAGS BODY.PEEK[]")
+            .uid_fetch(&uid_str, "(UID FLAGS BODY.PEEK[])")
             .await
             .map_err(|e| format!("UID FETCH failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH response failed: {e}"))
     })
     .await
     .map_err(|_| format!("UID FETCH for UID {uid} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
-    ?
-    .into_iter()
-    .filter_map(|r| r.ok())
-    .collect();
+    ?;
 
     let fetch = fetches
         .first()
@@ -656,14 +646,11 @@ pub async fn fetch_attachment(
             .uid_fetch(&uid_str, "BODY.PEEK[]")
             .await
             .map_err(|e| format!("UID FETCH attachment failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH response failed: {e}"))
     })
     .await
     .map_err(|_| format!("UID FETCH attachment timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
-    ?
-    .into_iter()
-    .filter_map(|r| r.ok())
-    .collect();
+    ?;
 
     let fetch = fetches
         .first()
@@ -729,14 +716,11 @@ pub async fn fetch_raw_message(
             .uid_fetch(&uid_str, "BODY.PEEK[]")
             .await
             .map_err(|e| format!("UID FETCH failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH response failed: {e}"))
     })
     .await
     .map_err(|_| format!("UID FETCH raw message timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
-    ?
-    .into_iter()
-    .filter_map(|r| r.ok())
-    .collect();
+    ?;
 
     let fetch = fetches
         .first()
@@ -933,39 +917,33 @@ pub async fn sync_folder(
 
         let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
             let stream = session
-                .uid_fetch(&uid_set, "UID FLAGS INTERNALDATE BODY.PEEK[]")
+                .uid_fetch(&uid_set, "(UID FLAGS INTERNALDATE BODY.PEEK[])")
                 .await
                 .map_err(|e| format!("UID FETCH {folder} uids={uid_set} failed: {e}"))?;
-            Ok::<_, String>(stream.collect::<Vec<_>>().await)
+            stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH {folder} response failed: {e}"))
         })
         .await
         .map_err(|_| format!("UID FETCH {folder} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?;
 
-        let raw_fetches: Vec<_> = fetches?;
-        for r in raw_fetches {
-            match r {
-                Ok(f) => {
-                    let uid = match f.uid {
-                        Some(u) => u,
-                        None => { log::warn!("IMAP sync_folder {folder}: response missing UID"); continue; }
-                    };
-                    let raw = match f.body() {
-                        Some(b) => b,
-                        None => { log::warn!("IMAP sync_folder {folder}: UID {uid} has no body"); continue; }
-                    };
-                    let raw_size = raw.len() as u32;
-                    let flags: Vec<_> = f.flags().collect();
-                    let is_read = flags.iter().any(|fl| matches!(fl, Flag::Seen));
-                    let is_starred = flags.iter().any(|fl| matches!(fl, Flag::Flagged));
-                    let is_draft = flags.iter().any(|fl| matches!(fl, Flag::Draft));
-                    let internal_date = f.internal_date().map(|dt| dt.timestamp());
+        for f in fetches? {
+            let uid = match f.uid {
+                Some(u) => u,
+                None => { log::warn!("IMAP sync_folder {folder}: response missing UID"); continue; }
+            };
+            let raw = match f.body() {
+                Some(b) => b,
+                None => { log::warn!("IMAP sync_folder {folder}: UID {uid} has no body"); continue; }
+            };
+            let raw_size = raw.len() as u32;
+            let flags: Vec<_> = f.flags().collect();
+            let is_read = flags.iter().any(|fl| matches!(fl, Flag::Seen));
+            let is_starred = flags.iter().any(|fl| matches!(fl, Flag::Flagged));
+            let is_draft = flags.iter().any(|fl| matches!(fl, Flag::Draft));
+            let internal_date = f.internal_date().map(|dt| dt.timestamp());
 
-                    match parse_message(&parser, raw, uid, folder, raw_size, is_read, is_starred, is_draft, internal_date) {
-                        Ok(msg) => all_messages.push(msg),
-                        Err(e) => log::warn!("sync_folder: failed to parse UID {uid}: {e}"),
-                    }
-                }
-                Err(e) => log::warn!("IMAP sync_folder fetch stream error in {folder}: {e}"),
+            match parse_message(&parser, raw, uid, folder, raw_size, is_read, is_starred, is_draft, internal_date) {
+                Ok(msg) => all_messages.push(msg),
+                Err(e) => log::warn!("sync_folder: failed to parse UID {uid}: {e}"),
             }
         }
     }

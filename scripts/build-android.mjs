@@ -34,7 +34,9 @@ for (const abi of abis) {
   const compiler = path.join(tools, `${clang}26-clang${process.platform === 'win32' ? '.cmd' : ''}`);
   const archEnv = triple.replaceAll('-', '_');
   run('rustup', ['target','add',triple]);
-  run('cargo', ['build','-p','supermail_android','--target',triple,'--release'], {
+  const cargoArgs = [proton ? 'rustc' : 'build', '-p', 'supermail_android', '--target', triple, '--release'];
+  if (proton) cargoArgs.push('--', '-C', 'link-arg=-Wl,-z,max-page-size=16384');
+  run('cargo', cargoArgs, {
     [`CARGO_TARGET_${archEnv.toUpperCase()}_LINKER`]:compiler,
     [`CC_${archEnv}`]:compiler,
     [`AR_${archEnv}`]:path.join(tools,'llvm-ar'),

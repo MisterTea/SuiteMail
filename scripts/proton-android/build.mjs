@@ -42,6 +42,12 @@ export function buildProtonBridge(root, ndkTools, abi, destination) {
     fs.writeFileSync(vaultFile, vaultSource.slice(0, vaultSource.indexOf(reset)) +
       'if corrupt != nil {\n\t\treturn nil, corrupt, ErrDecryptFailed\n\t}\n' + vaultSource.slice(end));
 
+    const limitsFile = path.join(stage, 'internal/services/syncservice/limits.go');
+    const limitsSource = fs.readFileSync(limitsFile, 'utf8');
+    const desktopDownloads = 'MaxParallelDownloads: 32,';
+    if (!limitsSource.includes(desktopDownloads)) throw new Error('Bridge sync limits must be refreshed.');
+    fs.writeFileSync(limitsFile, limitsSource.replace(desktopDownloads, 'MaxParallelDownloads: 2,'));
+
     const command = path.join(stage, 'cmd/SuiteMail-Android');
     fs.mkdirSync(command);
     for (const name of ['main.go', 'tls.go', 'jni.c']) {
