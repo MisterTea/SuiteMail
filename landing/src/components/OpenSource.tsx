@@ -3,9 +3,9 @@ import { Github, Code2, EyeOff, HardDrive, Lock } from 'lucide-react'
 
 const TRUST_SIGNALS = [
   { icon: Code2, label: 'Open source' },
-  { icon: EyeOff, label: 'No tracking' },
+  { icon: EyeOff, label: 'Remote images blocked by default' },
   { icon: HardDrive, label: 'Local database' },
-  { icon: Lock, label: 'AES-256 encryption' },
+  { icon: Lock, label: 'Encrypted mail credentials' },
 ]
 
 export function OpenSource() {
@@ -33,7 +33,7 @@ export function OpenSource() {
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.05 }}
         >
-          Every line of code is public, licensed under Apache 2.0. No telemetry, no data collection, no cloud dependency. Your email stays on your machine.
+          SuiteMail is licensed under Apache 2.0. Your downloaded mail lives in a local database, and you choose which accounts and AI providers to connect.
         </motion.p>
 
         <motion.div

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://suitemail.app/sitemap.xml
+Sitemap: https://mistertea.github.io/SuiteMail/sitemap.xml

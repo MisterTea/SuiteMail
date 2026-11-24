@@ -17,7 +17,7 @@ export function Hero() {
           transition={{ duration: 0.6 }}
         >
           <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full border border-white/[0.06] bg-white/[0.03]">
-            <img src="/logo-white.svg" alt="SuiteMail" className="h-4 w-auto rounded" />
+            <img src={import.meta.env.BASE_URL + 'logo-white.svg'} alt="SuiteMail" className="h-4 w-auto rounded" />
             <span className="text-sm text-text-secondary">Open source desktop email client</span>
           </div>
         </motion.div>
@@ -41,9 +41,9 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
         >
-          Keyboard-first, AI-powered, and completely private.
+          Keyboard-first email with offline search and optional AI.
           <br className="hidden sm:block" />
-          Free forever because it's open source.
+          Free and open source for Windows, macOS, and Linux.
         </motion.p>
 
         {/* CTAs */}
@@ -53,7 +53,7 @@ export function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.15 }}
         >
-          <a href="https://github.com/MisterTea/SuiteMail/releases" target="_blank" rel="noopener noreferrer" className="btn-primary">
+          <a href="https://github.com/MisterTea/SuiteMail/releases/latest" target="_blank" rel="noopener noreferrer" className="btn-primary">
             <Download size={17} />
             Download for Free
           </a>

@@ -28,7 +28,7 @@ export function CtaFooter() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.05 }}
           >
-            Free, open source, and ready in two minutes.
+            Get the latest desktop installers and the Android preview APK on GitHub.
           </motion.p>
 
           <motion.div
@@ -39,7 +39,7 @@ export function CtaFooter() {
             transition={{ duration: 0.5, delay: 0.1 }}
           >
             <a
-              href="https://github.com/MisterTea/SuiteMail/releases"
+              href="https://github.com/MisterTea/SuiteMail/releases/latest"
               target="_blank"
               rel="noopener noreferrer"
               className="btn-primary"
@@ -50,7 +50,7 @@ export function CtaFooter() {
           </motion.div>
 
           <motion.div
-            className="flex items-center justify-center gap-6 text-sm text-text-muted"
+            className="flex items-center justify-center flex-wrap gap-x-4 gap-y-2 text-sm text-text-secondary"
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             viewport={{ once: true }}
@@ -61,6 +61,8 @@ export function CtaFooter() {
             <span>macOS</span>
             <span className="w-1 h-1 rounded-full bg-text-muted" />
             <span>Linux</span>
+            <span className="w-1 h-1 rounded-full bg-text-muted" />
+            <span>Android preview</span>
           </motion.div>
         </div>
       </div>
@@ -69,19 +71,22 @@ export function CtaFooter() {
       <footer className="border-t border-border py-8 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
-            <img src="/logo-white.svg" alt="SuiteMail" className="w-5 h-5 rounded" />
+            <img src={import.meta.env.BASE_URL + 'logo-white.svg'} alt="SuiteMail" className="w-5 h-5 rounded" />
             <span className="text-sm text-text-muted">SuiteMail</span>
           </div>
 
-          <div className="flex items-center gap-6 text-sm text-text-muted">
+          <div className="flex flex-wrap justify-center items-center gap-5 text-sm text-text-secondary">
             <a href="https://github.com/MisterTea/SuiteMail" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
               GitHub
             </a>
-            <a href="https://github.com/MisterTea/SuiteMail/releases" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
+            <a href="https://github.com/MisterTea/SuiteMail/releases/latest" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
               Releases
             </a>
             <a href="https://github.com/MisterTea/SuiteMail/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" className="hover:text-text-secondary transition-colors no-underline">
               Apache 2.0
+            </a>
+            <a href="https://github.com/MisterTea/SuiteMail/blob/main/SECURITY.md" className="hover:text-text-primary">
+              Security and privacy
             </a>
           </div>
         </div>

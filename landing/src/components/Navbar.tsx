@@ -35,7 +35,7 @@ export function Navbar() {
     >
       <nav className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
         <a href="#" className="flex items-center gap-2.5 text-text-primary no-underline">
-          <img src="/logo-white.svg" alt="SuiteMail" className="w-7 h-7 rounded-md" />
+          <img src={import.meta.env.BASE_URL + 'logo-white.svg'} alt="SuiteMail" className="w-7 h-7 rounded-md" />
           <span className="font-semibold text-lg tracking-tight">SuiteMail</span>
         </a>
 
@@ -63,7 +63,7 @@ export function Navbar() {
             GitHub
           </a>
           <a
-            href="https://github.com/MisterTea/SuiteMail/releases"
+            href="https://github.com/MisterTea/SuiteMail/releases/latest"
             target="_blank"
             rel="noopener noreferrer"
             className="btn-primary !py-2 !px-4 !text-sm"
@@ -103,7 +103,7 @@ export function Navbar() {
               <Github size={16} />
               GitHub
             </a>
-            <a href="https://github.com/MisterTea/SuiteMail/releases" target="_blank" rel="noopener noreferrer" className="btn-primary text-sm !py-2.5 justify-center">
+            <a href="https://github.com/MisterTea/SuiteMail/releases/latest" target="_blank" rel="noopener noreferrer" className="btn-primary text-sm !py-2.5 justify-center">
               Download
             </a>
           </div>

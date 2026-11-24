@@ -12,13 +12,13 @@ const DIFFERENTIATORS = [
     icon: Brain,
     title: 'AI on your terms',
     description:
-      'Claude, GPT, or Gemini — pick your provider, use your own API key. Summaries, smart replies, and auto-categorization. Your data never leaves your machine.',
+      'Claude, GPT, or Gemini — pick your provider, use your own API key. Summaries, smart replies, and auto-categorization. Cloud AI sends the content needed for each request to your chosen provider.',
   },
   {
     icon: ShieldCheck,
     title: 'Local-first privacy',
     description:
-      'Everything stored in a local SQLite database. No cloud, no tracking, no analytics. Built-in phishing detection and AES-256 encryption.',
+      'Read and search cached mail offline. SuiteMail blocks remote images by default and flags suspicious links.',
   },
 ]
 
