@@ -64,7 +64,7 @@ export function HomePage() {
       <section className="relative overflow-hidden border-b border-line subtle-grid">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 pt-16 pb-20 sm:pt-24 sm:pb-24">
           <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-dark text-xs font-semibold tracking-wide mb-6">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-ink text-xs font-semibold tracking-wide mb-6">
               <Lock className="w-3.5 h-3.5" />
               PRIVACY-FIRST EMAIL FOR DESKTOP &amp; MOBILE
             </div>
@@ -375,10 +375,10 @@ export function HomePage() {
             </div>
 
             <div className="rounded-xl bg-pine-soft/70 border border-pine/20 p-5 flex flex-col justify-center text-center">
-              <span className="text-xs font-mono font-semibold text-pine-dark uppercase tracking-wider">
+              <span className="text-xs font-mono font-semibold text-pine-ink uppercase tracking-wider">
                 Direct TLS Connection
               </span>
-              <p className="text-xs text-pine-dark/80 mt-1.5 leading-relaxed">
+              <p className="text-xs text-pine-ink/80 mt-1.5 leading-relaxed">
                 IMAP/SMTP, Gmail API, Microsoft Graph, EWS &amp; Proton Bridge—plus CRDT metadata
                 &amp; label sync. <strong>Zero SuiteMail cloud servers.</strong>
               </p>
@@ -417,7 +417,7 @@ export function HomePage() {
           </div>
           <a
             href={withBase('features/')}
-            className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white text-ink font-semibold text-sm sm:text-base hover:bg-paper-alt transition-colors shrink-0"
+            className="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-white text-[#14171a] font-semibold text-sm sm:text-base hover:bg-[#e8e4dc] transition-colors shrink-0"
           >
             Explore All 20 Storyboards
             <ArrowRight className="w-4 h-4" />

@@ -1,6 +1,7 @@
-import { useState, type ReactNode } from 'react'
-import { Download, Github, Menu, ShieldCheck, X } from 'lucide-react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Download, Github, Menu, Moon, ShieldCheck, Sun, X } from 'lucide-react'
 import { withBase } from '../lib/paths'
+import { applyTheme, getInitialTheme, hasStoredTheme, type Theme } from '../lib/theme'
 
 export type ActivePage = 'home' | 'features' | 'privacy' | 'terms'
 
@@ -18,6 +19,30 @@ const NAV_ITEMS: { id: ActivePage; label: string; href: string }[] = [
 
 export function SiteLayout({ activePage, children }: SiteLayoutProps) {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [theme, setTheme] = useState<Theme>(() => getInitialTheme())
+
+  useEffect(() => {
+    applyTheme(theme, false)
+  }, [theme])
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (e: MediaQueryListEvent) => {
+      if (!hasStoredTheme()) {
+        const next: Theme = e.matches ? 'dark' : 'light'
+        setTheme(next)
+        applyTheme(next, false)
+      }
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
+  const toggleTheme = () => {
+    const next: Theme = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    applyTheme(next, true)
+  }
 
   return (
     <div className="min-h-screen flex flex-col bg-paper text-ink">
@@ -47,7 +72,7 @@ export function SiteLayout({ activePage, children }: SiteLayoutProps) {
                   aria-current={isActive ? 'page' : undefined}
                   className={`px-3.5 py-2 rounded-lg text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-pine-soft text-pine-dark'
+                      ? 'bg-pine-soft text-pine-ink'
                       : 'text-ink-muted hover:text-ink hover:bg-paper-alt'
                   }`}
                 >
@@ -57,7 +82,16 @@ export function SiteLayout({ activePage, children }: SiteLayoutProps) {
             })}
           </nav>
 
-          <div className="hidden md:flex items-center gap-2.5">
+          <div className="hidden md:flex items-center gap-2">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="p-2 rounded-lg border border-line text-ink-muted hover:text-ink hover:bg-paper-alt transition-colors cursor-pointer"
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
             <a
               href="https://github.com/MisterTea/SuiteMail"
               target="_blank"
@@ -78,15 +112,25 @@ export function SiteLayout({ activePage, children }: SiteLayoutProps) {
             </a>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setMobileOpen((prev) => !prev)}
-            className="md:hidden p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-paper-alt transition-colors"
-            aria-label="Toggle navigation menu"
-            aria-expanded={mobileOpen}
-          >
-            {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
+          <div className="md:hidden flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="p-2 rounded-lg border border-line text-ink-muted hover:text-ink hover:bg-paper-alt transition-colors"
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileOpen((prev) => !prev)}
+              className="p-2 rounded-lg text-ink-muted hover:text-ink hover:bg-paper-alt transition-colors"
+              aria-label="Toggle navigation menu"
+              aria-expanded={mobileOpen}
+            >
+              {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
 
         {mobileOpen && (
@@ -100,7 +144,7 @@ export function SiteLayout({ activePage, children }: SiteLayoutProps) {
                   onClick={() => setMobileOpen(false)}
                   className={`block px-3.5 py-2.5 rounded-lg text-sm font-medium ${
                     isActive
-                      ? 'bg-pine-soft text-pine-dark'
+                      ? 'bg-pine-soft text-pine-ink'
                       : 'text-ink-muted hover:text-ink hover:bg-paper-alt'
                   }`}
                 >
@@ -150,7 +194,7 @@ export function SiteLayout({ activePage, children }: SiteLayoutProps) {
                 Privacy-first email for desktop and mobile. Local AI, smart agents, direct
                 mail-server metadata sync, and every mailbox in one calm workspace.
               </p>
-              <div className="inline-flex items-center gap-2 text-xs font-mono text-pine-dark bg-pine-soft px-3 py-1.5 rounded-full">
+              <div className="inline-flex items-center gap-2 text-xs font-mono text-pine-ink bg-pine-soft px-3 py-1.5 rounded-full">
                 <ShieldCheck className="w-3.5 h-3.5" />
                 Apache-2.0 Open Source · Zero Cloud Middlemen
               </div>

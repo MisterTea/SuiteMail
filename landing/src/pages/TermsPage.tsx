@@ -20,7 +20,7 @@ export function TermsPage() {
     <SiteLayout activePage="terms">
       <section className="border-b border-line subtle-grid">
         <div className="max-w-5xl mx-auto px-5 sm:px-8 pt-14 pb-12 sm:pt-20 sm:pb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-dark text-xs font-semibold tracking-wide mb-5">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-ink text-xs font-semibold tracking-wide mb-5">
             <FileText className="w-3.5 h-3.5" />
             TERMS OF SERVICE
           </div>
@@ -68,7 +68,7 @@ export function TermsPage() {
               <p>
                 By downloading, installing, or using the SuiteMail desktop or mobile applications,
                 or by accessing this website, you agree to these Terms of Service and our{' '}
-                <a href={withBase('privacy/')} className="text-pine underline hover:text-pine-dark">
+                <a href={withBase('privacy/')} className="text-pine underline hover:text-pine-ink">
                   Privacy Policy
                 </a>
                 . If you do not agree, do not use the software.
@@ -85,7 +85,7 @@ export function TermsPage() {
                   href="https://github.com/MisterTea/SuiteMail/blob/main/LICENSE"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-pine underline hover:text-pine-dark"
+                  className="text-pine underline hover:text-pine-ink"
                 >
                   Apache License, Version 2.0
                 </a>
@@ -193,7 +193,7 @@ export function TermsPage() {
                   href="https://github.com/MisterTea/SuiteMail"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-pine underline hover:text-pine-dark"
+                  className="text-pine underline hover:text-pine-ink"
                 >
                   SuiteMail GitHub Repository
                 </a>

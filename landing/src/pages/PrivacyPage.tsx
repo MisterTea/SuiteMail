@@ -18,7 +18,7 @@ export function PrivacyPage() {
     <SiteLayout activePage="privacy">
       <section className="border-b border-line subtle-grid">
         <div className="max-w-5xl mx-auto px-5 sm:px-8 pt-14 pb-12 sm:pt-20 sm:pb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-dark text-xs font-semibold tracking-wide mb-5">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-ink text-xs font-semibold tracking-wide mb-5">
             <ShieldCheck className="w-3.5 h-3.5" />
             PRIVACY POLICY
           </div>
@@ -35,7 +35,7 @@ export function PrivacyPage() {
       <section className="max-w-5xl mx-auto px-5 sm:px-8 py-12">
         {/* Plain-English Summary Box */}
         <div className="rounded-2xl border border-pine/25 bg-pine-soft/50 p-6 sm:p-8 mb-12">
-          <h2 className="text-sm font-mono uppercase tracking-wider text-pine-dark font-semibold mb-3">
+          <h2 className="text-sm font-mono uppercase tracking-wider text-pine-ink font-semibold mb-3">
             Plain-English Summary
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-ink">
@@ -220,7 +220,7 @@ export function PrivacyPage() {
                   href="https://github.com/MisterTea/SuiteMail/issues"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-pine underline hover:text-pine-dark"
+                  className="text-pine underline hover:text-pine-ink"
                 >
                   GitHub Issues page
                 </a>{' '}
@@ -229,7 +229,7 @@ export function PrivacyPage() {
                   href="https://github.com/MisterTea/SuiteMail/blob/main/SECURITY.md"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-pine underline hover:text-pine-dark"
+                  className="text-pine underline hover:text-pine-ink"
                 >
                   SECURITY.md
                 </a>

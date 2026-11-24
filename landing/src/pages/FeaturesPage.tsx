@@ -70,7 +70,7 @@ export function FeaturesPage() {
       {/* Header */}
       <section className="border-b border-line subtle-grid">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 pt-14 pb-12 sm:pt-20 sm:pb-16">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-dark text-xs font-semibold tracking-wide mb-5">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-pine-soft text-pine-ink text-xs font-semibold tracking-wide mb-5">
             <Film className="w-3.5 h-3.5" />
             20 NARRATED FEATURE STORYBOARDS
           </div>
@@ -265,7 +265,7 @@ export function FeaturesPage() {
                     className={`mt-4 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
                       isActive
                         ? 'bg-pine text-white'
-                        : 'bg-paper-alt text-ink hover:bg-pine-soft hover:text-pine-dark'
+                        : 'bg-paper-alt text-ink hover:bg-pine-soft hover:text-pine-ink'
                     }`}
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />

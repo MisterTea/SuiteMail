@@ -9,6 +9,17 @@
       content="Watch 20 narrated feature storyboards showing SuiteMail in action: inbox triage, composing, snoozing, scheduling, calendar RSVPs, phishing protection, and bulk actions."
     />
     <meta name="theme-color" content="#faf8f4" />
+    <script>
+      ;(function () {
+        var t = localStorage.getItem('suitemail-theme')
+        var d = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)
+        if (d) {
+          document.documentElement.classList.add('dark')
+          var m = document.querySelector('meta[name="theme-color"]')
+          if (m) m.setAttribute('content', '#0e1113')
+        }
+      })()
+    </script>
     <link rel="icon" type="image/png" href="/icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
