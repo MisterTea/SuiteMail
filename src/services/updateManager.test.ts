@@ -10,6 +10,7 @@ const mockOn = vi.fn();
 };
 
 import {
+  checkForUpdateAutomatically,
   checkForUpdateNow,
   installUpdate,
   getAvailableUpdate,
@@ -53,7 +54,20 @@ describe("updateManager", () => {
   it("reports failed manual checks instead of treating them as up to date", async () => {
     mockInvoke.mockRejectedValueOnce(new Error("Offline"));
     await expect(checkForUpdateNow()).rejects.toThrow("Offline");
-    expect(mockInvoke).toHaveBeenCalledWith("check_for_updates", { manual: true });
+    expect(mockInvoke).toHaveBeenCalledWith("check_for_updates", { manual: true, startup: false });
+  });
+
+  it("marks only the first check as startup and coalesces an overlapping resume", async () => {
+    mockInvoke.mockResolvedValue(null);
+    await checkForUpdateAutomatically();
+    expect(mockInvoke).not.toHaveBeenCalled();
+
+    startUpdateChecker();
+    await checkForUpdateAutomatically();
+    expect(mockInvoke).toHaveBeenCalledExactlyOnceWith("check_for_updates", { manual: false, startup: true });
+
+    await checkForUpdateAutomatically();
+    expect(mockInvoke).toHaveBeenLastCalledWith("check_for_updates", { manual: false, startup: false });
   });
 
   it("clears an old available update after a successful empty check", async () => {

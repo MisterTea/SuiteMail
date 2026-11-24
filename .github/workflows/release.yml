@@ -84,10 +84,16 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.7'
+          cache-dependency-path: submodules/proton-bridge/go.sum
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -123,12 +129,25 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
           chmod +x android/gradlew
           npm run build:android -- --release
+          unzip -t dist-android/*-android.apk lib/arm64-v8a/libproton_android.so lib/x86_64/libproton_android.so
           "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs dist-android/*-android.apk
+      - name: Package the Android build source
+        shell: bash
+        run: |
+          source_dir="$(mktemp -d)"
+          trap 'rm -rf "$source_dir"' EXIT
+          version="$(node -p 'require("./package.json").version')"
+          git archive --format=tar HEAD | tar -xf - -C "$source_dir"
+          mkdir -p "$source_dir/submodules/proton-bridge"
+          git -C submodules/proton-bridge archive --format=tar HEAD | tar -xf - -C "$source_dir/submodules/proton-bridge"
+          tar -czf "dist-android/SuiteMail-${version}-android-source.tar.gz" -C "$source_dir" .
       - uses: actions/upload-artifact@v4
         with:
           name: SuiteMail-android
           if-no-files-found: error
-          path: dist-android/*-android.apk
+          path: |
+            dist-android/*-android.apk
+            dist-android/*-android-source.tar.gz
 
   publish:
     name: Publish release

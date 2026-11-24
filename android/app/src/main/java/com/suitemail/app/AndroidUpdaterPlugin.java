@@ -58,7 +58,8 @@ public class AndroidUpdaterPlugin extends Plugin {
                 long now = System.currentTimeMillis();
                 long due = prefs().getLong("next_check", 0);
                 if (now < prefs().getLong("rate_limit_until", 0)) throw new Exception("GitHub rate limit reached. Try again later.");
-                if (call.getBoolean("manual", false) || (BackgroundMailScheduler.foreground && now >= due)) {
+                if (call.getBoolean("manual", false) || call.getBoolean("startup", false)
+                    || (BackgroundMailScheduler.foreground && now >= due)) {
                     prefs().edit().putLong("next_check", now + FOUR_HOURS).apply();
                     long installed = code(installed());
                     AndroidUpdateRelease candidate = null;

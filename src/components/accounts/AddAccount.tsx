@@ -27,14 +27,16 @@ type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton" | "micros
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const androidPreview = Capacitor.getPlatform() === "android";
-  const [androidProton, setAndroidProton] = useState(false);
+  const [androidProton, setAndroidProton] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!androidPreview) return;
     let active = true;
     void platformInvoke<boolean>("proton_available").then((available) => {
       if (active) setAndroidProton(available);
-    }).catch(() => {});
+    }).catch(() => {
+      if (active) setAndroidProton(false);
+    });
     return () => { active = false; };
   }, [androidPreview]);
   const [view, setView] = useState<View>("select-provider");
@@ -308,9 +310,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          {(!androidPreview || androidProton) && <button
+          <button
             onClick={() => setView("proton")}
-            className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
+            disabled={androidPreview && androidProton !== true}
+            className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary enabled:hover:bg-bg-hover transition-colors text-left group disabled:opacity-60"
           >
             <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-purple-600/15 text-purple-400 flex items-center justify-center">
               <Shield className="w-5 h-5" />
@@ -320,10 +323,14 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Proton Mail
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                {androidPreview ? "Sign in and sync through Bridge on this device" : "Connect via Proton Mail Bridge with end-to-end encryption"}
+                {androidPreview
+                  ? androidProton === false ? "Built-in Proton Bridge is unavailable in this build"
+                    : androidProton === null ? "Checking for built-in Proton Bridge…"
+                      : "Sign in with the built-in Proton Bridge"
+                  : "Connect via Proton Mail Bridge with end-to-end encryption"}
               </div>
             </div>
-          </button>}
+          </button>
 
           <button
             onClick={() => setView("imap")}

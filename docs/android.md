@@ -8,7 +8,7 @@ The `codex/android` branch adds an installable Android application using Capacit
 
 The release workflow builds a signed `SuiteMail-X.Y.Z-android.apk` containing ARM64 and x86_64 libraries alongside desktop artifacts. Version names come from `package.json`, and tag builds require a matching `vX.Y.Z` tag. Android version codes use `1 + major * 1000000 + minor * 1000 + patch`; minor and patch must each be at most 999, and major at most 2146. Always increase the version when publishing an update. Manual workflow runs upload artifacts without creating a release; select `android_only` to validate just Android.
 
-The app checks public `MisterTea/SuiteMail` GitHub releases at startup, every four hours while running, and on resume when due. Automatic check times persist across restarts. Settings offers a manual check. Drafts, prereleases, old versions, and releases without the named APK are ignored. No GitHub credentials are shipped to devices. Checks do not run through a scheduled background worker.
+The app checks public `MisterTea/SuiteMail` GitHub releases on startup, including after a force-stop. While the app is open, it checks every four hours and on resume when due. Startup and manual checks in Settings skip the four-hour cooldown. All checks respect GitHub's rate-limit backoff. Drafts, prereleases, old versions, and releases without the named APK are ignored. No GitHub credentials are shipped to devices. Checks do not run through a scheduled background worker.
 
 Tap **Update Now** to download into private cache. SuiteMail checks the APK's package ID, newer version code, and certificate against the installed app, then opens Android's installer. Android may first ask you to allow SuiteMail to install from this source. You must confirm installation. Updates preserve existing app data; cancelling leaves the current version installed and allows retry.
 
@@ -120,7 +120,7 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 
 - Google (Gmail) now uses native device account authorization and Play services token renewal. The current debug package/signing certificate is registered in `bits-and-bytes`; a production certificate needs its own registration. See [Google account setup and validation](android-google.md). Live Gmail downloads are verified for one emulator account; live sending, multiple real accounts and revocation still need separate checks. IMAP app-password setup remains available.
 - Microsoft Graph's current dependency fails to compile on Android, so Graph is excluded from this build and hidden in the account chooser. The desktop integration remains enabled. EWS is compiled but has not been validated against a live Microsoft account on Android.
-- Standalone Proton Mail is available in opt-in debug builds. See [Proton Mail](#proton-mail).
+- Signed Android builds include Proton Mail through the built-in Bridge. See [Proton Mail](#proton-mail).
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.
 - Gmail has native periodic background checks through WorkManager, about every 15 minutes subject to Android scheduling. See [background sync behavior and testing](android-background-sync.md). Historical backfill, IMAP/EWS/calendar sync and scheduled sending remain foreground work; do not rely on scheduled send while the app is closed. Native push/instant notifications remain future work.
 - Native document picker/share-sheet integration, Android Keystore wrapping for the encryption key, hardware-device testing, and Play Store distribution remain future work. Direct-download APK signing is configured separately above.
@@ -129,9 +129,13 @@ The app's existing encryption key is stored in private app files, and account se
 
 ## Proton Mail
 
-The experimental Proton build runs the bundled Go Bridge inside the Android app. The device talks directly to Proton. Android Keystore protects the key for Bridge's encrypted vault, and SuperMail's Rust backend talks to Bridge over TLS on loopback using an app-generated trust root. The normal Android account database stores the email address and connection type. Login passwords and Bridge-generated passwords are kept out of that database.
+The signed Android build runs the bundled Go Bridge inside the app. The device talks directly to Proton. Android Keystore protects the key for Bridge's encrypted vault, and SuperMail's Rust backend talks to Bridge over TLS on loopback using an app-generated trust root. The normal Android account database stores the email address and connection type. Login passwords and Bridge-generated passwords are kept out of that database.
 
-Enable the experiment with Go 1.26.7 on `PATH` and the pinned Bridge submodule initialized. From PowerShell:
+The combined APK with Proton Mail Bridge is distributed under GPLv3. Each release includes an Android source archive with the SuiteMail build scripts and the exact Bridge revision. The APK includes the Bridge license.
+
+In **Add Account → Proton Mail**, enter a paid Proton Mail account's email or username and password. Fill in the authenticator code and separate mailbox password if the account uses them. The Android integration supports foreground sync and authenticator codes. Hardware-key-only sign-in and Proton's interactive human verification require further work.
+
+Local signed builds require Go 1.26.7 on `PATH` and the [pinned Proton Mail Bridge submodule](../submodules/proton-bridge). For an opt-in debug build, run:
 
 ```powershell
 git submodule update --init submodules/proton-bridge
@@ -140,9 +144,9 @@ $env:ANDROID_ABIS = 'arm64-v8a'
 npm run build:android
 ```
 
-The `dist-android/*-proton-debug.apk` installs as `com.suitemail.app.protondev` alongside the standard app. In **Add Account → Proton Mail**, enter a paid Proton account's email or username and password. Fill in the authenticator code and separate mailbox password if the account uses them. Check initial inbox sync, sending a message, and reopening the app after a force-stop. This prototype supports foreground sync and authenticator codes. Hardware-key-only sign-in and Proton's interactive human verification require further work.
+The `dist-android/*-proton-debug.apk` installs as `com.suitemail.app.protondev` alongside the standard app.
 
-For emulator tests, set `ANDROID_ABIS=x86_64` and `ANDROID_PROTON_FIXTURE=1` before building. Install the `*-proton-fixture-debug.apk` on a clean emulator, set `SUITEMAIL_ANDROID_PROTON=1`, and run `npx playwright test --config playwright.android.config.ts androidProton`. The fixture serves synthetic accounts on Android loopback. The x86_64 API 36 test verifies rejected credentials, sign-in, IMAP folder listing and message retrieval, SMTP delivery, and account removal. Clear `ANDROID_PROTON_FIXTURE` before building a physical-device APK. The release build excludes this experiment.
+For emulator tests, set `ANDROID_ABIS=x86_64` and `ANDROID_PROTON_FIXTURE=1` before building. Install the `*-proton-fixture-debug.apk` on a clean emulator, set `SUITEMAIL_ANDROID_PROTON=1`, and run `npx playwright test --config playwright.android.config.ts androidProton`. The fixture serves synthetic accounts on Android loopback. The x86_64 API 36 test verifies rejected credentials, sign-in, IMAP folder listing and message retrieval, SMTP delivery, and account removal. Signed release builds use the live Proton connection.
 
 ## Proton Bridge experiment
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { authorizeAndroidGoogle } from "@/services/gmail/androidGoogleAuth";
 import { Capacitor } from "@capacitor/core";
+import * as platform from "@/platform";
 import { AddAccount } from "./AddAccount";
 import * as auth from "@/services/gmail/auth";
 import * as tokenManager from "@/services/gmail/tokenManager";
@@ -115,6 +116,33 @@ describe("Android Gmail entry", () => {
     } finally {
       platform.mockRestore();
       window.matchMedia = previousMatchMedia;
+    }
+  });
+});
+
+describe("Android Proton Mail entry", () => {
+  it.each([true, false])("lists Proton Mail when Bridge availability is %s", async (available) => {
+    const getPlatform = vi.spyOn(Capacitor, "getPlatform").mockReturnValue("android");
+    const invoke = vi.spyOn(platform, "platformInvoke").mockResolvedValue(available);
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    }));
+    try {
+      render(<AddAccount onClose={() => {}} onSuccess={() => {}} />);
+      const option = screen.getByRole("button", { name: /^Proton Mail/ });
+      if (available) {
+        await waitFor(() => expect(option).toBeEnabled());
+        fireEvent.click(option);
+        expect(screen.getByRole("dialog", { name: "Connect Proton Mail" })).toBeInTheDocument();
+        expect(screen.getByLabelText("Proton email or username")).toBeInTheDocument();
+      } else {
+        await screen.findByText("Built-in Proton Bridge is unavailable in this build");
+        expect(option).toBeDisabled();
+      }
+    } finally {
+      invoke.mockRestore();
+      getPlatform.mockRestore();
+      vi.unstubAllGlobals();
     }
   });
 });

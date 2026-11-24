@@ -223,6 +223,11 @@ export default function App() {
     return () => { unlisten?.(); };
   }, []);
 
+  useEffect(() => {
+    startUpdateChecker();
+    return stopUpdateChecker;
+  }, []);
+
   // Initialize database, load accounts, start sync
   useEffect(() => {
     async function init() {
@@ -416,9 +421,6 @@ export default function App() {
           const count = await getIncompleteTaskCount(activeAcct);
           useTaskStore.getState().setIncompleteCount(count);
         }
-
-        // Start auto-update checker
-        startUpdateChecker();
       } catch (err) {
         console.error("Failed to initialize:", err);
       }
@@ -438,7 +440,6 @@ export default function App() {
       stopQueueProcessor();
       stopPreCacheManager();
     stopAttachmentIndex();
-      stopUpdateChecker();
       unregisterComposeShortcut();
       deepLinkCleanupRef.current?.();
     };

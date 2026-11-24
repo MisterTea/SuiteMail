@@ -14,10 +14,11 @@ let callback: UpdateCallback | null = null;
 let unsubscribeAvailable: (() => void) | null = null;
 
 let pendingCheck: Promise<void> | null = null;
+let startupCheckPending = true;
 
-async function performCheck(manual = false): Promise<void> {
+async function performCheck(manual: boolean, startup: boolean): Promise<void> {
   if (typeof window !== "undefined" && window.supermail?.invoke) {
-    const update = await window.supermail.invoke<{ version: string; body: string | null } | null>("check_for_updates", { manual });
+    const update = await window.supermail.invoke<UpdateInfo | null>("check_for_updates", { manual, startup });
     if (update) {
       availableUpdate = {
         info: { version: update.version, body: update.body ?? null },
@@ -28,13 +29,17 @@ async function performCheck(manual = false): Promise<void> {
   }
 }
 
-function check(manual: boolean): Promise<void> {
-  if (!pendingCheck) pendingCheck = performCheck(manual).finally(() => { pendingCheck = null; });
+function check(manual: boolean, startup = false): Promise<void> {
+  if (!pendingCheck) pendingCheck = performCheck(manual, startup).finally(() => { pendingCheck = null; });
   return pendingCheck;
 }
 
 export async function checkForUpdateAutomatically(): Promise<void> {
-  try { await check(false); } catch (error) { console.warn("Update check failed:", error); }
+  // Resume events can arrive before the main app starts the checker.
+  if (!checker) return;
+  const startup = startupCheckPending;
+  startupCheckPending = false;
+  try { await check(false, startup); } catch (error) { console.warn("Update check failed:", error); }
 }
 
 const FOUR_HOURS = 4 * 60 * 60 * 1000;
@@ -96,4 +101,5 @@ export function _resetForTesting(): void {
   unsubscribeAvailable = null;
   availableUpdate = null;
   callback = null;
+  startupCheckPending = true;
 }

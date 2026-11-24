@@ -7,10 +7,10 @@ import { buildProtonBridge } from './proton-android/build.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const release = process.argv.includes('--release');
-const proton = process.env.ANDROID_PROTON_BRIDGE === '1';
+const proton = release || process.env.ANDROID_PROTON_BRIDGE === '1';
 const protonFixture = process.env.ANDROID_PROTON_FIXTURE === '1';
+if (release && protonFixture) throw new Error('Android release builds cannot include the Proton test fixture');
 if (protonFixture && !proton) throw new Error('The Proton fixture requires ANDROID_PROTON_BRIDGE=1');
-if (release && (proton || process.env.ANDROID_PROTON_FIXTURE === '1')) throw new Error('Proton Android prototypes build only as debug APKs');
 const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 if (release && process.env.RELEASE_TAG && process.env.RELEASE_TAG !== `v${version}`) throw new Error('Release tag must match package.json version');
 if (release && ['ANDROID_KEYSTORE_PATH', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'].some(key => !process.env[key])) throw new Error('Release signing environment variables are required');
@@ -49,13 +49,19 @@ for (const abi of abis) {
 }
 run(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'--noEmit']);
 run(process.execPath,[path.join(root,'node_modules/vite/bin/vite.js'),'build','--mode','android']);
-run(process.execPath,[path.join(root,'node_modules/@capacitor/cli/bin/capacitor'),'sync','android']);
+if (proton) {
+  fs.copyFileSync(path.join(root, 'submodules/proton-bridge/LICENSE'), path.join(root, 'dist/proton-bridge-LICENSE.txt'));
+}
+run(process.execPath,[path.join(root,'node_modules/@capacitor/cli/bin/capacitor'),'sync','android'], {
+  ANDROID_PROTON_BRIDGE: proton ? '1' : '0',
+});
 // A debug APK can access the host fixture service through adb reverse. Release cannot.
 const configPath = path.join(root,'android/app/src/main/assets/capacitor.config.json');
 const config = JSON.parse(fs.readFileSync(configPath));
 config.android.allowMixedContent = !release;
 fs.writeFileSync(configPath,JSON.stringify(config));
-const gradleArgs = ['-p','android',`-PsuiteMailAbis=${abis.join(',')}`, ...(proton ? [`-PsuiteMailProtonPrototype=${protonFixture ? 'fixture' : 'device'}`] : []),...(release ? ['testDebugUnitTest', 'assembleRelease'] : ['assembleDebug'])];
+const protonMode = release ? 'release' : protonFixture ? 'fixture' : 'device';
+const gradleArgs = ['-p','android',`-PsuiteMailAbis=${abis.join(',')}`, ...(proton ? [`-PsuiteMailProtonPrototype=${protonMode}`] : []),...(release ? ['testDebugUnitTest', 'assembleRelease'] : ['assembleDebug'])];
 if (process.platform === 'win32') {
   run(javaHome ? path.join(javaHome, 'bin/java.exe') : 'java', ['-classpath',path.join(root,'android/gradle/wrapper/gradle-wrapper.jar'),'org.gradle.wrapper.GradleWrapperMain',...gradleArgs]);
 } else {
@@ -63,6 +69,6 @@ if (process.platform === 'win32') {
 }
 const output = path.join(root,'dist-android');
 fs.mkdirSync(output,{recursive:true});
-const fileName = `SuiteMail-${version}-android${proton ? (protonFixture ? '-proton-fixture' : '-proton') : ''}${release ? '' : '-debug'}.apk`;
+const fileName = `SuiteMail-${version}-android${proton && !release ? (protonFixture ? '-proton-fixture' : '-proton') : ''}${release ? '' : '-debug'}.apk`;
 fs.copyFileSync(path.join(root,`android/app/build/outputs/apk/${release ? 'release/app-release.apk' : 'debug/app-debug.apk'}`),path.join(output,fileName));
 console.log(`APK: ${output}/${fileName}`);

@@ -51,28 +51,44 @@ public class AndroidUpdaterTest {
         catch (Exception e) { assertTrue(e.getMessage(), e.getMessage().contains("not a SuiteMail")); }
         finally { file.delete(); }
     }
-    @Test public void manualCheckUsesPublicGithubAndAutomaticCheckIsThrottled() throws Exception {
+    @Test public void startupAndManualChecksBypassTheAutomaticCooldown() throws Exception {
         AndroidUpdaterPlugin updater = plugin();
         class Result extends PluginCall {
             final CountDownLatch done = new CountDownLatch(1);
             String error;
-            Result(boolean manual) { super(null, "AndroidUpdater", "test", "check", new JSObject().put("manual", manual)); }
+            Result(boolean manual, boolean startup) {
+                super(null, "AndroidUpdater", "test", "check", new JSObject().put("manual", manual).put("startup", startup));
+            }
             @Override public void resolve(JSObject result) { done.countDown(); }
             @Override public void reject(String message, Exception exception) { error = message; done.countDown(); }
         }
         context().getSharedPreferences("android-updater", 0).edit().clear().commit();
-        Result manual = new Result(true);
+        Result manual = new Result(true, false);
         updater.check(manual);
         assertTrue(manual.done.await(60, TimeUnit.SECONDS));
         assertNull(manual.error);
         long next = context().getSharedPreferences("android-updater", 0).getLong("next_check", 0);
         assertTrue(next > System.currentTimeMillis());
-        Result automatic = new Result(false);
-        updater.check(automatic);
+        updater.handleOnDestroy();
+
+        AndroidUpdaterPlugin restarted = plugin();
+        long future = next + TimeUnit.HOURS.toMillis(4);
+        context().getSharedPreferences("android-updater", 0).edit().putLong("next_check", future).commit();
+        Result automatic = new Result(false, false);
+        restarted.check(automatic);
         assertTrue(automatic.done.await(5, TimeUnit.SECONDS));
         assertNull(automatic.error);
-        assertEquals(next, context().getSharedPreferences("android-updater", 0).getLong("next_check", 0));
-        updater.handleOnDestroy();
+        assertEquals(future, context().getSharedPreferences("android-updater", 0).getLong("next_check", 0));
+        restarted.handleOnDestroy();
+
+        AndroidUpdaterPlugin launched = plugin();
+        Result startup = new Result(false, true);
+        launched.check(startup);
+        assertTrue(startup.done.await(60, TimeUnit.SECONDS));
+        assertNull(startup.error);
+        long startupDue = context().getSharedPreferences("android-updater", 0).getLong("next_check", 0);
+        assertTrue(startupDue > System.currentTimeMillis() && startupDue < future);
+        launched.handleOnDestroy();
     }
     @Test public void retainsDataAcrossInstallation() throws Exception {
         File sentinel = new File(context().getFilesDir(), "updater-retention-test");
