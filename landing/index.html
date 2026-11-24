@@ -1,83 +1,24 @@
 <!doctype html>
-<html lang="en" class="dark">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
-
-    <!-- Primary Meta -->
-    <title>SuiteMail — The email client you'd build for yourself</title>
-    <meta name="description" content="Free, open-source desktop email client. Keyboard-first, AI-powered, and local-first. Supports Gmail, Outlook, Yahoo, iCloud, and any IMAP provider. Available for Windows, macOS & Linux." />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#09090b" />
-    <meta name="author" content="SuiteMail" />
-    <meta name="robots" content="index, follow" />
-    <meta name="keywords" content="email client, desktop email, open source email, AI email, keyboard shortcuts email, privacy email, Gmail client, IMAP email client, Outlook email client, Electron app, free email client" />
-    <link rel="canonical" href="https://mistertea.github.io/SuiteMail/" />
-
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://mistertea.github.io/SuiteMail/" />
-    <meta property="og:title" content="SuiteMail — The email client you'd build for yourself" />
-    <meta property="og:description" content="Free, open-source desktop email client. Keyboard-first, AI-powered, and local-first. Supports Gmail, Outlook, Yahoo, iCloud & any IMAP provider. Windows, macOS & Linux." />
-    <meta property="og:image" content="https://mistertea.github.io/SuiteMail/og-image.png" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="SuiteMail — The email client you'd build for yourself" />
-    <meta property="og:site_name" content="SuiteMail" />
-    <meta property="og:locale" content="en_US" />
-
-    <!-- Twitter / X -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:url" content="https://mistertea.github.io/SuiteMail/" />
-    <meta name="twitter:title" content="SuiteMail — The email client you'd build for yourself" />
-    <meta name="twitter:description" content="Free, open-source desktop email client. Keyboard-first, AI-powered, and local-first. Supports Gmail, Outlook, Yahoo, iCloud & any IMAP provider." />
-    <meta name="twitter:image" content="https://mistertea.github.io/SuiteMail/og-image.png" />
-    <meta name="twitter:image:alt" content="SuiteMail — The email client you'd build for yourself" />
-
-    <!-- Favicons -->
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-    <link rel="apple-touch-icon" sizes="180x180" href="/logo.png" />
-
-    <!-- Structured Data: SoftwareApplication -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "SuiteMail",
-      "description": "Free, open-source desktop email client. Keyboard-first, AI-powered, and local-first. Built with Electron for Windows, macOS & Linux.",
-      "url": "https://mistertea.github.io/SuiteMail/",
-      "applicationCategory": "CommunicationApplication",
-      "operatingSystem": "Windows, macOS, Linux",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      },
-      "author": {
-        "@type": "Organization",
-        "name": "SuiteMail",
-        "url": "https://github.com/MisterTea/SuiteMail"
-      },
-      "license": "https://github.com/MisterTea/SuiteMail/blob/main/LICENSE",
-      "downloadUrl": "https://github.com/MisterTea/SuiteMail/releases/latest",
-      "featureList": "Multi-provider support (Gmail API + IMAP/SMTP), AI-powered thread summaries, Smart replies, 30+ keyboard shortcuts, Phishing detection, Split inbox categories, Local-first SQLite database, Dark & light themes, Google Calendar integration",
-      "isAccessibleForFree": true
-    }
-    </script>
-
-    <!-- Structured Data: WebSite -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "SuiteMail",
-      "url": "https://mistertea.github.io/SuiteMail/",
-      "description": "Free, open-source desktop email client"
-    }
-    </script>
-
+    <title>SuiteMail — Privacy-First AI Email for Desktop &amp; Mobile</title>
+    <meta
+      name="description"
+      content="SuiteMail unifies all your mailboxes with privacy-first local AI on desktop and mobile, smart agents for filters, meetings, and replies, and metadata sync over your own mail server."
+    />
+    <meta name="theme-color" content="#faf8f4" />
+    <link rel="icon" type="image/png" href="/icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
-  <body class="bg-[#09090b] text-[#fafafa] antialiased">
+  <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/main-home.tsx"></script>
   </body>
 </html>
