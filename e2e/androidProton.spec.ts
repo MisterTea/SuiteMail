@@ -3,6 +3,7 @@ import { test, expect } from "./fixtures";
 test.skip(process.env.SUITEMAIL_ANDROID_PROTON !== "1", "Requires the Android Proton fixture APK");
 
 test("Android Proton signs in and delivers mail locally", async ({ page }) => {
+  test.setTimeout(180_000);
   await expect(page.locator("[data-app-content]")).toBeVisible({ timeout: 60_000 });
   const chooser = page.getByRole("dialog", { name: "Add Account", exact: true });
   if (!(await chooser.isVisible())) {
@@ -52,4 +53,38 @@ test("Android Proton signs in and delivers mail locally", async ({ page }) => {
     const config = { host: "supermail-proton-android", username: "recipient@proton.local" };
     await window.supermail!.invoke!("imap_list_folders", { config });
   })).rejects.toThrow("sign in to your Proton account again");
+
+  // Bridge closes new connections at 400 opens per minute. Exercise a burst
+  // larger than that limit through the same native IMAP client as mail sync.
+  await page.evaluate(async () => {
+    const native = window.supermail!;
+    const config = { host: "supermail-proton-android", username: "sender@proton.local" };
+    await Promise.all(Array.from({ length: 8 }, async () => {
+      for (let request = 0; request < 55; request++) {
+        await native.invoke!("imap_list_folders", { config });
+      }
+    }));
+  });
+
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty("--safe-area-inset-bottom", "28px");
+    const native = window.supermail!;
+    const invoke = native.invoke!;
+    native.invoke = (command, args) => command === "imap_list_folders"
+      ? Promise.reject(new Error("TLS handshake with 127.0.0.1 failed: tls handshake eof"))
+      : invoke(command, args);
+  });
+  await page.getByRole("button", { name: "Open folders menu" }).click();
+  await page.getByRole("button", { name: "Sync", exact: true }).click();
+  await page.getByRole("button", { name: "Close folders" }).click();
+  const banner = page.locator("[data-sync-failure]");
+  await expect(banner).toContainText("Secure connection failed");
+  await expect.poll(() => page.evaluate(() => {
+    const bottom = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().bottom;
+    const top = (selector: string) => document.querySelector(selector)!.getBoundingClientRect().top;
+    return [
+      Math.abs(bottom("[data-app-content]") - top("[data-sync-failure]")),
+      Math.abs(bottom("[data-sync-failure]") - top("nav[data-mobile-nav]")),
+    ].every((gap) => gap <= 1);
+  })).toBe(true);
 });

@@ -23,6 +23,10 @@ const IMAP_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
 const IMAP_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 const OVERALL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
 
+#[cfg(target_os = "android")]
+static NEXT_PROTON_IMAP_CONNECTION: tokio::sync::Mutex<Option<tokio::time::Instant>> =
+    tokio::sync::Mutex::const_new(None);
+
 /// Configure TCP keepalive and nodelay on a connected socket.
 fn configure_tcp_socket(stream: &TcpStream) {
     // Set TCP nodelay via tokio's built-in API
@@ -1459,6 +1463,16 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
     match config.security.as_str() {
         "tls" => {
             let tls_connector = build_tls_connector(config)?;
+            #[cfg(target_os = "android")]
+            if config.host == "127.0.0.1" && config.trusted_certificate_der.is_some() {
+                // Embedded Bridge rejects connections after 400 opens in a one-minute window.
+                // Space out every local open, including raw FETCH fallback connections.
+                let mut next = NEXT_PROTON_IMAP_CONNECTION.lock().await;
+                if let Some(earliest) = *next {
+                    tokio::time::sleep_until(earliest).await;
+                }
+                *next = Some(tokio::time::Instant::now() + Duration::from_millis(200));
+            }
             let tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
                 .await
                 .map_err(|_| format!(

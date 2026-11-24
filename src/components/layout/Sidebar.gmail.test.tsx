@@ -17,6 +17,7 @@ vi.mock("@/router/navigate", () => ({
 vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveLabel: () => "inbox",
   useActiveCategory: () => "Primary",
+  useActiveSettingsTab: () => undefined,
 }));
 
 vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: () => false }));

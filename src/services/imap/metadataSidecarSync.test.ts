@@ -419,6 +419,7 @@ describe("metadataSidecarSync", () => {
       );
       expect(result.confirmed).toBe(true);
       expect(result.synced).toBe(2);
+      expect(mockCommands.imapListFolders).toHaveBeenCalledTimes(1);
       expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(2);
     });
 

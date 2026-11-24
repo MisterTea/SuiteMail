@@ -19,6 +19,7 @@ vi.mock("@/router/navigate", () => ({
 
 vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveLabel: () => mockRoute.label,
+  useActiveSettingsTab: () => undefined,
   useSelectedThreadId: () => mockRoute.threadId,
 }));
 
@@ -49,12 +50,14 @@ describe("MobileNavBar", () => {
     expect(screen.getByText("Calendar")).toBeInTheDocument();
   });
 
-  it("keeps Compose available in the Android inbox", () => {
+  it("places Compose to the left of feedback in the Android inbox", () => {
     mockRoute.android = true;
     render(<MobileNavBar />);
-    fireEvent.click(screen.getByTitle("Compose Email"));
+    const compose = screen.getByTitle("Compose Email");
+    expect(compose).toHaveClass("right-20");
+    fireEvent.click(compose);
     expect(mockOpenComposer).toHaveBeenCalledWith({ mode: "new" });
-    expect(screen.getByRole("button", { name: "Report bug or request feature" }).parentElement).toHaveClass("right-20");
+    expect(screen.getByRole("button", { name: "Report bug or request feature" }).parentElement).toHaveClass("right-4");
   });
 
   it.each(["calendar", "settings", "thread", "composer"])("keeps Android feedback available when Compose is hidden on %s", (screenName) => {
@@ -95,13 +98,14 @@ describe("MobileNavBar", () => {
     }
   });
 
-  it("renders nav buttons for Inbox, Starred, Calendar, Tasks, Settings and Compose", () => {
+  it("renders nav buttons for Inbox, Starred, Calendar, Tasks, and both settings groups", () => {
     render(<MobileNavBar />);
     expect(screen.getByText("Inbox")).toBeInTheDocument();
     expect(screen.getByText("Starred")).toBeInTheDocument();
     expect(screen.getByText("Calendar")).toBeInTheDocument();
     expect(screen.getByText("Tasks")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mailbox settings" })).toBeInTheDocument();
   });
 
   it("navigates to Starred when clicked", () => {
@@ -123,9 +127,9 @@ describe("MobileNavBar", () => {
     expect(mockOpenComposer).toHaveBeenCalledWith({ mode: "new" });
   });
 
-  it("navigates to Settings when clicked", () => {
+  it.each([["General", "general"], ["Mailbox", "notifications"]])("opens %s settings", (label, tab) => {
     render(<MobileNavBar />);
-    fireEvent.click(screen.getByText("Settings"));
-    expect(mockNavigateToSettings).toHaveBeenCalledWith("general");
+    fireEvent.click(screen.getByRole("button", { name: `${label} settings` }));
+    expect(mockNavigateToSettings).toHaveBeenCalledWith(tab);
   });
 });

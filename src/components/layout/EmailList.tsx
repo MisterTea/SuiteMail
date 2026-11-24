@@ -4,6 +4,7 @@ import { useToastStore } from "@/stores/toastStore";
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { ThreadCard } from "../email/ThreadCard";
+import { MailListScrollArea } from "./MailListScrollArea";
 import { CategoryTabs } from "../email/CategoryTabs";
 import { SearchBar } from "../search/SearchBar";
 import { EmailListSkeleton } from "../ui/Skeleton";
@@ -674,9 +675,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       )}
 
       {/* Thread list */}
-      <div
-        ref={scrollContainerRef}
-        data-email-scroll className={`flex-1 overflow-y-auto ${multiSelectCount > 0 ? "pb-20" : ""}`}
+      <MailListScrollArea
+        scrollRef={scrollContainerRef}
+        data-email-scroll
+        className={multiSelectCount > 0 ? "pb-20" : undefined}
       >
         {isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
@@ -811,7 +813,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             )}
           </>
         )}
-      </div>
+      </MailListScrollArea>
 
       {/* Floating Multi-select batch action bar */}
       <CSSTransition

@@ -653,7 +653,7 @@ export default function App() {
   }
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden text-text-primary">
+    <div data-app-shell className="flex flex-col h-screen overflow-hidden text-text-primary">
       <OfflineBanner />
       {/* Animated gradient blobs for glassmorphism effect */}
       <div className="animated-bg" aria-hidden="true">
@@ -676,11 +676,9 @@ export default function App() {
         </DndProvider>
       </div>
 
-      <MobileNavBar />
-      {Capacitor.getPlatform() === "android" && <AiCoreStartup canPrompt={!showAddAccount} />}
-
       {syncFailure && (
         <div
+          data-sync-failure
           role="status"
           className={`fixed bottom-0 left-0 right-0 glass-panel bg-danger/90 text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
             sidebarCollapsed ? "md:left-16" : "md:left-60"
@@ -689,6 +687,9 @@ export default function App() {
           {syncFailure.message}
         </div>
       )}
+
+      <MobileNavBar />
+      {Capacitor.getPlatform() === "android" && <AiCoreStartup canPrompt={!showAddAccount} />}
 
       {showAddAccount && (
         <AddAccount

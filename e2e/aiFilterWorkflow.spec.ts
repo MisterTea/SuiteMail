@@ -21,6 +21,54 @@ test.beforeEach(async () => {
   fakeServer.reset();
 });
 
+for (const width of android ? [undefined] : [320, 1024]) {
+  test(`General and Mailbox settings buttons fit on ${android ? "Android" : `${width}px web`}`, async ({ page }) => {
+    if (width) await page.setViewportSize({ width, height: 844 });
+    await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));
+    await page.goto("http://localhost:1420/#/mail/inbox");
+
+    const folders = page.getByRole("button", { name: "Open folders menu" });
+    const sidebar = page.locator("aside");
+    const entry = width === 320 ? page.getByRole("navigation", { name: "Mobile navigation" }) : sidebar;
+    const general = entry.getByRole("button", { name: "General settings" });
+    const mailbox = entry.getByRole("button", { name: "Mailbox settings" });
+    if (android) await folders.click();
+    await expect(general).toBeVisible();
+    await expect(mailbox).toBeVisible();
+    const [generalBox, mailboxBox] = await Promise.all([general.boundingBox(), mailbox.boundingBox()]);
+    expect(generalBox!.x + generalBox!.width).toBeLessThanOrEqual(mailboxBox!.x);
+    expect(generalBox!.y).toBe(mailboxBox!.y);
+    for (const button of [general, mailbox]) {
+      expect(await button.evaluate((element) => {
+        const buttonBounds = element.getBoundingClientRect();
+        const label = element.querySelector("span")!.getBoundingClientRect();
+        return buttonBounds.left >= 0 && buttonBounds.right <= window.innerWidth
+          && label.left >= buttonBounds.left && label.right <= buttonBounds.right;
+      })).toBe(true);
+    }
+
+    const categories = page.getByRole("navigation", { name: "Settings categories" });
+    await general.click();
+    await expect(page.getByRole("heading", { name: "General settings", exact: true })).toBeVisible();
+    await expect(categories.getByRole("button")).toHaveText(["General", "Accounts", "Shortcuts", "About"]);
+    await expect(page.getByText("Launch at login", { exact: true })).toHaveCount(android ? 0 : 1);
+
+    if (android) await folders.click();
+    await mailbox.click();
+    await expect(page.getByRole("heading", { name: "Mailbox settings", exact: true })).toBeVisible();
+    await expect(categories.getByRole("button")).toHaveText(["Notifications", "Composing", "Mail Rules", "People", "AI"]);
+    await categories.getByRole("button", { name: "Mail Rules" }).click();
+    await expect(page.getByRole("heading", { name: "Mail Rules", exact: true })).toBeVisible();
+
+    if (width === 1024) {
+      await sidebar.getByRole("button", { name: "Collapse sidebar" }).click();
+      await expect(sidebar.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+      await expect(general.getByText("General", { exact: true })).toBeVisible();
+      await expect(mailbox.getByText("Mailbox", { exact: true })).toBeVisible();
+    }
+  });
+}
+
 test.describe("AI Filter Suggestion & Retroactive Sync Workflow", () => {
   test("settings filter buttons open their dialogs", async ({ page }) => {
     await page.addInitScript(getElectronBridgeScript(FAKE_SERVER_PORT));

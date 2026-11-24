@@ -8,6 +8,7 @@ import { SandboxAccountSettings } from "./SandboxAccountSettings";
 import { AiCoreSettings } from "./AiCoreSettings";
 import { AndroidBackgroundSyncSettings } from "./AndroidBackgroundSyncSettings";
 import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { Capacitor } from "@capacitor/core";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
 import { useUIStore } from "@/stores/uiStore";
@@ -61,6 +62,7 @@ import { MetadataHistorySettings } from "./MetadataHistorySettings";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
+import { getSettingsGroup, SETTINGS_GROUPS } from "@/constants/settingsGroups";
 import {
   getAliasesForAccount,
   setDefaultAlias,
@@ -89,6 +91,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
 
 export function SettingsPage() {
   const androidMobile = useAndroidMobile();
+  const android = Capacitor.getPlatform() === "android";
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
@@ -113,6 +116,8 @@ export function SettingsPage() {
   const removeAccountFromStore = useAccountStore((s) => s.removeAccount);
   const { tab } = useParams({ strict: false }) as { tab?: string };
   const activeTab = (tab && tabs.some((t) => t.id === tab) ? tab : "general") as SettingsTab;
+  const settingsGroup = getSettingsGroup(activeTab);
+  const visibleTabs = tabs.filter((item) => getSettingsGroup(item.id) === settingsGroup);
   const setActiveTab = (t: SettingsTab) => navigateToSettings(t);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notificationPermissionMessage, setNotificationPermissionMessage] = useState("");
@@ -438,14 +443,16 @@ export function SettingsPage() {
         >
           <ArrowLeft size={18} />
         </button>
-        <h1 className="text-base font-semibold text-text-primary">Settings</h1>
+        <h1 className="text-base font-semibold text-text-primary">
+          {SETTINGS_GROUPS[settingsGroup].label} settings
+        </h1>
       </div>
 
       {/* Body: sidebar nav + content */}
       <div className={`flex flex-1 min-h-0 ${androidMobile ? "flex-col" : ""}`}>
         {/* Vertical tab sidebar */}
-        <nav aria-label="Settings categories" className={androidMobile ? "flex overflow-x-auto shrink-0 border-b border-border-primary p-2 gap-2" : "w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30"}>
-          {tabs.map((tab) => {
+        <nav aria-label="Settings categories" className={androidMobile ? "flex flex-wrap shrink-0 border-b border-border-primary p-2 gap-1" : "w-48 border-r border-border-primary py-2 overflow-y-auto shrink-0 bg-bg-primary/30"}>
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
@@ -453,7 +460,7 @@ export function SettingsPage() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 aria-current={isActive ? "page" : undefined}
-                className={`flex items-center gap-2.5 ${androidMobile ? "min-h-12 shrink-0 whitespace-nowrap px-4 text-sm rounded-lg" : "w-full px-4 py-2 text-[0.8125rem]"} transition-colors ${
+                className={`flex items-center gap-2.5 ${androidMobile ? "min-h-12 shrink-0 whitespace-nowrap px-3 text-sm rounded-lg" : "w-full px-4 py-2 text-[0.8125rem]"} transition-colors ${
                   isActive
                     ? "bg-bg-selected text-accent font-medium"
                     : "text-text-secondary hover:bg-bg-hover hover:text-text-primary"
@@ -594,15 +601,17 @@ export function SettingsPage() {
 
                   <SidebarNavEditor />
 
-                  <Section title="Startup">
-                    <ToggleRow
-                      label="Launch at login"
-                      description="Start SuiteMail in the background when you log in. On Linux it stays accessible in the taskbar."
-                      checked={autostartEnabled}
-                      onToggle={handleAutostartToggle}
-                    />
-                    {autostartError && <p role="alert" className="text-xs text-danger mt-1">{autostartError}</p>}
-                  </Section>
+                  {!android && (
+                    <Section title="Startup">
+                      <ToggleRow
+                        label="Launch at login"
+                        description="Start SuiteMail in the background when you log in. On Linux it stays accessible in the taskbar."
+                        checked={autostartEnabled}
+                        onToggle={handleAutostartToggle}
+                      />
+                      {autostartError && <p role="alert" className="text-xs text-danger mt-1">{autostartError}</p>}
+                    </Section>
+                  )}
 
                   <Section title="Privacy & Security">
                     {startupTelemetry !== null && (

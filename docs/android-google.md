@@ -6,22 +6,19 @@ No Google password, desktop client secret, or Google refresh token is required o
 
 The requested permissions match SuiteMail's mail and calendar integration: Gmail modify (including read, send and label operations), Google profile/email, calendar read, and calendar events. Mail and calendar grants are checked before accepting an account, so declining them cannot create an account that immediately fails silent renewal. The selected identity is fetched from Google's userinfo endpoint; identity is not inferred from an arbitrary account name supplied by the frontend.
 
-## Current development registration
+## SuiteLeaf project
 
-Created and verified in Google Cloud Console on 2026-11-21:
+SuiteMail uses Google Cloud project `suiteleaf` (project number `629221757863`). Gmail and Calendar APIs are enabled. The OAuth audience is External / Testing. Only accounts on the test-user list can authorize Gmail and Calendar access, and Google expires test authorizations after seven days. [Google Auth Platform audience settings](https://support.google.com/cloud/answer/15549945)
 
-- Project: `bits-and-bytes` (Bits and Bytes).
-- Client name/type: **SuiteMail Android Debug**, Android.
-- Client ID: `650936081368-1d7sngg6b0dnu0p3os4qi3lkd5ffc0rp.apps.googleusercontent.com` (public identifier, not a secret; no need to embed it in the app).
-- Package: `com.suitemail.app`, restricted to the debug SHA-1 below.
-- Gmail and Calendar APIs: already enabled, verified in the Console.
-- Audience: already External / In production. The Console reports the existing unverified-sensitive-scope user cap; public distribution verification is still separate work. Existing project audience, branding, scope declarations, and other clients were not changed.
+**SuiteMail Android Debug** and **SuiteMail Android Release** were registered in this project on 2026-11-24 for `com.suitemail.app`, using their existing signing certificates. They replace the corresponding registrations in `bits-and-bytes`. Existing Android installations can use the new registrations without rebuilding. Reconnect Google accounts in Settings after Google's changes propagate.
 
-Registration changes may take time to propagate. A production signing certificate needs a separate Android OAuth registration. Live Gmail downloads have now been verified for one emulator account; see the remaining validation limits below.
+**SuiteMail Android Debug (Current)** uses the certificate for the current local debug build and emulator install. Its OAuth client ID is `629221757863-b14i3ja7dfa8he740mnl281qac6dkbc7.apps.googleusercontent.com`. The migrated **SuiteMail Android Debug** client uses the older `8B:DD:E5:67:51:CA:3E:18:FD:AF:69:CB:04:56:6C:97:F2:3E:37:18` certificate and has client ID `629221757863-s9vq4lskbb6spu47d0lhft25phb1rrri.apps.googleusercontent.com`.
+
+Desktop builds use **SuiteMail Desktop** from the same project. Set `GMAIL_OAUTH_CLIENT_ID` and `GMAIL_OAUTH_CLIENT_SECRET` in the ignored local `.env`. The GitHub release workflow reads the same pair from Actions secrets. Reconnect existing desktop Gmail accounts to get refresh tokens for the new client.
 
 ## Direct-release certificate
 
-Signed GitHub APKs use a dedicated SuiteMail release key, separate from the debug key. On 2026-11-22, an additional Android OAuth client was created and confirmed in the `bits-and-bytes` client list: **SuiteMail Android Release**, package `com.suitemail.app`, with SHA-1:
+Signed GitHub APKs use a dedicated SuiteMail release key. The release OAuth client uses this SHA-1 fingerprint.
 
 ```text
 AA:E9:58:45:36:43:75:03:45:88:07:AE:AD:CD:ED:BF:16:A6:30:9C
@@ -29,9 +26,7 @@ AA:E9:58:45:36:43:75:03:45:88:07:AE:AD:CD:ED:BF:16:A6:30:9C
 
 SHA-256: `38:BC:A7:B1:FE:75:F1:72:24:BC:71:43:85:CE:9E:3C:4C:91:62:51:44:F8:49:A5:64:80:8D:BE:74:D3:29:5B`.
 
-Client ID (public identifier): `650936081368-4v554um4uh9i7csknolme27550f19p5n.apps.googleusercontent.com`.
-
-The release registration is complete. Google notes that settings may take five minutes to a few hours to take effect; live Gmail authorization with the signed release APK still needs validation after propagation. The existing debug client remains available for development. No client ID or OAuth secret needs to be added to the APK, and no rebuild is required for this registration. The Console reports the existing 100-user sensitive-scope limit until the consent screen is verified; public OAuth verification is separate from registering this certificate.
+The release OAuth client ID is `629221757863-sgv19ocbktq54bpahdq31aojhmm5m55b.apps.googleusercontent.com`. Google notes that registration changes can take five minutes to a few hours to take effect. Live Gmail authorization with the signed release APK still needs validation.
 
 ## Register the Android application with Google
 
@@ -45,7 +40,7 @@ In the Google Cloud project used for SuiteMail:
 This machine's current debug signing fingerprint (public, not a credential):
 
 ```text
-8B:DD:E5:67:51:CA:3E:18:FD:AF:69:CB:04:56:6C:97:F2:3E:37:18
+77:69:72:12:A7:7F:3B:68:66:42:2E:8D:59:4B:C4:42:0B:76:2A:61
 ```
 
 To inspect fingerprints for your local build, use Android Studio's signing report or:

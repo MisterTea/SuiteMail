@@ -166,12 +166,13 @@ export async function pushSidecarMetadata(
   config: ImapConfig,
   fromEmail: string,
   payload: SidecarPayload,
+  existingFolder?: string,
 ): Promise<void> {
   const conversationId = payload.conversationId || payload.targetId;
   if (!conversationId) {
     throw new Error("Cannot push sidecar metadata without conversationId");
   }
-  const folder = await ensureSidecarFolder(config);
+  const folder = existingFolder ?? await ensureSidecarFolder(config);
   const normalizedPayload: SidecarPayload = {
     ...payload,
     conversationId,
@@ -601,6 +602,14 @@ export async function syncBatchConversationLabelsToRemote(
     return { synced: 0, confirmed: true };
   }
 
+  let folder: string;
+  try {
+    folder = await ensureSidecarFolder(imapConfig);
+  } catch (err) {
+    console.warn("[metadataSidecarSync] Failed to open the metadata folder for a label batch:", err);
+    return { synced: 0, confirmed: true };
+  }
+
   let count = 0;
   for (const update of updates) {
     try {
@@ -611,7 +620,7 @@ export async function syncBatchConversationLabelsToRemote(
         updatedAt: Date.now(),
         personalLabels: update.labels,
         crdtDocBase64: crdtRecord?.doc_base64,
-      });
+      }, folder);
       count++;
     } catch (err) {
       console.warn(`[metadataSidecarSync] Failed to push labels for ${update.threadId}:`, err);

@@ -10,6 +10,7 @@ import { getUnifiedThreads } from "@/services/db/unifiedMail";
 import { getThreadById } from "@/services/db/threads";
 import { mapDbThread } from "@/services/db/mapThread";
 import { ThreadView } from "../email/ThreadView";
+import { MailListScrollArea } from "./MailListScrollArea";
 
 const PAGE_SIZE = 50;
 const VIEWS = [
@@ -117,7 +118,7 @@ export function UnifiedMailbox() {
             ))}
           </div>}
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <MailListScrollArea unified>
           {error && <p role="alert" className="p-4 text-sm text-danger">Couldn’t load mail from your accounts.</p>}
           {!error && !threads.length && <p className="p-4 text-sm text-text-secondary">{loading ? "Loading mail…" : "No conversations found."}</p>}
           {threads.map((thread) => {
@@ -143,7 +144,7 @@ export function UnifiedMailbox() {
             );
           })}
           {hasMore && <button type="button" disabled={loading} className="p-3 text-accent" onClick={() => setLimit((value) => value + PAGE_SIZE)}>Load more</button>}
-        </div>
+        </MailListScrollArea>
       </section>
       {selected && <div className="flex flex-1 min-w-0 flex-col">
         <button type="button" onClick={() => navigateToLabel("unified")} className={`text-left px-4 py-2 text-sm text-accent ${readingPane === "hidden" ? "" : "md:hidden"}`}>Back to All Accounts</button>

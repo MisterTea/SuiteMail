@@ -3,8 +3,9 @@ import { useAndroidMobile } from "@/hooks/useAndroidMobile";
 import { Capacitor } from "@capacitor/core";
 import { Mail, Star, Calendar, ListTodo, Plus, Settings, Menu } from "lucide-react";
 import { FeedbackButton } from "../feedback/FeedbackButton";
-import { useActiveLabel, useSelectedThreadId } from "@/hooks/useRouteNavigation";
+import { useActiveLabel, useActiveSettingsTab, useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
+import { getSettingsGroup, SETTINGS_GROUPS } from "@/constants/settingsGroups";
 import { useComposerStore } from "@/stores/composerStore";
 import { useTaskStore } from "@/stores/taskStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -14,6 +15,7 @@ export function MobileNavBar() {
   const selectedThreadId = useSelectedThreadId();
   const selectedCount = useThreadStore((s)=>s.selectedThreadIds.size);
   const activeLabel = useActiveLabel();
+  const settingsGroup = getSettingsGroup(useActiveSettingsTab());
   const openComposer = useComposerStore((s) => s.openComposer);
   const composerOpen = useComposerStore((s) => s.isOpen);
   const incompleteTaskCount = useTaskStore((s) => s.incompleteCount);
@@ -25,7 +27,7 @@ export function MobileNavBar() {
       data-android-feedback
       data-bulk-selected={androidMobile && selectedCount > 0 ? "true" : undefined}
       data-composer-open={composerOpen ? "true" : undefined}
-      className={`fixed z-[70] ${showFloatingCompose ? "right-20" : "right-4"}`}
+      className="fixed right-4 z-[70]"
     >
       <FeedbackButton floating />
     </div>
@@ -49,17 +51,18 @@ export function MobileNavBar() {
         </button>)}
       </nav>
       {showFloatingCompose && <button data-mobile-nav data-android-compose title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
-        className="fixed right-4 z-30 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg active:bg-accent-hover">
+        className="fixed right-20 z-30 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg active:bg-accent-hover">
         <Plus size={24} aria-hidden="true" />
       </button>}
     </>;
   }
 
+  const showCompose = activeLabel !== "settings" && activeLabel !== "calendar";
   return <>
     {floatingFeedback}
     <nav
       aria-label="Mobile navigation"
-      className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center justify-around px-2 py-1.5 border-t border-border-primary bg-bg-primary/95 backdrop-blur-md glass-panel shadow-lg select-none"
+      className={`md:hidden fixed bottom-0 left-0 right-0 z-30 grid items-center py-1.5 border-t border-border-primary bg-bg-primary/95 backdrop-blur-md glass-panel shadow-lg select-none ${showCompose ? "grid-cols-8" : "grid-cols-7"}`}
     >
       {/* Menu / Folders Drawer Trigger */}
       <button
@@ -95,7 +98,7 @@ export function MobileNavBar() {
           navigateToLabel("starred");
         }}
         aria-label="Starred"
-        className={`relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] p-1.5 rounded-xl text-[10px] font-medium transition-all active:scale-90 ${
+        className={`relative flex min-h-11 min-w-0 flex-col items-center justify-center rounded-xl py-1.5 text-[10px] font-medium transition-all active:scale-90 ${
           activeLabel === "starred"
             ? "text-amber-500 dark:text-amber-400 font-semibold"
             : "text-text-tertiary hover:text-text-secondary"
@@ -113,14 +116,14 @@ export function MobileNavBar() {
       </button>
 
       {/* Compose Center Pill / FAB */}
-      {activeLabel !== "settings" && activeLabel !== "calendar" && <button
+      {showCompose && <button
         onClick={() => {
           setMobileSidebarOpen(false);
           openComposer({ mode: "new" });
         }}
         title="Compose Email"
         aria-label="Compose email"
-        className="flex size-11 shrink-0 items-center justify-center -mt-2.5 rounded-full bg-accent text-white shadow-md hover:bg-accent-hover transition-all active:scale-95"
+        className="flex aspect-square w-full max-w-10 min-[360px]:max-w-11 items-center justify-center justify-self-center -mt-2.5 rounded-full bg-accent text-white shadow-md hover:bg-accent-hover transition-all active:scale-95"
       >
         <Plus size={24} aria-hidden="true" />
       </button>}
@@ -160,21 +163,26 @@ export function MobileNavBar() {
         <span className="mt-0.5">Tasks</span>
       </button>
 
-      {/* Settings */}
-      <button
-        onClick={() => {
-          setMobileSidebarOpen(false);
-          navigateToSettings("general");
-        }}
-        className={`flex flex-col items-center justify-center p-1.5 rounded-lg text-[10px] font-medium transition-colors ${
-          activeLabel === "settings"
-            ? "text-accent"
-            : "text-text-tertiary hover:text-text-secondary"
-        }`}
-      >
-        <Settings size={18} />
-        <span className="mt-0.5">Settings</span>
-      </button>
+      {Object.entries(SETTINGS_GROUPS).map(([group, { label, firstTab }]) => (
+        <button
+          key={group}
+          type="button"
+          aria-label={`${label} settings`}
+          aria-current={activeLabel === "settings" && settingsGroup === group ? "page" : undefined}
+          onClick={() => {
+            setMobileSidebarOpen(false);
+            navigateToSettings(firstTab);
+          }}
+          className={`flex min-h-11 min-w-0 flex-col items-center justify-center rounded-lg text-[10px] font-medium transition-colors ${
+            activeLabel === "settings" && settingsGroup === group
+              ? "text-accent"
+              : "text-text-tertiary hover:text-text-secondary"
+          }`}
+        >
+          <Settings size={18} aria-hidden="true" />
+          <span className="mt-0.5">{label}</span>
+        </button>
+      ))}
     </nav>
   </>;
 }

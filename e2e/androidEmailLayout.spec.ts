@@ -6,6 +6,77 @@ let server: FakeServer;
 test.beforeAll(async () => { server = new FakeServer(3334); await server.start(); });
 test.afterAll(async () => { await server.stop(); });
 
+test('Android inbox syncs when a downward pull at the top is released', async ({ page }) => {
+  test.skip(process.env.SUITEMAIL_ANDROID !== '1', 'Requires the installed Android WebView');
+  server.reset();
+  // Keep scheduled sync from issuing its own requests during the gesture.
+  server.db.prepare('UPDATE accounts SET is_active = 0 WHERE id = ?').run('acc-test-1');
+  await page.addInitScript(getElectronBridgeScript(3334));
+  await page.goto('http://localhost:1420/#/mail/inbox');
+  const list = page.locator('[data-email-scroll]');
+  const root = page.locator('html');
+  await expect(list.locator('[data-thread-id]').first()).toBeVisible();
+
+  await page.evaluate(() => {
+    const bridge = window.supermail!;
+    const invoke = bridge.invoke!;
+    const root = document.documentElement;
+    root.dataset.refreshRequests = '0';
+    const resumeSync = new Promise<void>((resolve) => {
+      document.addEventListener('resume-test-sync', () => resolve(), { once: true });
+    });
+    bridge.invoke = async (command, args) => {
+      if (command === 'imap_search_folder' && args?.folder === 'INBOX') {
+        root.dataset.refreshRequests = String(Number(root.dataset.refreshRequests) + 1);
+        await resumeSync;
+      }
+      return invoke(command, args);
+    };
+  });
+
+  const cdp = await page.context().newCDPSession(page);
+  const box = (await list.boundingBox())!;
+  const x = box.x + box.width / 2;
+  const y = box.y + 140;
+  const move = async (offset: number) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + offset }] });
+  };
+  const start = async () => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  };
+  const end = async () => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const indicator = page.getByText('Syncing mail…', { exact: true });
+
+  await start();
+  await move(20);
+  await move(40);
+  await end();
+  await expect(indicator).toHaveCount(0);
+  await expect(root).toHaveAttribute('data-refresh-requests', '0');
+
+  await start();
+  for (const offset of [16, 40, 75, 115]) await move(offset);
+  await expect(root).toHaveAttribute('data-refresh-requests', '0');
+  await end();
+  await expect(indicator).toBeAttached();
+  await expect(root).toHaveAttribute('data-refresh-requests', '1');
+
+  await start();
+  for (const offset of [20, 60, 110]) await move(offset);
+  await end();
+  await page.evaluate(() => document.dispatchEvent(new Event('resume-test-sync')));
+  await expect(indicator).toHaveCount(0);
+  await expect(root).toHaveAttribute('data-refresh-requests', '1');
+
+  await start();
+  for (const offset of [-20, -60, -110]) await move(offset);
+  await end();
+  await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect(indicator).toHaveCount(0);
+});
+
 test('Fixed-width newsletters reflow at phone widths', async ({ page }) => {
   server.reset();
   const html = `<center style="width:640px;min-width:640px">

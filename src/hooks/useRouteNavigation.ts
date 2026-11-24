@@ -55,6 +55,11 @@ export function useSelectedThreadId(): string | null {
   return null;
 }
 
+export function useActiveSettingsTab(): string | undefined {
+  const match = useMatchesSafe().find((item) => item.routeId === "/settings/$tab");
+  return (match?.params as { tab?: string } | undefined)?.tab;
+}
+
 /**
  * Get the active category from search params (only relevant on inbox in split mode).
  */

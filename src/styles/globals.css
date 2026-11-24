@@ -665,6 +665,7 @@ body {
 .android-app [data-message-body] { padding-inline: 0; }
 .android-app [data-message-body] > :not([data-email-renderer]) { margin-inline: 12px; }
 .android-app [data-android-feedback] { bottom: calc(16px + var(--safe-area-inset-bottom, 0px)); }
+.android-app [data-sync-failure] { bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
 
 @media (max-width: 767px) {
   .android-app { -webkit-tap-highlight-color: transparent; }
@@ -720,8 +721,11 @@ body {
   .android-app [data-action-feedback] .truncate { white-space: normal; overflow: visible; }
 }
 @media (max-width: 767px) {
-  .android-app [data-app-content] { padding-bottom: calc(72px + var(--safe-area-inset-bottom, 0px)); }
-  .android-app[data-android-keyboard="open"] [data-app-content] { padding-bottom: 0; }
+  .android-app [data-app-shell] :is([data-sync-failure], nav[data-mobile-nav]) {
+    position: relative;
+    flex-shrink: 0;
+    inset: auto;
+  }
   .android-app [data-email-scroll] { padding-bottom: 88px; }
   .android-app [data-bulk-anchor] { bottom: 12px; }
   .android-app [data-action-feedback] { bottom: calc(88px + var(--safe-area-inset-bottom, 0px)); }

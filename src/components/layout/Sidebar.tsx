@@ -12,8 +12,9 @@ import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { subscribeToSyncedMailRules } from "@/services/db/mailRuleChanges";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
-import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
-import { navigateToLabel } from "@/router/navigate";
+import { useActiveLabel, useActiveCategory, useActiveSettingsTab } from "@/hooks/useRouteNavigation";
+import { navigateToLabel, navigateToSettings } from "@/router/navigate";
+import { getSettingsGroup, SETTINGS_GROUPS } from "@/constants/settingsGroups";
 import {
   Inbox,
   Star,
@@ -246,6 +247,8 @@ const LABELS_COLLAPSED_COUNT = 3;
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
+  const settingsGroup = getSettingsGroup(useActiveSettingsTab());
+  const android = Capacitor.getPlatform() === "android";
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const sidebarNavConfig = useUIStore((s) => s.sidebarNavConfig);
   const taskIncompleteCount = useTaskStore((s) => s.incompleteCount);
@@ -340,6 +343,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const isSyncingFolder = useUIStore((s) => s.isSyncingFolder);
   const mobileSidebarOpen = useUIStore((s) => s.mobileSidebarOpen);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
+  const footerCollapsed = collapsed && !mobileSidebarOpen;
 
   const handleNavigate = useCallback((labelId: string, opts?: { category?: string }) => {
     navigateToLabel(labelId, opts as any);
@@ -594,7 +598,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         >
           <RefreshCw size={16} className={isSyncing ? "animate-spin" : ""} />
         </button>
-        {Capacitor.getPlatform() !== "android" && <FeedbackButton />}
+        {!android && <FeedbackButton />}
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2">
@@ -914,42 +918,43 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         )}
       </nav>
 
-      {/* Bottom bar: Settings + collapse toggle */}
-      <div className={`py-2 border-t border-border-primary flex ${collapsed ? "flex-col items-center gap-1 px-2" : "items-center gap-1 px-3"}`}>
-        <button
-          onClick={() => handleNavigate("settings")}
-          className={`flex items-center text-sm rounded-md transition-colors ${
-            collapsed ? "p-2 justify-center" : "gap-3 flex-1 px-3 py-2 text-left"
-          } ${
-            activeLabel === "settings"
-              ? "bg-accent/10 text-accent font-medium"
-              : "text-sidebar-text hover:bg-sidebar-hover"
-          }`}
-          title="Settings"
-        >
-          <Settings size={18} className="shrink-0" />
-          {!collapsed && <span>Settings</span>}
-        </button>
-        <button
-          onClick={() => handleNavigate("help")}
-          className={`flex items-center text-sm rounded-md transition-colors ${
-            collapsed ? "p-2 justify-center" : "p-2"
-          } ${
-            activeLabel === "help"
-              ? "bg-accent/10 text-accent font-medium"
-              : "text-sidebar-text hover:bg-sidebar-hover"
-          }`}
-          title="Help"
-        >
-          <HelpCircle size={18} className="shrink-0" />
-        </button>
-        <button
-          onClick={toggleSidebar}
-          className="hidden md:flex p-2 text-sidebar-text/60 hover:text-sidebar-text hover:bg-sidebar-hover rounded-md transition-colors"
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-        </button>
+      {/* Settings groups and sidebar controls */}
+      <div className={`grid shrink-0 items-center gap-1 border-t border-border-primary py-2 md:grid-cols-1 ${footerCollapsed ? "grid-cols-1 px-2" : "grid-cols-[minmax(0,1fr)_auto] px-3"}`}>
+        <div className={`grid min-w-0 gap-1 ${footerCollapsed ? "grid-cols-1" : "grid-cols-2"}`}>
+          {Object.entries(SETTINGS_GROUPS).map(([group, { label, firstTab }]) => (
+            <button
+              key={group}
+              type="button"
+              title={`${label} settings`}
+              aria-label={`${label} settings`}
+              aria-current={activeLabel === "settings" && settingsGroup === group ? "page" : undefined}
+              onClick={() => {
+                navigateToSettings(firstTab);
+                setMobileSidebarOpen(false);
+              }}
+              className={`flex min-h-12 min-w-0 items-center justify-center rounded-md px-1 transition-colors ${footerCollapsed ? "flex-col gap-0.5 text-[10px]" : "gap-1.5 text-sm"} ${activeLabel === "settings" && settingsGroup === group ? "bg-accent/10 text-accent font-medium" : "text-sidebar-text hover:bg-sidebar-hover"}`}
+            >
+              <Settings size={16} className="shrink-0" aria-hidden="true" />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+        <div className={`flex items-center gap-1 ${footerCollapsed ? "flex-col" : "justify-end"}`}>
+          <button
+            onClick={() => handleNavigate("help")}
+            className={`flex items-center rounded-md p-2 text-sm transition-colors ${activeLabel === "help" ? "bg-accent/10 text-accent font-medium" : "text-sidebar-text hover:bg-sidebar-hover"}`}
+            title="Help"
+          >
+            <HelpCircle size={18} className="shrink-0" />
+          </button>
+          <button
+            onClick={toggleSidebar}
+            className="hidden md:flex p-2 text-sidebar-text/60 hover:text-sidebar-text hover:bg-sidebar-hover rounded-md transition-colors"
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          </button>
+        </div>
       </div>
 
       <InputDialog

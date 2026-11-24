@@ -54,6 +54,9 @@ jobs:
         run: node --input-type=module -e "import { loadSupermailCore } from './electron/loadAddon.js'; const core = loadSupermailCore(); if (typeof core.invoke !== 'function') throw new Error('Native backend missing');"
       - name: Build interface
         run: npm run build
+        env:
+          GMAIL_OAUTH_CLIENT_ID: ${{ secrets.GMAIL_OAUTH_CLIENT_ID }}
+          GMAIL_OAUTH_CLIENT_SECRET: ${{ secrets.GMAIL_OAUTH_CLIENT_SECRET }}
       - name: Package installers
         run: npx electron-builder ${{ matrix.args }} --publish never
         env:
