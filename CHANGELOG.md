@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6 (2026-11-24)
+
+* Check for Android updates immediately on a cold launch, including after a force-stop.
+* List Proton Mail in Android's Add Account screen and sign in through the Bridge bundled with the signed APK.
+
 ## 0.1.5 (2026-11-24)
 
 * Reflow fixed-width HTML newsletters on narrow screens and show the thread count only when there are multiple messages.
