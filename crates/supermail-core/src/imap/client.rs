@@ -1,6 +1,6 @@
 use async_imap::{types::Flag, Authenticator, Client, Session};
 use base64::Engine;
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt};
 use mail_parser::{MessageParser, MimeHeaders};
 use std::time::Duration;
 use std::sync::Arc;
@@ -172,8 +172,8 @@ impl ServerCertVerifier for NoVerifyServerCert {
 
 /// Build a TLS connector, optionally accepting invalid certificates
 /// (for local mail bridges like ProtonMail Bridge with self-signed certs).
-fn build_tls_connector(accept_invalid_certs: bool) -> Result<TlsConnector, String> {
-    let config = if accept_invalid_certs {
+fn build_tls_connector(config: &ImapConfig) -> Result<TlsConnector, String> {
+    let tls_config = if config.accept_invalid_certs && config.trusted_certificate_der.is_none() {
         rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
             .map_err(|e| format!("TLS protocol error: {e}"))?
@@ -182,14 +182,21 @@ fn build_tls_connector(accept_invalid_certs: bool) -> Result<TlsConnector, Strin
             .with_no_client_auth()
     } else {
         let mut root_store = rustls::RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        if let Some(encoded) = &config.trusted_certificate_der {
+            let certificate = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                .map_err(|e| format!("Invalid IMAP certificate: {e}"))?;
+            root_store.add(CertificateDer::from(certificate))
+                .map_err(|e| format!("Invalid IMAP certificate: {e}"))?;
+        } else {
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        }
         rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
             .map_err(|e| format!("TLS protocol error: {e}"))?
             .with_root_certificates(root_store)
             .with_no_client_auth()
     };
-    Ok(TlsConnector::from(Arc::new(config)))
+    Ok(TlsConnector::from(Arc::new(tls_config)))
 }
 
 // ---------- Public API ----------
@@ -307,30 +314,23 @@ pub async fn fetch_messages(
         mailbox.uid_next.unwrap_or(0),
     );
 
-    // Try UID FETCH first; if the stream is empty, fall back to sequence-number FETCH.
-    // Some IMAP servers return empty streams for UID FETCH despite valid UIDs.
+    // Some servers return an empty or unparseable stream despite valid UIDs.
     let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
         let stream = session
-            .uid_fetch(uid_range, "UID FLAGS INTERNALDATE BODY.PEEK[]")
+            .uid_fetch(uid_range, "(UID FLAGS INTERNALDATE BODY.PEEK[])")
             .await
             .map_err(|e| format!("UID FETCH {folder} uids={uid_range} failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|error| {
+            // The codec can report the same parse error without consuming input.
+            // Stop at the first error and retry with the raw parser.
+            log::warn!("IMAP fetch stream error in {folder}: {error}");
+            format!("ASYNC_IMAP_EMPTY:{folder}")
+        })
     })
     .await
     .map_err(|_| format!("UID FETCH {folder} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?;
 
-    let raw_fetches: Vec<_> = fetches?;
-    let mut fetch_ok = 0u32;
-    let mut fetch_err = 0u32;
-    let mut fetches = Vec::new();
-    for r in raw_fetches {
-        match r {
-            Ok(f) => { fetch_ok += 1; fetches.push(f); }
-            Err(e) => { fetch_err += 1; log::warn!("IMAP fetch stream error in {folder}: {e}"); }
-        }
-    }
-    log::info!("IMAP FETCH {folder}: {fetch_ok} ok, {fetch_err} errors from uid_fetch");
-
+    let fetches = fetches?;
     // If async-imap returned nothing but messages exist, fallback to raw TCP fetch
     if fetches.is_empty() && mailbox.exists > 0 {
         log::warn!("IMAP {folder}: async-imap returned 0 items but exists={}. Falling back to raw TCP fetch...", mailbox.exists);
@@ -390,17 +390,14 @@ pub async fn fetch_message_body(
     let uid_str = uid.to_string();
     let fetches: Vec<_> = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
         let stream = session
-            .uid_fetch(&uid_str, "UID FLAGS BODY.PEEK[]")
+            .uid_fetch(&uid_str, "(UID FLAGS BODY.PEEK[])")
             .await
             .map_err(|e| format!("UID FETCH failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH response failed: {e}"))
     })
     .await
     .map_err(|_| format!("UID FETCH for UID {uid} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
-    ?
-    .into_iter()
-    .filter_map(|r| r.ok())
-    .collect();
+    ?;
 
     let fetch = fetches
         .first()
@@ -649,14 +646,11 @@ pub async fn fetch_attachment(
             .uid_fetch(&uid_str, "BODY.PEEK[]")
             .await
             .map_err(|e| format!("UID FETCH attachment failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH response failed: {e}"))
     })
     .await
     .map_err(|_| format!("UID FETCH attachment timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
-    ?
-    .into_iter()
-    .filter_map(|r| r.ok())
-    .collect();
+    ?;
 
     let fetch = fetches
         .first()
@@ -722,14 +716,11 @@ pub async fn fetch_raw_message(
             .uid_fetch(&uid_str, "BODY.PEEK[]")
             .await
             .map_err(|e| format!("UID FETCH failed: {e}"))?;
-        Ok::<_, String>(stream.collect::<Vec<_>>().await)
+        stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH response failed: {e}"))
     })
     .await
     .map_err(|_| format!("UID FETCH raw message timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
-    ?
-    .into_iter()
-    .filter_map(|r| r.ok())
-    .collect();
+    ?;
 
     let fetch = fetches
         .first()
@@ -926,39 +917,33 @@ pub async fn sync_folder(
 
         let fetches = tokio::time::timeout(IMAP_FETCH_TIMEOUT, async {
             let stream = session
-                .uid_fetch(&uid_set, "UID FLAGS INTERNALDATE BODY.PEEK[]")
+                .uid_fetch(&uid_set, "(UID FLAGS INTERNALDATE BODY.PEEK[])")
                 .await
                 .map_err(|e| format!("UID FETCH {folder} uids={uid_set} failed: {e}"))?;
-            Ok::<_, String>(stream.collect::<Vec<_>>().await)
+            stream.try_collect::<Vec<_>>().await.map_err(|e| format!("UID FETCH {folder} response failed: {e}"))
         })
         .await
         .map_err(|_| format!("UID FETCH {folder} timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?;
 
-        let raw_fetches: Vec<_> = fetches?;
-        for r in raw_fetches {
-            match r {
-                Ok(f) => {
-                    let uid = match f.uid {
-                        Some(u) => u,
-                        None => { log::warn!("IMAP sync_folder {folder}: response missing UID"); continue; }
-                    };
-                    let raw = match f.body() {
-                        Some(b) => b,
-                        None => { log::warn!("IMAP sync_folder {folder}: UID {uid} has no body"); continue; }
-                    };
-                    let raw_size = raw.len() as u32;
-                    let flags: Vec<_> = f.flags().collect();
-                    let is_read = flags.iter().any(|fl| matches!(fl, Flag::Seen));
-                    let is_starred = flags.iter().any(|fl| matches!(fl, Flag::Flagged));
-                    let is_draft = flags.iter().any(|fl| matches!(fl, Flag::Draft));
-                    let internal_date = f.internal_date().map(|dt| dt.timestamp());
+        for f in fetches? {
+            let uid = match f.uid {
+                Some(u) => u,
+                None => { log::warn!("IMAP sync_folder {folder}: response missing UID"); continue; }
+            };
+            let raw = match f.body() {
+                Some(b) => b,
+                None => { log::warn!("IMAP sync_folder {folder}: UID {uid} has no body"); continue; }
+            };
+            let raw_size = raw.len() as u32;
+            let flags: Vec<_> = f.flags().collect();
+            let is_read = flags.iter().any(|fl| matches!(fl, Flag::Seen));
+            let is_starred = flags.iter().any(|fl| matches!(fl, Flag::Flagged));
+            let is_draft = flags.iter().any(|fl| matches!(fl, Flag::Draft));
+            let internal_date = f.internal_date().map(|dt| dt.timestamp());
 
-                    match parse_message(&parser, raw, uid, folder, raw_size, is_read, is_starred, is_draft, internal_date) {
-                        Ok(msg) => all_messages.push(msg),
-                        Err(e) => log::warn!("sync_folder: failed to parse UID {uid}: {e}"),
-                    }
-                }
-                Err(e) => log::warn!("IMAP sync_folder fetch stream error in {folder}: {e}"),
+            match parse_message(&parser, raw, uid, folder, raw_size, is_read, is_starred, is_draft, internal_date) {
+                Ok(msg) => all_messages.push(msg),
+                Err(e) => log::warn!("sync_folder: failed to parse UID {uid}: {e}"),
             }
         }
     }
@@ -1205,7 +1190,7 @@ async fn raw_connect_starttls(config: &ImapConfig) -> Result<ImapStream, String>
     if !resp.contains("OK") {
         return Err(format!("STARTTLS rejected: {resp}"));
     }
-    let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+    let tls_connector = build_tls_connector(config)?;
     let server_name = ServerName::try_from(config.host.clone())
         .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
     let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))
@@ -1473,7 +1458,7 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
 
     match config.security.as_str() {
         "tls" => {
-            let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+            let tls_connector = build_tls_connector(config)?;
             let tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
                 .await
                 .map_err(|_| format!(
@@ -1559,7 +1544,7 @@ async fn connect_starttls(config: &ImapConfig) -> Result<ImapSession, String> {
     }
 
     // Upgrade to TLS
-    let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+    let tls_connector = build_tls_connector(config)?;
     let server_name = ServerName::try_from(config.host.clone())
         .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
     let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))

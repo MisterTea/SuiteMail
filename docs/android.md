@@ -120,12 +120,29 @@ The additional native scenario does not inject the fake bridge. It verifies actu
 
 - Google (Gmail) now uses native device account authorization and Play services token renewal. The current debug package/signing certificate is registered in `bits-and-bytes`; a production certificate needs its own registration. See [Google account setup and validation](android-google.md). Live Gmail downloads are verified for one emulator account; live sending, multiple real accounts and revocation still need separate checks. IMAP app-password setup remains available.
 - Microsoft Graph's current dependency fails to compile on Android, so Graph is excluded from this build and hidden in the account chooser. The desktop integration remains enabled. EWS is compiled but has not been validated against a live Microsoft account on Android.
-- Proton Mail Bridge requires a desktop OS and is hidden on Android.
+- Standalone Proton Mail is available in opt-in debug builds. See [Proton Mail](#proton-mail).
 - On-device AICore inference is not implemented. The Android bridge reports it unavailable and rejects generation; it never returns the previous placeholder response. Configure a cloud provider or reachable remote Pi/Ollama server for AI. The local desktop Llama server is not launched on Android.
 - Gmail has native periodic background checks through WorkManager, about every 15 minutes subject to Android scheduling. See [background sync behavior and testing](android-background-sync.md). Historical backfill, IMAP/EWS/calendar sync and scheduled sending remain foreground work; do not rely on scheduled send while the app is closed. Native push/instant notifications remain future work.
 - Native document picker/share-sheet integration, Android Keystore wrapping for the encryption key, hardware-device testing, and Play Store distribution remain future work. Direct-download APK signing is configured separately above.
 
 The app's existing encryption key is stored in private app files, and account secrets remain encrypted in SQLite. This is not hardware-backed Keystore storage.
+
+## Proton Mail
+
+The experimental Proton build runs the bundled Go Bridge inside the Android app. The device talks directly to Proton. Android Keystore protects the key for Bridge's encrypted vault, and SuperMail's Rust backend talks to Bridge over TLS on loopback using an app-generated trust root. The normal Android account database stores the email address and connection type. Login passwords and Bridge-generated passwords are kept out of that database.
+
+Enable the experiment with Go 1.26.7 on `PATH` and the pinned Bridge submodule initialized. From PowerShell:
+
+```powershell
+git submodule update --init submodules/proton-bridge
+$env:ANDROID_PROTON_BRIDGE = '1'
+$env:ANDROID_ABIS = 'arm64-v8a'
+npm run build:android
+```
+
+The `dist-android/*-proton-debug.apk` installs as `com.suitemail.app.protondev` alongside the standard app. In **Add Account → Proton Mail**, enter a paid Proton account's email or username and password. Fill in the authenticator code and separate mailbox password if the account uses them. Check initial inbox sync, sending a message, and reopening the app after a force-stop. This prototype supports foreground sync and authenticator codes. Hardware-key-only sign-in and Proton's interactive human verification require further work.
+
+For emulator tests, set `ANDROID_ABIS=x86_64` and `ANDROID_PROTON_FIXTURE=1` before building. Install the `*-proton-fixture-debug.apk` on a clean emulator, set `SUITEMAIL_ANDROID_PROTON=1`, and run `npx playwright test --config playwright.android.config.ts androidProton`. The fixture serves synthetic accounts on Android loopback. The x86_64 API 36 test verifies rejected credentials, sign-in, IMAP folder listing and message retrieval, SMTP delivery, and account removal. Clear `ANDROID_PROTON_FIXTURE` before building a physical-device APK. The release build excludes this experiment.
 
 ## Gmail initial-download behavior
 

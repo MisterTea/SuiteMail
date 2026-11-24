@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import { platformInvoke } from "@/platform";
 import { Capacitor } from "@capacitor/core";
 import { Mail, Calendar, Shield, Building2 } from "lucide-react";
 import { authorizeAndroidGoogle } from "@/services/gmail/androidGoogleAuth";
@@ -12,6 +13,7 @@ import { SetupClientId } from "./SetupClientId";
 import { AddImapAccount } from "./AddImapAccount";
 import { AddCalDavAccount } from "./AddCalDavAccount";
 import { AddProtonAccount } from "./AddProtonAccount";
+import { AddAndroidProtonAccount } from "./AddAndroidProtonAccount";
 import { AddMicrosoftAccount } from "./AddMicrosoftAccount";
 import { AddEwsAccount } from "./AddEwsAccount";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
@@ -25,6 +27,16 @@ type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton" | "micros
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const androidPreview = Capacitor.getPlatform() === "android";
+  const [androidProton, setAndroidProton] = useState(false);
+
+  useEffect(() => {
+    if (!androidPreview) return;
+    let active = true;
+    void platformInvoke<boolean>("proton_available").then((available) => {
+      if (active) setAndroidProton(available);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [androidPreview]);
   const [view, setView] = useState<View>("select-provider");
   const [status, setStatus] = useState<
     "idle" | "checking" | "authenticating" | "error"
@@ -126,8 +138,9 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   }
 
   if (view === "proton") {
+    const ProtonAccount = androidPreview ? AddAndroidProtonAccount : AddProtonAccount;
     return (
-      <AddProtonAccount
+      <ProtonAccount
         onClose={onClose}
         onSuccess={onSuccess}
         onBack={() => setView("select-provider")}
@@ -295,7 +308,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          {!androidPreview && <button
+          {(!androidPreview || androidProton) && <button
             onClick={() => setView("proton")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -307,7 +320,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Proton Mail
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                Connect via Proton Mail Bridge with end-to-end encryption
+                {androidPreview ? "Sign in and sync through Bridge on this device" : "Connect via Proton Mail Bridge with end-to-end encryption"}
               </div>
             </div>
           </button>}

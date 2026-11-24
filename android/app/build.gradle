@@ -5,6 +5,7 @@ if (!(suiteVersion ==~ /\d+\.\d+\.\d+/)) throw new GradleException('Android requ
 def versionParts = suiteVersion.split('\\.').collect { it.toLong() }
 if (versionParts[0] > 2146 || versionParts[1] > 999 || versionParts[2] > 999) throw new GradleException('Android version is out of range')
 def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+def protonPrototype = project.findProperty('suiteMailProtonPrototype')
 def signingVars = ['ANDROID_KEYSTORE_PATH', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD']
 if (releaseRequested && signingVars.any { !System.getenv(it) }) throw new GradleException('Release signing environment variables are required')
 
@@ -38,10 +39,22 @@ android {
         }
     }
     buildTypes {
+        debug {
+            if (protonPrototype == 'device') applicationIdSuffix '.protondev'
+            if (protonPrototype == 'fixture') applicationIdSuffix '.protonfixture'
+        }
         release {
             signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().all()) { variant ->
+        if (variant.buildType != 'debug' || !(protonPrototype in ['device', 'fixture'])) {
+            variant.packaging.jniLibs.excludes.add('**/libproton_android.so')
         }
     }
 }

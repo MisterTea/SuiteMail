@@ -10,6 +10,8 @@ pub struct ImapConfig {
     pub auth_method: String, // "password" or "oauth2"
     #[serde(default)]
     pub accept_invalid_certs: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trusted_certificate_der: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

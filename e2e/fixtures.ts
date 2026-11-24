@@ -8,15 +8,19 @@ const isAndroid = process.env.SUITEMAIL_ANDROID === '1';
 const sdk = process.env.ANDROID_HOME || path.join(os.homedir(), 'Library/Android/sdk');
 const adb = path.join(sdk, 'platform-tools', process.platform === 'win32' ? 'adb.exe' : 'adb');
 const serial = process.env.ANDROID_SERIAL || 'emulator-5554';
+const protonFixture = process.env.SUITEMAIL_ANDROID_PROTON === '1';
+const packageName = protonFixture ? 'com.suitemail.app.protonfixture' : 'com.suitemail.app';
 const adbRun = (...args: string[]) => execFileSync(adb, ['-s', serial, ...args], { encoding: 'utf8' });
 
 export const test = isAndroid ? base.extend({
   page: async ({}, use, testInfo) => {
-    adbRun('reverse', 'tcp:3333', 'tcp:3333');
-    adbRun('reverse', 'tcp:3334', 'tcp:3334');
-    adbRun('shell', 'am', 'force-stop', 'com.suitemail.app');
-    adbRun('shell', 'am', 'start', '-W', '-n', 'com.suitemail.app/.MainActivity');
-    const pid = adbRun('shell','pidof','com.suitemail.app').trim();
+    if (!protonFixture) {
+      adbRun('reverse', 'tcp:3333', 'tcp:3333');
+      adbRun('reverse', 'tcp:3334', 'tcp:3334');
+    }
+    adbRun('shell', 'am', 'force-stop', packageName);
+    adbRun('shell', 'am', 'start', '-W', '-n', `${packageName}/com.suitemail.app.MainActivity`);
+    const pid = adbRun('shell','pidof', packageName).trim();
     if (!/^\d+$/.test(pid)) throw new Error('SuiteMail did not start');
     adbRun('forward','tcp:9223',`localabstract:webview_devtools_remote_${pid}`);
     let ready = false;

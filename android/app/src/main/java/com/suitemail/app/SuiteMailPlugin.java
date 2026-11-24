@@ -3,6 +3,7 @@ package com.suitemail.app;
 import android.content.Intent;
 import android.net.Uri;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -70,6 +71,25 @@ public class SuiteMailPlugin extends Plugin {
                     result.put("value", aiCore.invoke(command, args, getContext()));
                     call.resolve(result);
                     return;
+                }
+                if (command.equals("proton_available")) {
+                    JSObject result = new JSObject();
+                    result.put("value", !Logger.shouldLog() && ProtonBridge.isAvailable());
+                    call.resolve(result);
+                    return;
+                }
+                if (command.equals("proton_login") || command.equals("proton_remove") || command.equals("proton_status")) {
+                    JSObject result = new JSObject();
+                    result.put("value", ProtonBridge.invoke(getContext(), command.substring(7), args));
+                    call.resolve(result);
+                    return;
+                }
+                if (command.startsWith("imap_") || command.startsWith("smtp_")) {
+                    JSObject config = args.getJSObject("config");
+                    if (config != null && ProtonBridge.ACCOUNT_HOST.equals(config.optString("host"))) {
+                        ProtonBridge.configure(getContext(), config, command.startsWith("smtp_"));
+                        args.put("config", config);
+                    }
                 }
                 JSObject envelope = new JSObject(nativeCall(command, args.toString()));
                 if (envelope.has("error")) call.reject(envelope.getString("error"));
