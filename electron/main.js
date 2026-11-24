@@ -2,10 +2,12 @@ import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage, gl
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { loadSupermailCore } from './loadAddon.js';
 import { showStartupError } from './startupError.js';
 import { setupUpdater, checkForUpdates, installUpdate } from './updater.js';
+import { createStartupTelemetry } from './telemetry.js';
+import { createRendererSecurity, isExternalUrl } from './rendererSecurity.js';
 import { DESKTOP_NAME, createAutostart, createComposeShortcut, createMailtoQueue, backgroundWindow, cancelBackgrounding, queryGlobalShortcutPortal } from './desktopIntegration.js';
 
 if (process.platform === 'linux') app.setDesktopName(DESKTOP_NAME);
@@ -39,6 +41,21 @@ const firstStartup = !fs.existsSync(startupMarker);
 let startHidden = process.argv.includes('--hidden');
 let pendingCompose = false;
 let shortcutPortalSupport;
+const appFile = path.join(__dirname, '..', 'dist', 'index.html');
+const preload = path.join(__dirname, 'preload.cjs');
+const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:1420';
+const rendererSecurity = createRendererSecurity({
+  ipcMain,
+  preload,
+  appUrl: isDevMode() ? devUrl : pathToFileURL(appFile).href,
+  openExternal: (url) => shell.openExternal(url),
+});
+const telemetry = createStartupTelemetry({
+  userData: app.getPath('userData'),
+  version: app.getVersion(),
+  platform: process.platform,
+  packaged: app.isPackaged && !isDevMode(),
+});
 const autostart = createAutostart(app);
 function showMainWindow() {
   startHidden = false;
@@ -64,6 +81,7 @@ function reportStartupError(detail) {
   if (startupReady || startupErrorShown || isQuitting) return;
   startupErrorShown = true;
   clearTimeout(startupTimer);
+  void telemetry.record('failed');
   console.error("[Startup]", detail);
   showStartupError({
     app, dialog, window: mainWindow,
@@ -158,9 +176,9 @@ function createSplashWindow() {
     center: true,
     show: true,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
 
@@ -181,12 +199,13 @@ async function createMainWindow() {
     frame: false, // frameless window for SuiteMail custom TitleBar
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
+  rendererSecurity.protect(mainWindow.webContents);
 
   // Keep syncing in the background; Linux stays reachable without a tray.
   mainWindow.on('close', (event) => {
@@ -232,8 +251,6 @@ async function createMainWindow() {
   });
 
   if (isDev) {
-    const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:1420';
-
     // Probe dev server readiness before loadURL to prevent Chromium socket hang
     let devServerReady = false;
     for (let attempt = 1; attempt <= 30; attempt++) {
@@ -262,7 +279,7 @@ async function createMainWindow() {
       reportStartupError(`The development server could not be loaded: ${err.message}`);
     }
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'))
+    mainWindow.loadFile(appFile)
       .catch((err) => reportStartupError(`The installed mail window could not be loaded: ${err.message}`));
   }
 }
@@ -276,18 +293,19 @@ function openThreadWindow(threadId, accountId) {
     height: 700,
     frame: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.cjs'),
+      preload,
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: true,
     },
   });
+  rendererSecurity.protect(threadWin.webContents);
 
   const params = `?thread=${encodeURIComponent(threadId)}&account=${encodeURIComponent(accountId)}`;
   if (isDev) {
-    const devUrl = (process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:1420') + params;
-    threadWin.loadURL(devUrl);
+    threadWin.loadURL(new URL(params, devUrl).href);
   } else {
-    threadWin.loadFile(path.join(__dirname, '..', 'dist', 'index.html'), {
+    threadWin.loadFile(appFile, {
       query: { thread: threadId, account: accountId },
     });
   }
@@ -343,23 +361,25 @@ app.on('window-all-closed', () => {
 // ---------- IPC Handlers ----------
 
 // Database queries forwarded directly into Rust
-ipcMain.handle('db:select', async (_event, query, bindValues = []) => {
+rendererSecurity.handle('db:select', async (_event, query, bindValues = []) => {
   if (!rustCore) throw new Error('Rust core not loaded');
   const res = rustCore.dbSelect(query, JSON.stringify(bindValues ?? []));
   return JSON.parse(res);
 });
 
-ipcMain.handle('db:execute', async (_event, query, bindValues = []) => {
+rendererSecurity.handle('db:execute', async (_event, query, bindValues = []) => {
   if (!rustCore) throw new Error('Rust core not loaded');
   const res = rustCore.dbExecute(query, JSON.stringify(bindValues ?? []));
   return JSON.parse(res);
 });
 
 // Rust command dispatcher
-ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
+rendererSecurity.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   if (cmd === 'close_splashscreen') {
+    if (_event.sender !== mainWindow?.webContents) return undefined;
     startupReady = true;
     clearTimeout(startupTimer);
+    void telemetry.record('ready');
     if (firstStartup) {
       try { fs.writeFileSync(startupMarker, 'ready\n', { mode: 0o600 }); }
       catch (error) { console.warn('[Startup] Could not save startup state:', error.message); }
@@ -395,6 +415,8 @@ ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   }
   if (cmd === 'unregister_compose_shortcut') return composeShortcut.unregister();
   if (cmd === 'get_app_version') return app.getVersion();
+  if (cmd === 'get_startup_telemetry') return telemetry.enabled;
+  if (cmd === 'set_startup_telemetry') return telemetry.setEnabled(args.enabled);
   if (cmd === 'show_main_window') return showMainWindow();
 
   if (cmd === 'set_tray_tooltip') {
@@ -422,70 +444,71 @@ ipcMain.handle('supermail:invoke', async (_event, cmd, args = {}) => {
 });
 
 // Window controls
-ipcMain.handle('feedback:captureScreenshot', async (event) => {
+rendererSecurity.handle('feedback:captureScreenshot', async (event) => {
   const image = await event.sender.capturePage();
   return image.toDataURL();
 });
 
-ipcMain.handle('window:minimize', () => mainWindow?.minimize());
-ipcMain.handle('window:toggleMaximize', () => {
+rendererSecurity.handle('window:minimize', () => mainWindow?.minimize());
+rendererSecurity.handle('window:toggleMaximize', () => {
   if (!mainWindow) return;
   if (mainWindow.isMaximized()) mainWindow.unmaximize();
   else mainWindow.maximize();
 });
-ipcMain.handle('window:close', () => backgroundWindow(mainWindow, process.platform, Boolean(tray)));
-ipcMain.handle('window:openThread', (_event, threadId, accountId) => openThreadWindow(threadId, accountId));
+rendererSecurity.handle('window:close', () => backgroundWindow(mainWindow, process.platform, Boolean(tray)));
+rendererSecurity.handle('window:openThread', (_event, threadId, accountId) => openThreadWindow(threadId, accountId));
 
 // Filesystem operations
-ipcMain.handle('fs:mkdir', async (_event, dir, options) => {
+rendererSecurity.handle('fs:mkdir', async (_event, dir, options) => {
   const fullPath = resolveFsPath(dir);
   await fs.promises.mkdir(fullPath, { recursive: options?.recursive ?? true });
 });
 
-ipcMain.handle('fs:writeFile', async (_event, file, data) => {
+rendererSecurity.handle('fs:writeFile', async (_event, file, data) => {
   const fullPath = resolveFsPath(file);
   await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.promises.writeFile(fullPath, Buffer.from(data));
 });
 
-ipcMain.handle('fs:readFile', async (_event, file) => {
+rendererSecurity.handle('fs:readFile', async (_event, file) => {
   const fullPath = resolveFsPath(file);
   const buf = await fs.promises.readFile(fullPath);
   return new Uint8Array(buf);
 });
 
-ipcMain.handle('fs:readTextFile', async (_event, file) => {
+rendererSecurity.handle('fs:readTextFile', async (_event, file) => {
   const fullPath = resolveFsPath(file);
   return await fs.promises.readFile(fullPath, 'utf-8');
 });
 
-ipcMain.handle('fs:writeTextFile', async (_event, file, text) => {
+rendererSecurity.handle('fs:writeTextFile', async (_event, file, text) => {
   const fullPath = resolveFsPath(file);
   await fs.promises.mkdir(path.dirname(fullPath), { recursive: true });
   await fs.promises.writeFile(fullPath, text, 'utf-8');
 });
 
-ipcMain.handle('fs:remove', async (_event, targetPath, options) => {
+rendererSecurity.handle('fs:remove', async (_event, targetPath, options) => {
   const fullPath = resolveFsPath(targetPath);
   await fs.promises.rm(fullPath, { recursive: options?.recursive ?? true, force: true });
 });
 
-ipcMain.handle('fs:exists', async (_event, targetPath) => {
+rendererSecurity.handle('fs:exists', async (_event, targetPath) => {
   const fullPath = resolveFsPath(targetPath);
   return fs.existsSync(fullPath);
 });
 
 // Dialogs & Shell
-ipcMain.handle('dialog:save', async (_event, options) => {
+rendererSecurity.handle('dialog:save', async (_event, options) => {
   const res = await dialog.showSaveDialog(mainWindow, options);
   return res.filePath ?? null;
 });
 
-ipcMain.handle('dialog:open', async (_event, options) => {
+rendererSecurity.handle('dialog:open', async (_event, options) => {
   const res = await dialog.showOpenDialog(mainWindow, options);
   return res.filePaths;
 });
 
-ipcMain.handle('shell:openExternal', async (_event, url) => {
+rendererSecurity.handle('shell:openExternal', async (_event, url) => {
+  if (!isExternalUrl(url)) throw new Error('Unsupported external URL');
   await shell.openExternal(url);
 });

@@ -1,0 +1,21 @@
+name = "suitemail-telemetry"
+main = "worker.js"
+compatibility_date = "2026-11-24"
+workers_dev = true
+preview_urls = false
+
+[observability]
+enabled = false
+
+[triggers]
+crons = ["17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "suitemail-telemetry"
+database_id = "dd9af79c-e817-4e31-b1a1-4d0fe1947704"
+
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "741571"
+simple = { limit = 30, period = 60 }

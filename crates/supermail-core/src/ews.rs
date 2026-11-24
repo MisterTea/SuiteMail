@@ -172,8 +172,7 @@ fn local_name(name: &[u8]) -> String {
 
 fn parse_xml(input: &str) -> Result<Node, String> {
     let mut reader = Reader::from_str(input);
-    reader.config_mut().trim_text(true);
-    let mut buf = Vec::new();
+    let mut text = String::new();
     let mut stack = vec![Node {
         name: String::new(),
         attrs: Vec::new(),
@@ -181,9 +180,25 @@ fn parse_xml(input: &str) -> Result<Node, String> {
         children: Vec::new(),
     }];
     loop {
-        match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(event)) => stack.push(node_start(&event)?),
-            Ok(Event::Empty(event)) => {
+        let event = reader.read_event().map_err(|err| format!("Could not read the Exchange response: {err}"))?;
+        // References arrive as separate events. Join them before trimming so
+        // text such as `Sales &amp; Support` retains its internal spaces.
+        if !matches!(event, Event::Text(_) | Event::GeneralRef(_)) && !text.is_empty() {
+            let decoded = quick_xml::escape::unescape(text.trim_matches([' ', '\t', '\r', '\n']))
+                .map_err(|_| "Exchange response had unreadable text.".to_string())?;
+            if let Some(top) = stack.last_mut() {
+                top.text.push_str(&decoded);
+            }
+            text.clear();
+        }
+        match event {
+            Event::Start(event) => {
+                if stack.len() > 128 {
+                    return Err("Exchange response exceeded the XML nesting limit.".to_string());
+                }
+                stack.push(node_start(&event)?);
+            }
+            Event::Empty(event) => {
                 let node = node_start(&event)?;
                 stack
                     .last_mut()
@@ -191,22 +206,23 @@ fn parse_xml(input: &str) -> Result<Node, String> {
                     .children
                     .push(node);
             }
-            Ok(Event::Text(event)) => {
-                let text = event
-                    .unescape()
-                    .map_err(|_| "Exchange response had unreadable text.".to_string())?
-                    .into_owned();
-                if let Some(top) = stack.last_mut() {
-                    top.text.push_str(&text);
-                }
+            Event::Text(event) => {
+                let decoded = event.decode().map_err(|_| "Exchange response had unreadable text.".to_string())?;
+                text.push_str(&decoded);
             }
-            Ok(Event::CData(event)) => {
+            Event::GeneralRef(reference) => {
+                let decoded = reference.decode().map_err(|_| "Exchange response had an unreadable reference.".to_string())?;
+                text.push('&');
+                text.push_str(&decoded);
+                text.push(';');
+            }
+            Event::CData(event) => {
                 let text = String::from_utf8_lossy(event.as_ref());
                 if let Some(top) = stack.last_mut() {
                     top.text.push_str(&text);
                 }
             }
-            Ok(Event::End(_)) => {
+            Event::End(_) => {
                 let done = stack
                     .pop()
                     .ok_or_else(|| "Exchange response was incomplete.".to_string())?;
@@ -216,11 +232,12 @@ fn parse_xml(input: &str) -> Result<Node, String> {
                     .children
                     .push(done);
             }
-            Ok(Event::Eof) => break,
-            Err(err) => return Err(format!("Could not read the Exchange response: {err}")),
+            Event::Eof => break,
             _ => {}
         }
-        buf.clear();
+    }
+    if stack.len() != 1 {
+        return Err("Exchange response was incomplete.".to_string());
     }
     stack
         .pop()
@@ -233,7 +250,7 @@ fn node_start(event: &quick_xml::events::BytesStart<'_>) -> Result<Node, String>
         let attr = attr.map_err(|_| "Exchange response had an unreadable attribute.".to_string())?;
         let key = local_name(attr.key.local_name().as_ref());
         let value = attr
-            .unescape_value()
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .map_err(|_| "Exchange response had an unreadable attribute.".to_string())?
             .into_owned();
         attrs.push((key, value));

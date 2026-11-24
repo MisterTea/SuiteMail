@@ -30,8 +30,8 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 base64 = "0.22"
 utf7-imap = "0.3"
 socket2 = "0.5"
-rusqlite = { version = "0.32", features = ["bundled"] }
-quick-xml = "0.37"
+rusqlite = { version = "0.41", features = ["bundled"] }
+quick-xml = "0.41"
 io-msgraph = { version = "0.9.3", optional = true }
 
 [build-dependencies]

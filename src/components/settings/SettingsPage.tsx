@@ -125,6 +125,8 @@ export function SettingsPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncPeriodDays, setSyncPeriodDays] = useState("365");
   const [blockRemoteImages, setBlockRemoteImages] = useState(true);
+  const [startupTelemetry, setStartupTelemetry] = useState<boolean | null>(null);
+  const [startupTelemetryError, setStartupTelemetryError] = useState(false);
   const [phishingDetectionEnabled, setPhishingDetectionEnabled] = useState(true);
   const [phishingSensitivity, setPhishingSensitivity] = useState<"low" | "default" | "high">("default");
   const [autostartEnabled, setAutostartEnabled] = useState(false);
@@ -201,6 +203,8 @@ export function SettingsPage() {
       if (isElectron()) {
         try { setAutostartEnabled(await platformInvoke<boolean>("get_autostart")); }
         catch (error) { setAutostartError(String(error)); }
+        try { setStartupTelemetry(await platformInvoke<boolean>("get_startup_telemetry")); }
+        catch { setStartupTelemetryError(true); }
       }
 
       // Load AI settings
@@ -601,6 +605,22 @@ export function SettingsPage() {
                   </Section>
 
                   <Section title="Privacy & Security">
+                    {startupTelemetry !== null && (
+                      <ToggleRow
+                        label="Share startup diagnostics"
+                        description="From your next launch, share the app version, operating system, and whether startup succeeded."
+                        checked={startupTelemetry}
+                        onToggle={async () => {
+                          try {
+                            setStartupTelemetry(await platformInvoke<boolean>("set_startup_telemetry", { enabled: !startupTelemetry }));
+                            setStartupTelemetryError(false);
+                          } catch {
+                            setStartupTelemetryError(true);
+                          }
+                        }}
+                      />
+                    )}
+                    {startupTelemetryError && <p role="alert" className="text-xs text-danger">Could not access the startup diagnostics setting.</p>}
                     <ToggleRow
                       label="Block remote images"
                       description="Hides tracking pixels and remote images until you choose to load them"

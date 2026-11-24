@@ -28,13 +28,13 @@ You should receive an acknowledgment within **48 hours**. We will work with you 
 
 ### Local-First Architecture
 
-SuiteMail is a desktop application. Your emails, tokens, and settings are stored locally in a SQLite database on your machine. There are no SuiteMail-operated backend servers.
+SuiteMail stores downloaded mail, tokens, and settings in a local SQLite database. The app connects directly to configured mail and calendar services, and to your chosen AI provider when you use cloud AI. Optional diagnostics and manually submitted bug reports use separate hosted endpoints.
 
 ### Authentication & Credentials
 
-- **Gmail**: OAuth 2.0 with PKCE -- no client secret stored. Tokens are encrypted with AES-256-GCM before being saved to the local database.
+- **Gmail**: OAuth 2.0 with PKCE. Tokens and any user-configured client secret are encrypted with AES-256-GCM before being saved to the local database.
 - **IMAP/SMTP**: Passwords and app passwords are encrypted with AES-256-GCM in the local SQLite database.
-- **AI API keys**: Stored in the local SQLite settings table. Keys are sent directly to the respective provider (Anthropic, OpenAI, Google) over HTTPS -- never to any SuiteMail server.
+- **AI API keys**: Stored locally and sent to the respective provider over HTTPS.
 
 ### Email Rendering
 
@@ -44,9 +44,9 @@ SuiteMail is a desktop application. Your emails, tokens, and settings are stored
 
 ### Network
 
-- All API connections use HTTPS
-- Content Security Policy restricts network requests to known domains (googleapis.com, anthropic.com, openai.com, generativelanguage.googleapis.com, gravatar.com, googleusercontent.com)
-- No telemetry, analytics, or tracking
+- Provider APIs use HTTPS. Local integrations can use HTTP, and manually configured IMAP or SMTP accounts can choose their transport security.
+- **Startup diagnostics** are off by default. In the desktop app, open **Settings → General → Privacy & Security** to enable or disable them. From the next launch after enabling, SuiteMail sends at most one startup result per launch with the app version, operating system family, and whether startup succeeded. The payload contains no mail, addresses, account or device IDs, credentials, or error text.
+- Cloudflare handles the connection and uses the source IP for short-term rate limiting. SuiteMail stores only daily aggregate counts and expires them after 90 days. Manual bug reports are separate and can include the details and screenshot you choose to send.
 
 ### Dependencies
 
