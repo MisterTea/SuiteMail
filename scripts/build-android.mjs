@@ -3,9 +3,14 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { buildProtonBridge } from './proton-android/build.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 const release = process.argv.includes('--release');
+const proton = process.env.ANDROID_PROTON_BRIDGE === '1';
+const protonFixture = process.env.ANDROID_PROTON_FIXTURE === '1';
+if (protonFixture && !proton) throw new Error('The Proton fixture requires ANDROID_PROTON_BRIDGE=1');
+if (release && (proton || process.env.ANDROID_PROTON_FIXTURE === '1')) throw new Error('Proton Android prototypes build only as debug APKs');
 const version = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version;
 if (release && process.env.RELEASE_TAG && process.env.RELEASE_TAG !== `v${version}`) throw new Error('Release tag must match package.json version');
 if (release && ['ANDROID_KEYSTORE_PATH', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'].some(key => !process.env[key])) throw new Error('Release signing environment variables are required');
@@ -37,6 +42,8 @@ for (const abi of abis) {
   const destination = path.join(root,'android/app/src/main/jniLibs',abi);
   fs.mkdirSync(destination,{recursive:true});
   fs.copyFileSync(path.join(root,'target',triple,'release/libsupermail_android.so'),path.join(destination,'libsupermail_android.so'));
+  fs.rmSync(path.join(destination, 'libproton_android.so'), { force: true });
+  if (proton) buildProtonBridge(root, tools, abi, destination);
 }
 run(process.execPath,[path.join(root,'node_modules/typescript/bin/tsc'),'--noEmit']);
 run(process.execPath,[path.join(root,'node_modules/vite/bin/vite.js'),'build','--mode','android']);
@@ -46,7 +53,7 @@ const configPath = path.join(root,'android/app/src/main/assets/capacitor.config.
 const config = JSON.parse(fs.readFileSync(configPath));
 config.android.allowMixedContent = !release;
 fs.writeFileSync(configPath,JSON.stringify(config));
-const gradleArgs = ['-p','android',`-PsuiteMailAbis=${abis.join(',')}`,...(release ? ['testDebugUnitTest', 'assembleRelease'] : ['assembleDebug'])];
+const gradleArgs = ['-p','android',`-PsuiteMailAbis=${abis.join(',')}`, ...(proton ? [`-PsuiteMailProtonPrototype=${protonFixture ? 'fixture' : 'device'}`] : []),...(release ? ['testDebugUnitTest', 'assembleRelease'] : ['assembleDebug'])];
 if (process.platform === 'win32') {
   run(javaHome ? path.join(javaHome, 'bin/java.exe') : 'java', ['-classpath',path.join(root,'android/gradle/wrapper/gradle-wrapper.jar'),'org.gradle.wrapper.GradleWrapperMain',...gradleArgs]);
 } else {
@@ -54,6 +61,6 @@ if (process.platform === 'win32') {
 }
 const output = path.join(root,'dist-android');
 fs.mkdirSync(output,{recursive:true});
-const fileName = `SuiteMail-${version}-android${release ? '' : '-debug'}.apk`;
+const fileName = `SuiteMail-${version}-android${proton ? (protonFixture ? '-proton-fixture' : '-proton') : ''}${release ? '' : '-debug'}.apk`;
 fs.copyFileSync(path.join(root,`android/app/build/outputs/apk/${release ? 'release/app-release.apk' : 'debug/app-debug.apk'}`),path.join(output,fileName));
 console.log(`APK: ${output}/${fileName}`);

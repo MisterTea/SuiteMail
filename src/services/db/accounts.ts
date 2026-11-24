@@ -1,4 +1,7 @@
 import { getDb, selectFirstBy } from "./connection";
+import { Capacitor } from "@capacitor/core";
+import { platformInvoke } from "@/platform";
+import { ANDROID_PROTON_HOST } from "@/services/proton/androidProtonBridge";
 import { encryptValue, decryptValue, isEncrypted } from "@/utils/crypto";
 
 export interface DbAccount {
@@ -250,6 +253,12 @@ export async function updateAccountAllTokens(
 }
 
 export async function deleteAccount(id: string): Promise<void> {
+  if (Capacitor.getPlatform() === "android") {
+    const account = await getAccount(id);
+    if (account?.imap_host === ANDROID_PROTON_HOST) {
+      await platformInvoke("proton_remove", { email: account.email });
+    }
+  }
   const db = await getDb();
   await db.execute("DELETE FROM accounts WHERE id = $1", [id]);
 }

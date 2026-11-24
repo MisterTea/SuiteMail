@@ -1,8 +1,8 @@
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use base64::{engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}, Engine};
 use lettre::{
     transport::smtp::{
         authentication::{Credentials, Mechanism},
-        client::{Tls, TlsParametersBuilder},
+        client::{Certificate, CertificateStore, Tls, TlsParametersBuilder},
     },
     AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
 };
@@ -29,6 +29,16 @@ fn build_transport(
         vec![Mechanism::Plain, Mechanism::Login]
     };
 
+    let custom_tls = if let Some(encoded) = &config.trusted_certificate_der {
+        let der = STANDARD.decode(encoded).map_err(|e| format!("Invalid SMTP certificate: {e}"))?;
+        let certificate = Certificate::from_der(der).map_err(|e| format!("Invalid SMTP certificate: {e}"))?;
+        Some(TlsParametersBuilder::new(config.host.clone())
+            .certificate_store(CertificateStore::None)
+            .add_root_certificate(certificate)
+            .build().map_err(|e| format!("SMTP TLS params error: {e}"))?)
+    } else {
+        None
+    };
     let transport = match config.security.as_str() {
         "tls" => {
             // Implicit TLS (typically port 465)
@@ -38,7 +48,9 @@ fn build_transport(
                 .credentials(credentials)
                 .authentication(auth_mechanisms);
 
-            if config.accept_invalid_certs {
+            if let Some(params) = custom_tls {
+                builder = builder.tls(Tls::Wrapper(params));
+            } else if config.accept_invalid_certs {
                 let tls_params = TlsParametersBuilder::new(config.host.clone())
                     .dangerous_accept_invalid_certs(true)
                     .dangerous_accept_invalid_hostnames(true)
@@ -57,7 +69,9 @@ fn build_transport(
                 .credentials(credentials)
                 .authentication(auth_mechanisms);
 
-            if config.accept_invalid_certs {
+            if let Some(params) = custom_tls {
+                builder = builder.tls(Tls::Required(params));
+            } else if config.accept_invalid_certs {
                 let tls_params = TlsParametersBuilder::new(config.host.clone())
                     .dangerous_accept_invalid_certs(true)
                     .dangerous_accept_invalid_hostnames(true)

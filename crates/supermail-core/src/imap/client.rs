@@ -172,8 +172,8 @@ impl ServerCertVerifier for NoVerifyServerCert {
 
 /// Build a TLS connector, optionally accepting invalid certificates
 /// (for local mail bridges like ProtonMail Bridge with self-signed certs).
-fn build_tls_connector(accept_invalid_certs: bool) -> Result<TlsConnector, String> {
-    let config = if accept_invalid_certs {
+fn build_tls_connector(config: &ImapConfig) -> Result<TlsConnector, String> {
+    let tls_config = if config.accept_invalid_certs && config.trusted_certificate_der.is_none() {
         rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
             .map_err(|e| format!("TLS protocol error: {e}"))?
@@ -182,14 +182,21 @@ fn build_tls_connector(accept_invalid_certs: bool) -> Result<TlsConnector, Strin
             .with_no_client_auth()
     } else {
         let mut root_store = rustls::RootCertStore::empty();
-        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        if let Some(encoded) = &config.trusted_certificate_der {
+            let certificate = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                .map_err(|e| format!("Invalid IMAP certificate: {e}"))?;
+            root_store.add(CertificateDer::from(certificate))
+                .map_err(|e| format!("Invalid IMAP certificate: {e}"))?;
+        } else {
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        }
         rustls::ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
             .map_err(|e| format!("TLS protocol error: {e}"))?
             .with_root_certificates(root_store)
             .with_no_client_auth()
     };
-    Ok(TlsConnector::from(Arc::new(config)))
+    Ok(TlsConnector::from(Arc::new(tls_config)))
 }
 
 // ---------- Public API ----------
@@ -1205,7 +1212,7 @@ async fn raw_connect_starttls(config: &ImapConfig) -> Result<ImapStream, String>
     if !resp.contains("OK") {
         return Err(format!("STARTTLS rejected: {resp}"));
     }
-    let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+    let tls_connector = build_tls_connector(config)?;
     let server_name = ServerName::try_from(config.host.clone())
         .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
     let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))
@@ -1473,7 +1480,7 @@ async fn connect_stream(config: &ImapConfig) -> Result<ImapStream, String> {
 
     match config.security.as_str() {
         "tls" => {
-            let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+            let tls_connector = build_tls_connector(config)?;
             let tcp = tokio::time::timeout(TCP_CONNECT_TIMEOUT, TcpStream::connect(addr))
                 .await
                 .map_err(|_| format!(
@@ -1559,7 +1566,7 @@ async fn connect_starttls(config: &ImapConfig) -> Result<ImapSession, String> {
     }
 
     // Upgrade to TLS
-    let tls_connector = build_tls_connector(config.accept_invalid_certs)?;
+    let tls_connector = build_tls_connector(config)?;
     let server_name = ServerName::try_from(config.host.clone())
         .map_err(|e| format!("Invalid server name {}: {e}", config.host))?;
     let tls = tokio::time::timeout(TLS_HANDSHAKE_TIMEOUT, tls_connector.connect(server_name, tcp))
