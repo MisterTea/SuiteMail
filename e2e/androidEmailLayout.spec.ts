@@ -2,17 +2,57 @@ import { test, expect } from './fixtures';
 import { FakeServer } from './fakeServer';
 import { getElectronBridgeScript } from './electronBridge';
 
-test.skip(process.env.SUITEMAIL_ANDROID !== '1', 'Requires the installed Android WebView');
 let server: FakeServer;
 test.beforeAll(async () => { server = new FakeServer(3334); await server.start(); });
 test.afterAll(async () => { await server.stop(); });
 
+test('Fixed-width newsletters reflow at phone widths', async ({ page }) => {
+  server.reset();
+  const html = `<center style="width:640px;min-width:640px">
+    <table width="640" style="width:640px;min-width:640px" role="presentation"><tr><td width="640" style="min-width:640px;padding:20px">
+      <div style="width:600px;min-width:600px">
+        <h1 style="font-size:32px;margin:0">Community Weekly: SpaceX gets a permit for a 750 MW Texas gas plant</h1>
+        <p>Plus data center deals in Odessa and Hunt County, and five Texas AI events.</p>
+        <p>https://example.com/a-very-long-address-without-any-ordinary-spaces-to-wrap-onto-the-next-line</p>
+      </div>
+    </td></tr></table>
+  </center>`;
+  server.db.prepare('UPDATE messages SET body_html = ? WHERE id = ?').run(html, 'm-welcome-1');
+  await page.addInitScript(getElectronBridgeScript(3334));
+  await page.goto('http://localhost:1420/#/mail/inbox');
+  await page.getByRole('button', { name: /Team Welcome & Onboarding Guide/ }).first().tap();
+  const iframe = page.getByTitle('Email content', { exact: true });
+  const heading = page.frameLocator('iframe[title="Email content"]').getByRole('heading', { name: /Community Weekly/ });
+  await expect(heading).toBeVisible();
+
+  const layout = await iframe.evaluate((element: HTMLIFrameElement) => {
+    const doc = element.contentDocument!;
+    const heading = doc.querySelector('h1')!;
+    const range = doc.createRange();
+    range.selectNodeContents(heading);
+    return {
+      contentWidth: doc.documentElement.scrollWidth,
+      viewportWidth: doc.documentElement.clientWidth,
+      fontSize: doc.defaultView!.getComputedStyle(heading).fontSize,
+      lineCount: range.getClientRects().length,
+      rightmostText: Math.max(...Array.from(range.getClientRects(), (line) => line.right)),
+    };
+  });
+  expect(layout.contentWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
+  expect(layout.fontSize).toBe('32px');
+  expect(layout.lineCount).toBeGreaterThan(2);
+  expect(layout.rightmostText).toBeLessThanOrEqual(layout.viewportWidth + 1);
+});
+
 for (const wide of [true, false]) {
   test(`Android email uses one scrollbar for ${wide ? 'wide' : 'responsive'} content`, async ({ page }) => {
+    test.skip(process.env.SUITEMAIL_ANDROID !== '1', 'Requires the installed Android WebView');
     server.reset();
     const html = `<h2>Release notification</h2>
-      <table ${wide ? 'width="960" style="width:960px;min-width:960px"' : 'width="100%"'}><tr><td>
-      <div style="height:1600px">A long email with ${wide ? 'fixed-width' : 'responsive'} content.</div>
+      <table width="100%"><tr><td>
+      <div style="height:1600px">${wide
+        ? '<p style="white-space:nowrap">Date　　Order number　　Quantity　　Unit cost　　Discount　　Subtotal　　Tax amount　　Currency　　Total</p>'
+        : 'A long email with responsive content.'}</div>
       </td></tr></table><p>End of email</p>`;
     server.db.prepare('UPDATE messages SET body_html = ? WHERE id = ?').run(html, 'm-welcome-1');
     await page.addInitScript(getElectronBridgeScript(3334));

@@ -1,6 +1,7 @@
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { EmailRenderer } from "./EmailRenderer";
 import type { DbAttachment } from "@/services/db/attachments";
+import { addToAllowlist } from "@/services/db/imageAllowlist";
 
 const themeState = vi.hoisted(() => ({ theme: "light" }));
 
@@ -120,6 +121,23 @@ describe("EmailRenderer", () => {
       <EmailRenderer html="<p>Hello</p>" text={null} />,
     );
     expect(container.querySelector("iframe")).toBeTruthy();
+  });
+
+  it("saves trust from a message and applies a later revocation", async () => {
+    const props = {
+      html: '<img src="https://example.com/image.png" alt="Example" />',
+      text: null,
+      blockImages: true,
+      senderAddress: "sender@example.com",
+      accountId: "acc-1",
+    };
+    const { rerender } = render(<EmailRenderer {...props} senderAllowlisted={false} />);
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Always load from sender" })));
+    expect(addToAllowlist).toHaveBeenCalledWith("acc-1", "sender@example.com");
+    rerender(<EmailRenderer {...props} senderAllowlisted />);
+    expect(screen.queryByRole("button", { name: "Load images" })).not.toBeInTheDocument();
+    rerender(<EmailRenderer {...props} senderAllowlisted={false} />);
+    expect(screen.getByRole("button", { name: "Load images" })).toBeInTheDocument();
   });
 
   it("resolves cid: references by fetching inline attachment data", async () => {

@@ -85,6 +85,7 @@ test.describe("Top 20 Email Workflows", () => {
     // Verify body content rendered inside the iframe
     const iframe = page.frameLocator("iframe");
     await expect(iframe.locator("text=Welcome to SuperMail! Enjoy your fast email client.").first()).toBeVisible();
+    await expect(page.getByText("1 message in this thread", { exact: true })).toHaveCount(0);
   });
 
   // Storyboard 2: Compose and Send New Email

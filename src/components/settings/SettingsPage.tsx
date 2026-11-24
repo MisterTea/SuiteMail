@@ -1,4 +1,5 @@
 import { AccountNotificationSettings } from "./AccountNotificationSettings";
+import { ImageAllowlistSettings } from "./ImageAllowlistSettings";
 import { isElectron, platformInvoke } from "@/platform";
 import { requestMailNotificationPermission } from "@/services/notifications/notificationManager";
 import { SEND_CHECKS } from "../composer/SendChecks";
@@ -115,7 +116,7 @@ export function SettingsPage() {
   const setActiveTab = (t: SettingsTab) => navigateToSettings(t);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notificationPermissionMessage, setNotificationPermissionMessage] = useState("");
-  const notificationAccountId = useAccountStore((state) => state.activeAccountId);
+  const activeAccountId = useAccountStore((state) => state.activeAccountId);
   const [sendChecks, setSendChecks] = useState<Record<string, boolean>>({});
   const [undoSendDelay, setUndoSendDelay] = useState("5");
   const [clientId, setClientId] = useState("");
@@ -610,6 +611,7 @@ export function SettingsPage() {
                         await setSetting("block_remote_images", newVal ? "true" : "false");
                       }}
                     />
+                    <ImageAllowlistSettings accounts={accounts} activeAccountId={activeAccountId} />
                     <ToggleRow
                       label="Phishing link detection"
                       description="Scan message links for phishing indicators and show warnings"
@@ -777,7 +779,7 @@ export function SettingsPage() {
                   )}
                   {notificationsEnabled && (
                     <Section title="Account notifications">
-                      <AccountNotificationSettings accounts={accounts} activeAccountId={notificationAccountId} />
+                      <AccountNotificationSettings accounts={accounts} activeAccountId={activeAccountId} />
                     </Section>
                   )}
                 </>

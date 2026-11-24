@@ -12,7 +12,9 @@ import { CalendarInviteBanner } from "./CalendarInviteBanner";
 import { TrackingPixelBadge } from "./TrackingPixelBadge";
 import { PackageTrackingCard } from "./PackageTrackingCard";
 import { CalendarSuggestions } from "./CalendarSuggestions";
+import { CalendarReminderBanner } from "./CalendarReminderBanner";
 import { detectInviteFromMessage } from "@/services/calendar/inviteDetector";
+import { getGoogleReminderEvent, isGoogleCalendarReminder } from "@/services/calendar/reminderDetector";
 import { detectShipmentsAndFlights } from "@/utils/trackingDetector";
 import { messageHasContract, stripContractMarkup } from "@/services/contracts/contractMessage";
 import { ContractCard } from "./ContractCard";
@@ -44,9 +46,14 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const [detectedTrackers, setDetectedTrackers] = useState<DetectedTracker[]>([]);
   const attachmentsLoadedRef = useRef(false);
 
+  const calendarReminder = isGoogleCalendarReminder(message);
+  const reminderEvent = useMemo(
+    () => expanded && calendarReminder ? getGoogleReminderEvent(message) : null,
+    [expanded, calendarReminder, message],
+  );
   const calendarInvite = useMemo(
-    () => detectInviteFromMessage(message, attachments),
-    [message, attachments],
+    () => calendarReminder ? null : detectInviteFromMessage(message, attachments),
+    [calendarReminder, message, attachments],
   );
 
   const trackingItems = useMemo(
@@ -202,7 +209,10 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             <CalendarInviteBanner message={message} invite={calendarInvite} />
           )}
 
-          {!calendarInvite && <CalendarSuggestions message={message} context={contextMessages} />}
+          {calendarReminder && (
+            <CalendarReminderBanner key={message.id} accountId={message.account_id} event={reminderEvent} />
+          )}
+          {!calendarInvite && !calendarReminder && <CalendarSuggestions message={message} context={contextMessages} />}
 
           {trackingItems.length > 0 && (
             <PackageTrackingCard items={trackingItems} />

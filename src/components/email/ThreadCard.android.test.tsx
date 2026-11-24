@@ -49,6 +49,48 @@ describe("Android conversation gestures",()=>{
     expect(card.style.transform).toBe("");
     expect(card).not.toHaveAttribute("aria-disabled","true");
   });
+  it("slides the row out before archiving, even when the last drag exceeds the visual limit", async () => {
+    const open = vi.fn();
+    render(<ThreadCard thread={thread} isSelected={false} onClick={open} />);
+    const card = screen.getByRole("button", { name: /Unread email from/ });
+    fireEvent.touchStart(card, { touches: [{ clientX: 250, clientY: 200 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 80, clientY: 200 }] });
+    expect(card).toHaveStyle({ transform: "translateX(-120px)" });
+    fireEvent.touchEnd(card);
+    expect(card).toHaveStyle({ transform: "translateX(-100%)" });
+    expect(screen.getByText("Archive")).toBeInTheDocument();
+    fireEvent.click(card, { detail: 1 });
+    expect(open).not.toHaveBeenCalled();
+
+    await act(() => vi.advanceTimersByTimeAsync(199));
+    expect(state.archive).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.transitionEnd(card, { propertyName: "transform" });
+      await vi.dynamicImportSettled();
+    });
+    expect(state.archive).toHaveBeenCalledWith("a", "t", []);
+    await act(() => vi.advanceTimersByTimeAsync(500));
+    expect(state.archive).toHaveBeenCalledTimes(1);
+  });
+  it("slides a starred row back into place before unstarring it", async () => {
+    render(<ThreadCard thread={{ ...thread, isStarred: true }} isSelected={false} onClick={vi.fn()} />);
+    const card = screen.getByRole("button", { name: /Unread email from/ });
+    fireEvent.touchStart(card, { touches: [{ clientX: 100, clientY: 200 }] });
+    fireEvent.touchMove(card, { touches: [{ clientX: 210, clientY: 200 }] });
+    expect(card).toHaveStyle({ transform: "translateX(110px)" });
+    fireEvent.touchEnd(card);
+    expect(card).toHaveStyle({ transform: "translateX(0)" });
+    expect(screen.getByText("Unstar")).toBeInTheDocument();
+    expect(state.star).not.toHaveBeenCalled();
+
+    // A timer completes the action if the transition event is skipped.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+      await vi.dynamicImportSettled();
+    });
+    expect(state.star).toHaveBeenCalledWith("a", "t", [], false);
+    expect(screen.queryByText("Unstar")).not.toBeInTheDocument();
+  });
   it("long press selects without opening the conversation",()=>{
     const open=vi.fn();render(<ThreadCard thread={thread} isSelected={false} onClick={open}/>);
     const card=screen.getByRole("button",{name:/Unread email from/});

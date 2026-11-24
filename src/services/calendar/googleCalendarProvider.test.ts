@@ -1,5 +1,6 @@
 import { GoogleCalendarProvider } from "./googleCalendarProvider";
 import { getGmailClient } from "@/services/gmail/tokenManager";
+import { GmailApiError } from "@/services/gmail/client";
 
 vi.mock("@/services/gmail/tokenManager", () => ({
   getGmailClient: vi.fn(),
@@ -24,6 +25,48 @@ describe("GoogleCalendarProvider", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  describe("turnOffEmailReminders", () => {
+    const eventsUrl = `${CALENDAR_API_BASE}/calendars/alice%40gmail.com/events`;
+    const popup = { method: "popup", minutes: 5 };
+    const email = { method: "email", minutes: 15 };
+
+    it("uses the parent event of a recurring occurrence and preserves inherited pop-up reminders", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ id: "series_20261124T003000Z", recurringEventId: "series" })
+        .mockResolvedValueOnce({ id: "series", etag: '"parent"', reminders: { useDefault: true } })
+        .mockResolvedValueOnce({ defaultReminders: [popup, email] })
+        .mockResolvedValueOnce({});
+
+      await expect(provider.turnOffEmailReminders("alice@gmail.com", "series_20261124T003000Z"))
+        .resolves.toEqual({ isSeries: true });
+      expect(mockClient.request.mock.calls).toEqual([
+        [`${eventsUrl}/series_20261124T003000Z`],
+        [`${eventsUrl}/series`],
+        [`${CALENDAR_API_BASE}/users/me/calendarList/alice%40gmail.com`],
+        [`${eventsUrl}/series?sendUpdates=none`, {
+          method: "PATCH",
+          headers: { "If-Match": '"parent"' },
+          body: JSON.stringify({ reminders: { useDefault: false, overrides: [popup] } }),
+        }],
+      ]);
+    });
+
+    it("refreshes reminder settings if the event changes before the update", async () => {
+      mockClient.request
+        .mockResolvedValueOnce({ id: "single", etag: '"old"', reminders: { useDefault: false, overrides: [email] } })
+        .mockRejectedValueOnce(new GmailApiError(412, "Event changed"))
+        .mockResolvedValueOnce({ id: "single", etag: '"new"', reminders: { useDefault: false, overrides: [email, popup] } })
+        .mockResolvedValueOnce({});
+
+      await expect(provider.turnOffEmailReminders("alice@gmail.com", "single")).resolves.toEqual({ isSeries: false });
+      expect(mockClient.request).toHaveBeenLastCalledWith(`${eventsUrl}/single?sendUpdates=none`, {
+        method: "PATCH",
+        headers: { "If-Match": '"new"' },
+        body: JSON.stringify({ reminders: { useDefault: false, overrides: [popup] } }),
+      });
+    });
   });
 
   describe("listCalendars", () => {

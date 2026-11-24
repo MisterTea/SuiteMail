@@ -9,6 +9,7 @@ import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { applyEmailDarkMode, emailDisablesDarkMode } from "@/utils/emailDarkMode";
 import { useUIStore } from "@/stores/uiStore";
+import { useToastStore } from "@/stores/toastStore";
 import type { DbAttachment } from "@/services/db/attachments";
 
 interface EmailRendererProps {
@@ -23,13 +24,37 @@ interface EmailRendererProps {
   onTrackersDetected?: (trackers: DetectedTracker[]) => void;
 }
 
+function makeSenderWidthsResponsive(doc: Document) {
+  const css = doc.defaultView?.CSS;
+  if (!css) return;
+
+  for (const element of doc.querySelectorAll<HTMLElement>("[width], [style]")) {
+    const { style } = element;
+    if (!style) continue;
+    const attribute = element.getAttribute("width")?.trim() ?? "";
+    const attributeWidth = /^\d+(?:\.\d+)?$/.test(attribute) ? `${attribute}px` : attribute;
+    const width = style.width || attributeWidth;
+
+    // Auto-layout tables can size themselves from a descendant's width before
+    // its percentage max-width can resolve. Clamp the width itself instead.
+    for (const [property, value] of [["width", width], ["inline-size", style.inlineSize]] as const) {
+      if (!value || !css.supports(property, `min(${value}, 100%)`)) continue;
+      style.setProperty(property, `min(${value}, var(--suitemail-email-width-limit, ${value}))`, style.getPropertyPriority(property));
+    }
+    for (const property of ["min-width", "min-inline-size"]) {
+      const value = style.getPropertyValue(property);
+      if (value) style.setProperty(property, `var(--suitemail-email-min-width, ${value})`, style.getPropertyPriority(property));
+    }
+  }
+}
+
 export function EmailRenderer({
   html,
   text,
   blockImages = false,
   senderAddress,
   accountId,
-  senderAllowlisted = false,
+  senderAllowlisted,
   messageId,
   inlineAttachments,
   onTrackersDetected,
@@ -228,11 +253,22 @@ export function EmailRenderer({
       font-family: ui-monospace, SFMono-Regular, "Roboto Mono", Menlo, Consolas, monospace;
       font-size: 13px;
     }
+    @media (max-width: 767px) {
+      body {
+        --suitemail-email-width-limit: 100%;
+        --suitemail-email-min-width: 0px;
+        overflow-wrap: anywhere;
+      }
+      [style*="--suitemail-email-width-limit"] {
+        box-sizing: border-box !important;
+      }
+    }
   </style>
 </head>
 <body>${bodyHtml}</body>
 </html>`);
     doc.close();
+    if (!isPlainText) makeSenderWidthsResponsive(doc);
     if (isDark && !isPlainText && !disableDarkMode) {
       applyEmailDarkMode(doc);
     }
@@ -284,11 +320,15 @@ export function EmailRenderer({
   }, []);
 
   const handleAlwaysLoad = useCallback(async () => {
-    if (accountId && senderAddress) {
+    if (!accountId || !senderAddress) return;
+    try {
       await addToAllowlist(accountId, senderAddress);
+      if (senderAllowlisted === undefined) setOverrideShow(true);
+    } catch (err) {
+      console.error("Could not save trusted image sender:", err);
+      useToastStore.getState().showToast({ message: "Couldn’t save trusted image sender." });
     }
-    setOverrideShow(true);
-  }, [accountId, senderAddress]);
+  }, [accountId, senderAddress, senderAllowlisted]);
 
   return (
     <div data-email-renderer className="min-w-0 max-w-full">

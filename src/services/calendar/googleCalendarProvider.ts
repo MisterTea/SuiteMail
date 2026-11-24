@@ -8,9 +8,14 @@ import type {
   UpdateEventInput,
 } from "./types";
 import { getGmailClient } from "@/services/gmail/tokenManager";
-import type { GmailClient } from "@/services/gmail/client";
+import { GmailApiError, type GmailClient } from "@/services/gmail/client";
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
+
+interface GoogleReminder {
+  method: string;
+  minutes: number;
+}
 
 interface GoogleCalendarListItem {
   id: string;
@@ -37,6 +42,9 @@ interface GoogleCalendarEvent {
   htmlLink?: string;
   iCalUID?: string;
   etag?: string;
+  recurringEventId?: string;
+  recurrence?: string[];
+  reminders?: { useDefault: boolean; overrides?: GoogleReminder[] };
 }
 
 interface GoogleEventListResponse {
@@ -151,6 +159,41 @@ export class GoogleCalendarProvider implements CalendarProvider {
     const encodedEventId = encodeURIComponent(remoteEventId);
     const url = `${CALENDAR_API_BASE}/calendars/${encodedCalId}/events/${encodedEventId}`;
     await client.request(url, { method: "DELETE" });
+  }
+
+  async turnOffEmailReminders(calendarId: string, eventId: string): Promise<{ isSeries: boolean }> {
+    const client = await this.getClient();
+    const encodedCalendarId = encodeURIComponent(calendarId);
+    const eventUrl = (id: string) => `${CALENDAR_API_BASE}/calendars/${encodedCalendarId}/events/${encodeURIComponent(id)}`;
+    const occurrence = await client.request<GoogleCalendarEvent>(eventUrl(eventId));
+    const url = eventUrl(occurrence.recurringEventId ?? occurrence.id);
+    let event = occurrence.recurringEventId
+      ? await client.request<GoogleCalendarEvent>(url)
+      : occurrence;
+
+    for (let attempt = 0; ; attempt++) {
+      if (event.status === "cancelled") throw new Error("This calendar event was canceled.");
+      const reminders = event.reminders?.useDefault
+        ? (await client.request<{ defaultReminders?: GoogleReminder[] }>(
+          `${CALENDAR_API_BASE}/users/me/calendarList/${encodedCalendarId}`,
+        )).defaultReminders ?? []
+        : event.reminders?.overrides ?? [];
+      const remaining = reminders.filter((reminder) => reminder.method !== "email");
+      const result = { isSeries: !!occurrence.recurringEventId || !!event.recurrence?.length };
+      if (remaining.length === reminders.length) return result;
+
+      try {
+        await client.request(`${url}?sendUpdates=none`, {
+          method: "PATCH",
+          headers: event.etag ? { "If-Match": event.etag } : undefined,
+          body: JSON.stringify({ reminders: { useDefault: false, overrides: remaining } }),
+        });
+        return result;
+      } catch (error) {
+        if (!(error instanceof GmailApiError) || error.status !== 412 || attempt >= 1) throw error;
+        event = await client.request<GoogleCalendarEvent>(url);
+      }
+    }
   }
 
   async syncEvents(calendarRemoteId: string, syncToken?: string): Promise<CalendarSyncResult> {

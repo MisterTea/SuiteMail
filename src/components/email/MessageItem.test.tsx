@@ -1,11 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import { createRef } from "react";
 import { MessageItem } from "./MessageItem";
 import type { DbMessage } from "@/services/db/messages";
+import { useAccountStore } from "@/stores/accountStore";
 
-const { detectInvite } = vi.hoisted(() => ({ detectInvite: vi.fn(() => null as unknown) }));
+const { detectInvite, turnOffEmailReminders } = vi.hoisted(() => ({
+  detectInvite: vi.fn(() => null as unknown),
+  turnOffEmailReminders: vi.fn(),
+}));
 vi.mock("@/services/calendar/inviteDetector", () => ({ detectInviteFromMessage: detectInvite }));
+vi.mock("@/services/calendar/googleCalendarProvider", () => ({
+  GoogleCalendarProvider: class {
+    turnOffEmailReminders = turnOffEmailReminders;
+  },
+}));
 vi.mock("./CalendarInviteBanner", () => ({ CalendarInviteBanner: () => <div data-testid="calendar-invite" /> }));
 vi.mock("./CalendarSuggestions", () => ({ CalendarSuggestions: () => <div data-testid="calendar-suggestions" /> }));
 
@@ -65,6 +74,7 @@ describe("MessageItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     detectInvite.mockReturnValue(null);
+    useAccountStore.setState({ accounts: [] });
   });
 
   it("mounts AI calendar suggestions only when the email body is opened", async () => {
@@ -79,6 +89,41 @@ describe("MessageItem", () => {
     detectInvite.mockReturnValue({ uid: "invite" });
     await act(async () => render(<MessageItem message={makeMessage()} isLast blockImages={false} />));
     expect(screen.getByTestId("calendar-invite")).toBeInTheDocument();
+    expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
+  });
+
+  it("replaces the event creation suggestion with the reminder action", async () => {
+    useAccountStore.setState({ accounts: [{
+      id: "a1", email: "alice@gmail.com", displayName: null, avatarUrl: null, isActive: true, provider: "gmail_api",
+    }] });
+    turnOffEmailReminders.mockResolvedValue({ isSeries: true });
+    const eid = btoa("series_20261124T003000Z alice@m");
+    const otherEid = btoa("different alice@m");
+    const message = makeMessage({
+      from_address: "calendar-notification@google.com",
+      subject: "Notification: Brady-TKD @ Mon Nov 23, 2026 6:30pm - 7:30pm (CST)",
+      body_html: `<p>You have an upcoming event</p>
+        <a href="https://calendar.google.com/calendar/event?eid=${otherEid}">Another event</a>
+        <a href="https://calendar.google.com/calendar/event?action=VIEW&amp;eid=${eid}">View all event details</a>`,
+    });
+
+    await act(async () => render(<MessageItem message={message} isLast blockImages={false} />));
+    expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
+    expect(turnOffEmailReminders).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Turn off email reminders" }));
+    expect(await screen.findByText("Email reminders are off for this series.")).toBeInTheDocument();
+    expect(turnOffEmailReminders).toHaveBeenCalledExactlyOnceWith("alice@gmail.com", "series_20261124T003000Z");
+  });
+
+  it("suppresses event creation for a calendar reminder without a usable event link", async () => {
+    const message = makeMessage({
+      from_address: "calendar-notification@google.com",
+      subject: "Notification: Brady-TKD",
+      body_html: '<a href="https://calendar.google.com.example.com/calendar/event?eid=bad">View all event details</a>',
+    });
+    await act(async () => render(<MessageItem message={message} isLast blockImages={false} />));
+    expect(screen.getByText("Calendar reminder")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /email reminders/i })).not.toBeInTheDocument();
     expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
   });
 

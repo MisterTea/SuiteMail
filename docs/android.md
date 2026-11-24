@@ -144,6 +144,55 @@ The `dist-android/*-proton-debug.apk` installs as `com.suitemail.app.protondev` 
 
 For emulator tests, set `ANDROID_ABIS=x86_64` and `ANDROID_PROTON_FIXTURE=1` before building. Install the `*-proton-fixture-debug.apk` on a clean emulator, set `SUITEMAIL_ANDROID_PROTON=1`, and run `npx playwright test --config playwright.android.config.ts androidProton`. The fixture serves synthetic accounts on Android loopback. The x86_64 API 36 test verifies rejected credentials, sign-in, IMAP folder listing and message retrieval, SMTP delivery, and account removal. Clear `ANDROID_PROTON_FIXTURE` before building a physical-device APK. The release build excludes this experiment.
 
+## Proton Bridge experiment
+
+The [experimental Android patch](android-proton-bridge-smoke.patch) builds the pinned Bridge revision (`36d7b6a6`) as a headless Android executable. It is a developer experiment and is outside the APK build. It opens only loopback IMAP and SMTP listeners. Use a fresh scratch directory and synthetic data. The patched CLI accepts only `--noninteractive`, and startup can create an unencrypted vault because it has no Android credential store.
+
+From the repository root, use a dedicated PowerShell session with Go 1.26.7, Android NDK 26.1.10909125, and one connected Android emulator.
+
+```powershell
+$repo = (Get-Location).Path
+$port = Join-Path $env:TEMP 'supermail-proton-android-port'
+$sdk = "$env:LOCALAPPDATA/Android/Sdk"
+$clang = "$sdk/ndk/26.1.10909125/toolchains/llvm/prebuilt/windows-x86_64/bin/clang.exe"
+$adb = "$sdk/platform-tools/adb.exe"
+git -C submodules/proton-bridge worktree add --detach $port 36d7b6a6
+git -C $port apply "$repo/docs/android-proton-bridge-smoke.patch"
+Push-Location $port
+$env:GOOS = 'android'
+$env:GOARCH = 'amd64'
+$env:CGO_ENABLED = '1'
+$env:CC = "`"$clang`" --target=x86_64-linux-android26"
+go build -mod=readonly -trimpath -ldflags '-s -w -X github.com/ProtonMail/proton-bridge/v3/internal/constants.Version=3.27.2+git' -o bridge-x86_64 ./cmd/Desktop-Bridge
+Pop-Location
+
+$remote = '/data/local/tmp/supermail-proton-bridge-smoke'
+& $adb shell "mkdir -p $remote"
+& $adb push "$port/bridge-x86_64" "$remote/bridge"
+& $adb shell 'cd /data/local/tmp/supermail-proton-bridge-smoke && chmod 700 bridge && export HOME=$(mktemp -d "$PWD/home.XXXXXX") && timeout 30 ./bridge --noninteractive'
+```
+
+While Bridge is running, use a second terminal to check both greetings. These commands execute inside Android and require neither `adb reverse` nor a mail service on the host.
+
+```powershell
+$adb = "$env:LOCALAPPDATA/Android/Sdk/platform-tools/adb.exe"
+& $adb shell 'printf "a001 LOGOUT\r\n" | nc -w 2 127.0.0.1 1143'
+& $adb shell 'printf "QUIT\r\n" | nc -w 2 127.0.0.1 1025'
+```
+
+After stopping the headless executable, run the upstream integration tests with the same build environment. The test binary hosts its simulated Proton API on Android. On the Android shell, the test harness uses Bridge's authenticated TCP loopback gRPC listener because Android denied its desktop Unix socket bind.
+
+```powershell
+Push-Location $port
+go test -mod=readonly -c -o bridge-features-x86_64 ./tests
+Pop-Location
+& $adb push "$port/bridge-features-x86_64" "$remote/features-test"
+& $adb push "$port/tests/features" "$remote/"
+& $adb shell 'cd /data/local/tmp/supermail-proton-bridge-smoke && chmod 700 features-test && export HOME=$(mktemp -d "$PWD/test-home.XXXXXX") TMPDIR="$PWD" && unset FEATURE_TEST_HOST_URL && FEATURES="features/bridge/default_ports.feature features/imap/auth.feature features/imap/message/fetch.feature features/smtp/auth.feature features/smtp/send/plain.feature" ./features-test -test.run ^TestFeatures$ -test.timeout 100s'
+```
+
+All 37 selected scenarios passed on an x86_64 API 36 emulator, covering sign-in, IMAP sync and fetch, and SMTP delivery. For an ARM64 build, set `GOARCH` to `arm64` and use the Clang target `aarch64-linux-android26`. The ARM64 binary compiled, but ARM translation on the x86_64 emulator crashed. This headless test still needs runtime verification on a native ARM64 device.
+
 ## Gmail initial-download behavior
 
 Gmail requests are paced by their current quota costs, with headroom under the per-user limit. Quota-related 403 responses and HTTP 429 responses honor Retry-After/cooldowns; genuine permission failures are not retried as quota errors. Initial sync streams small pages, publishes inbox/count updates while downloading, and persists a page checkpoint after each stored thread. Interrupted sync resumes completed work; a failure never advances the history cursor past missed mail. Delta sync likewise retains its history cursor if a required thread fails. The initial history cursor is captured before downloading so later delta sync can replay changes made during the download.

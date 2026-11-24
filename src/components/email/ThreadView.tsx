@@ -7,9 +7,10 @@ import type { Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useToastStore } from "@/stores/toastStore";
-import { markThreadRead, archiveThread } from "@/services/emailActions";
+import { markThreadRead } from "@/services/emailActions";
 import { getSetting } from "@/services/db/settings";
-import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
+import { addImageAllowlistChangeListener, getAllowlistedSenders } from "@/services/db/imageAllowlist";
+import { normalizeEmail } from "@/utils/emailUtils";
 import { VolumeX } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { stripContractMarkup } from "@/services/contracts/contractMessage";
@@ -19,7 +20,6 @@ import { buildForwardQuote } from "@/utils/forwardQuoteBuilder";
 import { getAttachmentsForMessage } from "@/services/db/attachments";
 import type { ComposerAttachment } from "@/stores/composerStore";
 import { ThreadSummary } from "./ThreadSummary";
-import { UnsubscribeBanner } from "./UnsubscribeBanner";
 import { SmartReplySuggestions } from "./SmartReplySuggestions";
 import { InlineReply } from "./InlineReply";
 import { ContactSidebar } from "./ContactSidebar";
@@ -59,28 +59,12 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const markedReadRef = useRef<string | null>(null);
   // null = not yet loaded; defer iframe rendering until setting is known
   const [blockImages, setBlockImages] = useState<boolean | null>(null);
-  const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+  const [allowlist, setAllowlist] = useState<{ accountId: string; senders: Set<string> } | null>(null);
 
   // Preload settings eagerly on mount (parallel with message loading)
   useEffect(() => {
     getSetting("block_remote_images").then((val) => setBlockImages(val !== "false"));
   }, []);
-
-  const [isUnsubscribeDismissed, setIsUnsubscribeDismissed] = useState(false);
-  useEffect(() => {
-    setIsUnsubscribeDismissed(false);
-  }, [thread.id]);
-
-  const unsubscribeMessage = messages.find((m) => m.list_unsubscribe);
-
-  const handleAutoArchive = useCallback(async () => {
-    if (!activeAccountId) return;
-    try {
-      await archiveThread(activeAccountId, thread.id, []);
-    } catch (err) {
-      console.error("Failed to auto-archive thread:", err);
-    }
-  }, [activeAccountId, thread.id]);
 
   // Load messages
   useEffect(() => {
@@ -95,19 +79,26 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // Check per-sender allowlist (single batch query instead of N queries)
   useEffect(() => {
     if (!activeAccountId || messages.length === 0) return;
-    let cancelled = false;
-
-    const senders: string[] = [];
-    for (const msg of messages) {
-      if (msg.from_address) senders.push(msg.from_address);
-    }
-    const uniqueSenders = [...new Set(senders)];
-
-    getAllowlistedSenders(activeAccountId, uniqueSenders).then((allowed) => {
-      if (!cancelled) setAllowlistedSenders(allowed);
+    const senders = [...new Set(messages.flatMap((msg) => msg.from_address ? [normalizeEmail(msg.from_address)] : []))];
+    let request = 0;
+    const refresh = async () => {
+      const id = ++request;
+      try {
+        const allowed = await getAllowlistedSenders(activeAccountId, senders);
+        if (id === request) setAllowlist({ accountId: activeAccountId, senders: allowed });
+      } catch (err) {
+        if (id === request) setAllowlist(null);
+        console.warn("Could not load trusted image senders:", err);
+      }
+    };
+    const unsubscribe = addImageAllowlistChangeListener(({ accountId }) => {
+      if (accountId === activeAccountId) void refresh();
     });
-
-    return () => { cancelled = true; };
+    void refresh();
+    return () => {
+      request++;
+      unsubscribe();
+    };
   }, [activeAccountId, messages]);
 
   // Auto-mark unread threads as read when opened (respects mark-as-read setting)
@@ -454,17 +445,6 @@ export function ThreadView({ thread }: ThreadViewProps) {
           onToggleTaskSidebar={() => useUIStore.getState().toggleTaskSidebar()}
         />
 
-        {/* Unsubscribe banner / top utility bar */}
-        {unsubscribeMessage && !isUnsubscribeDismissed && activeAccountId && (
-          <UnsubscribeBanner
-            accountId={activeAccountId}
-            threadId={thread.id}
-            message={unsubscribeMessage}
-            onAutoArchive={handleAutoArchive}
-            onDismiss={() => setIsUnsubscribeDismissed(true)}
-          />
-        )}
-
         {/* Thread subject */}
         <div className="px-3.5 sm:px-6 py-2.5 sm:py-3.5 @md:px-8 border-b border-border-primary/60 bg-bg-primary/40 backdrop-blur-xs flex items-center justify-between gap-3 shrink-0">
           <div className="min-w-0 flex-1">
@@ -476,12 +456,14 @@ export function ThreadView({ thread }: ThreadViewProps) {
                 </span>
               )}
             </h1>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent border border-accent/20 shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-accent/70" />
-                {messages.length} message{messages.length !== 1 ? "s" : ""} in this thread
-              </span>
-            </div>
+            {messages.length > 1 && (
+              <div className="flex items-center gap-2 mt-1">
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium bg-accent/10 text-accent border border-accent/20 shadow-2xs">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent/70" />
+                  {messages.length} messages in this thread
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -506,7 +488,8 @@ export function ThreadView({ thread }: ThreadViewProps) {
                 isLast={i === messages.length - 1}
                 focused={i === focusedMsgIdx}
                 blockImages={blockImages}
-                senderAllowlisted={msg.from_address ? allowlistedSenders.has(msg.from_address) : false}
+                senderAllowlisted={allowlist?.accountId === msg.account_id && !!msg.from_address &&
+                  allowlist.senders.has(normalizeEmail(msg.from_address))}
                 isSpam={thread.labelIds.includes("SPAM")}
                 translation={translations[msg.id]}
                 onExpand={setExpandedMessageId}

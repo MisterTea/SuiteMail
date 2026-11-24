@@ -9,6 +9,8 @@ import {
   syncGeneralSettings,
   syncFilterSettings,
   syncMailRules,
+  syncImageAllowlist,
+  initSettingsSidecarAutoSync,
   uploadGeneralSettingsForAccount,
   syncSettingsForAccount,
   isGeneralSettingsFolder,
@@ -30,6 +32,12 @@ import { subscribeToSyncedMailRules } from "../db/mailRuleChanges";
 import PostalMime from "postal-mime";
 import type { ImapConfig } from "./electronCommands";
 import { notifyFilterChange } from "../db/filters";
+import {
+  addImageAllowlistChangeListener,
+  addToAllowlist,
+  getAllowlistForAccount,
+  removeFromAllowlist,
+} from "../db/imageAllowlist";
 
 const mockCommands = {
   imapListFolders: vi.fn(),
@@ -515,8 +523,8 @@ describe("settingsSidecarSync", () => {
     });
   });
 
-  describe("mail rules exchange with two SQLite databases and one IMAP folder", () => {
-    const folder = "INBOX.settings.rules";
+  describe("settings exchange with two SQLite databases and one IMAP folder", () => {
+    let folder: string;
     const laptop = "laptop";
     const phone = "phone";
     const otherAccount = "other-account";
@@ -527,7 +535,7 @@ describe("settingsSidecarSync", () => {
 
     function database(accountId: string) {
       const db = new DatabaseSync(":memory:");
-      for (const migration of MIGRATIONS.filter(({ version }) => [1, 8, 12, 22, 36].includes(version))) {
+      for (const migration of MIGRATIONS.filter(({ version }) => [1, 4, 8, 12, 22, 36, 37].includes(version))) {
         db.exec(migration.sql);
       }
       db.prepare("INSERT INTO accounts (id, email) VALUES (?, ?)").run(accountId, testConfig.username);
@@ -541,6 +549,7 @@ describe("settingsSidecarSync", () => {
     }
 
     beforeEach(() => {
+      folder = "INBOX.settings.rules";
       devices = { [laptop]: database(laptop), [phone]: database(phone) };
       activeDb = devices[laptop]!;
       messages = new Map();
@@ -553,9 +562,9 @@ describe("settingsSidecarSync", () => {
         return { rowsAffected: Number(result.changes) };
       });
       mockCommands.imapListFolders.mockImplementation(async () => messages.size
-        ? [{ path: folder, name: "rules", raw_path: folder, delimiter: "." }]
+        ? [{ path: folder, name: folder.split(".").pop(), raw_path: folder, delimiter: "." }]
         : [{ path: "INBOX.settings", name: "settings", raw_path: "INBOX.settings", delimiter: "." }]);
-      mockCommands.imapSearchAllUids.mockImplementation(async () => [...messages.keys()]);
+      mockCommands.imapSearchAllUids.mockImplementation(async (_config, path) => path === folder ? [...messages.keys()] : []);
       mockCommands.imapFetchMessages.mockImplementation(async (_config, _folder, uids: number[]) => ({
         messages: await Promise.all(uids.map(async (uid) => {
           const decoded = await PostalMime.parse(messages.get(uid)!);
@@ -639,6 +648,66 @@ describe("settingsSidecarSync", () => {
       await sync(phone);
       await seedDefaultQuickSteps(phone);
       expect(await getQuickStepsForAccount(phone)).toEqual([]);
+    });
+
+    it("syncs trusted image senders, preserving legacy entries, offline edits, and mailbox boundaries", async () => {
+      folder = "INBOX.settings.image-allowlist";
+      expect(isSettingsFolder(folder)).toBe(true);
+      activeDb.prepare("INSERT INTO image_allowlist (id, account_id, sender_address) VALUES (?, ?, ?)")
+        .run("old-local-id", laptop, "original@example.com");
+      const syncSenders = (accountId: string) => {
+        activeDb = devices[accountId]!;
+        return syncImageAllowlist(accountId, testConfig, testConfig.username);
+      };
+      const addresses = async (id: string) => (await getAllowlistForAccount(id)).map((entry) => entry.sender_address);
+      const changes = vi.fn();
+      const unsubscribe = addImageAllowlistChangeListener(changes);
+      try {
+        await addToAllowlist(otherAccount, "private@example.org");
+        await syncSenders(laptop);
+        expect(mockCommands.imapCreateFolder).toHaveBeenCalledWith(testConfig, folder);
+        await syncSenders(phone);
+        expect(await addresses(phone)).toEqual(["original@example.com"]);
+        expect(changes).toHaveBeenCalledWith({ accountId: phone, source: "imap" });
+
+        await removeFromAllowlist(phone, "Original@example.com");
+        await addToAllowlist(phone, " Phone@Example.com ");
+        mockCommands.imapAppendMessage.mockRejectedValueOnce(new Error("Offline"));
+        await expect(syncSenders(phone)).rejects.toThrow("Offline");
+        expect(await addresses(phone)).toEqual(["phone@example.com"]);
+
+        activeDb = devices[laptop]!;
+        await addToAllowlist(laptop, "laptop@example.com");
+        await syncSenders(laptop);
+        await syncSenders(phone);
+        await syncSenders(laptop);
+        expect(await addresses(laptop)).toEqual(["laptop@example.com", "phone@example.com"]);
+        expect(await addresses(otherAccount)).toEqual(["private@example.org"]);
+
+        activeDb = devices[phone]!;
+        expect(await addresses(phone)).toEqual(["laptop@example.com", "phone@example.com"]);
+        expect(await addresses(otherAccount)).toEqual([]);
+      } finally {
+        unsubscribe();
+      }
+    });
+
+    it("pushes a mailbox's image allowlist automatically after a local change", async () => {
+      folder = "INBOX.settings.image-allowlist";
+      mockAccountsStore[laptop] = { id: laptop, email: testConfig.username, imap_host: testConfig.host };
+      initSettingsSidecarAutoSync();
+      vi.useFakeTimers();
+      try {
+        await addToAllowlist(laptop, "updates@example.com");
+        expect(messages.size).toBe(0);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(messages.size).toBe(1);
+        expect(mockCommands.imapAppendMessage).toHaveBeenCalledTimes(1);
+        const message = await PostalMime.parse([...messages.values()][0]!);
+        expect(JSON.parse(message.text!)).toMatchObject({ senders: ["updates@example.com"] });
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 

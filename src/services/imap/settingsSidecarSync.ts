@@ -38,6 +38,13 @@ import { getDb, withTransaction } from "../db/connection";
 import { isDeviceSetting, syncableSettings } from "./deviceSettings";
 import { addMailRuleChangeListener, withMailRuleWriteLock } from "../db/mailRuleChanges";
 import {
+  addImageAllowlistChangeListener,
+  getAllowlistForAccount,
+  readImageAllowlistSyncState,
+  saveSyncedImageAllowlist,
+} from "../db/imageAllowlist";
+import { normalizeEmail } from "@/utils/emailUtils";
+import {
   readMailRuleEntry,
   readLocalMailRules,
   readMailRuleSyncState,
@@ -85,11 +92,22 @@ interface MailRulesPayload {
   revisions?: Record<string, number>;
 }
 
-type SettingsType = "general" | "filters" | "rules";
-type SettingsPayload = GeneralSettingsPayload | FiltersSettingsPayload | MailRulesPayload;
+interface ImageAllowlistPayload {
+  version: number;
+  updatedAt: number;
+  senders: string[];
+  revisions?: Record<string, number>;
+}
+
+type SettingsType = "general" | "filters" | "rules" | "image-allowlist";
+type SettingsPayload = GeneralSettingsPayload | FiltersSettingsPayload | MailRulesPayload | ImageAllowlistPayload;
 
 function isRulesSettingsFolder(path: string): boolean {
   return /(?:^|[/.])\.?settings(?:[/.])rules$/i.test(path.trim());
+}
+
+function isImageAllowlistSettingsFolder(path: string): boolean {
+  return /(?:^|[/.])\.?settings[/.]image-allowlist$/i.test(path.trim());
 }
 
 /**
@@ -163,6 +181,9 @@ export async function ensureSettingsFolder(
     if (existing) return existing.raw_path || existing.path;
   } else if (subfolder === "rules") {
     const existing = folders.find((f) => isRulesSettingsFolder(f.path));
+    if (existing) return existing.raw_path || existing.path;
+  } else if (subfolder === "image-allowlist") {
+    const existing = folders.find((f) => isImageAllowlistSettingsFolder(f.path));
     if (existing) return existing.raw_path || existing.path;
   } else {
     const existing = folders.find((f) => {
@@ -590,7 +611,7 @@ async function saveSyncedFilters(accountId: string, before: FilterMap, synced: F
 }
 
 interface RuleExchange<T extends Rule> {
-  type: "filters" | "rules";
+  type: "filters" | "rules" | "image-allowlist";
   matchesFolder: (path: string) => boolean;
   decode: (message: ImapMessage, folder: string) => Promise<RuleSnapshot<T>>;
   readLocal: () => Promise<T[]>;
@@ -733,6 +754,45 @@ export async function syncFilterSettings(
   }
 }
 
+const imageAllowlistSyncs = new Map<string, Promise<Rule[] | null>>();
+
+/** Exchange trusted image senders with the mailbox, including edits made offline. */
+export async function syncImageAllowlist(accountId: string, config: ImapConfig, email: string): Promise<void> {
+  const previous = imageAllowlistSyncs.get(accountId);
+  const sync = (previous ? previous.catch(() => null) : Promise.resolve()).then(() =>
+    exchangeRuleSettings<Rule>(config, async () => email, {
+      type: "image-allowlist",
+      matchesFolder: isImageAllowlistSettingsFolder,
+      async decode(message) {
+        const payload = JSON.parse(message.body_text || message.body_html || "") as ImageAllowlistPayload;
+        if (payload?.version !== 1 || !Array.isArray(payload.senders) || payload.senders.some((address) =>
+          typeof address !== "string" || !address || normalizeEmail(address) !== address)) {
+          throw new Error("Invalid IMAP image allowlist message");
+        }
+        validateRevisions(payload.revisions);
+        return { rules: payload.senders.map((id) => ({ id })), revisions: payload.revisions };
+      },
+      async readLocal() {
+        return (await getAllowlistForAccount(accountId)).map(({ sender_address }) => ({ id: sender_address }));
+      },
+      async readBaseline() {
+        const saved = await readImageAllowlistSyncState(accountId);
+        return saved?.map((id) => ({ id })) ?? null;
+      },
+      save: (before, synced) => saveSyncedImageAllowlist(accountId, new Set(before.keys()), new Set(synced.keys())),
+      encode: (entries, revisions) => ({
+        version: 1, updatedAt: Date.now(), senders: entries.map(({ id }) => id), revisions,
+      }),
+    }),
+  );
+  imageAllowlistSyncs.set(accountId, sync);
+  try {
+    await sync;
+  } finally {
+    if (imageAllowlistSyncs.get(accountId) === sync) imageAllowlistSyncs.delete(accountId);
+  }
+}
+
 async function getSettingsImapConfig(account: DbAccount): Promise<ImapConfig> {
   const token = account.auth_method === "oauth2" ? await ensureFreshToken(account) : undefined;
   return buildImapConfig(account, token);
@@ -755,7 +815,7 @@ export async function uploadGeneralSettingsForAccount(
 }
 
 /**
- * Sync both general settings and filter settings for an account.
+ * Sync the settings sidecars for an account.
  */
 export async function syncSettingsForAccount(
   accountId: string,
@@ -771,6 +831,11 @@ export async function syncSettingsForAccount(
   } catch (err) {
     console.warn("[settingsSidecarSync] Failed to sync mail rules:", err);
   }
+  try {
+    await syncImageAllowlist(accountId, config, account.email);
+  } catch (err) {
+    console.warn("[settingsSidecarSync] Failed to sync trusted image senders:", err);
+  }
   const generalResult = await syncGeneralSettings(accountId, config);
   return {
     general: generalResult !== null,
@@ -782,6 +847,7 @@ let listenersInitialized = false;
 let mailRulesDebounceTimer: ReturnType<typeof setTimeout> | undefined;
 let generalDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 const filterDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const imageAllowlistDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /**
  * Initialize automatic listeners to sync settings and filters to IMAP sidecars on change.
@@ -789,6 +855,23 @@ const filterDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export function initSettingsSidecarAutoSync(): void {
   if (listenersInitialized) return;
   listenersInitialized = true;
+
+  addImageAllowlistChangeListener(({ accountId, source }) => {
+    if (source !== "local") return;
+    clearTimeout(imageAllowlistDebounceTimers.get(accountId));
+    imageAllowlistDebounceTimers.set(accountId, setTimeout(async () => {
+      imageAllowlistDebounceTimers.delete(accountId);
+      try {
+        const account = await getAccount(accountId);
+        if (account?.imap_host) {
+          const config = await getSettingsImapConfig(account);
+          await syncImageAllowlist(accountId, config, account.email);
+        }
+      } catch (err) {
+        console.warn("[settingsSidecarSync] Failed to auto-sync trusted image senders:", err);
+      }
+    }, 300));
+  });
 
   addFilterChangeListener(({ accountId, action }) => {
     if (action === "sync") return;

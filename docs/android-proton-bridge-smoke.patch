@@ -1,0 +1,218 @@
+diff --git a/cmd/Desktop-Bridge/main.go b/cmd/Desktop-Bridge/main.go
+index 3806877eb08f332a27ef950ab055a7863b33aec0..fd689e9734a75d5681d58617903c834c71f8b10a 100644
+--- a/cmd/Desktop-Bridge/main.go
++++ b/cmd/Desktop-Bridge/main.go
+@@ -51,6 +51,11 @@ import (
+ */
+ 
+ func main() {
++	if runtime.GOOS == "android" && (len(os.Args) != 2 || os.Args[1] != "--noninteractive") {
++		logrus.Error("Android prototype only supports a headless startup test without an account")
++		os.Exit(2)
++	}
++
+ 	appErr := app.New().Run(utils.Filter(os.Args, func(arg string) bool { return !strings.Contains(arg, "-psn_") }))
+ 	if appErr != nil {
+ 		_ = app.WithLocations(func(l *locations.Locations) error {
+diff --git a/internal/bridge/bridge.go b/internal/bridge/bridge.go
+index e824ab5968ac11af837b58a54ae4a6a906a02f3e..a40fd7d6ed89726ca131aa1527c417c3a538f03b 100644
+--- a/internal/bridge/bridge.go
++++ b/internal/bridge/bridge.go
+@@ -447,6 +447,10 @@ func (bridge *Bridge) init(tlsReporter TLSReporter) error {
+ 
+ 	// Check for updates when triggered.
+ 	bridge.goUpdate = bridge.tasks.PeriodicOrTrigger(constants.UpdateCheckInterval, 0, func(ctx context.Context) {
++		if runtime.GOOS == "android" {
++			return
++		}
++
+ 		logPkg.Info("Checking for updates")
+ 		var version updater.VersionInfo
+ 		var err error
+diff --git a/internal/bridge/credits_android.go b/internal/bridge/credits_android.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..7f44d4187ecf0e5f998894f0c15bd320e5023ed5
+--- /dev/null
++++ b/internal/bridge/credits_android.go
+@@ -0,0 +1,20 @@
++// Copyright (c) 2026 Proton AG
++//
++// This file is part of Proton Mail Bridge.
++//
++// Proton Mail Bridge is free software: you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// Proton Mail Bridge is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
++
++package bridge
++
++const Credits = "Android startup prototype"
+diff --git a/internal/fido/fido.go b/internal/fido/fido.go
+index b3516bd5482287884c62517b3de65d64ff5d2f3a..e4e1e956c852f335c0cc3e7614fd03ba519e9952 100644
+--- a/internal/fido/fido.go
++++ b/internal/fido/fido.go
+@@ -15,7 +15,7 @@
+ // You should have received a copy of the GNU General Public License
+ // along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
+ 
+-//go:build darwin || linux
++//go:build (darwin || linux) && !android
+ 
+ package fido
+ 
+diff --git a/internal/fido/fido_android.go b/internal/fido/fido_android.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..33f53ba6d2020233220ce85d539db1a4d2f91baa
+--- /dev/null
++++ b/internal/fido/fido_android.go
+@@ -0,0 +1,28 @@
++// Copyright (c) 2026 Proton AG
++//
++// This file is part of Proton Mail Bridge.
++//
++// Proton Mail Bridge is free software: you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// Proton Mail Bridge is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
++
++package fido
++
++import (
++	"errors"
++
++	"github.com/ProtonMail/go-proton-api"
++)
++
++func AuthWithHardwareKeyCLI(CLIProvider, *proton.Client, proton.Auth) error {
++	return errors.New("hardware-key login is unavailable in the Android prototype")
++}
+diff --git a/internal/frontend/grpc/fido.go b/internal/frontend/grpc/fido.go
+index 89f8235e8ec6c0412a6a80a631e08cc4c4ebe48c..f7bf54bef821b86fbfac87a610e9514137dcc746 100644
+--- a/internal/frontend/grpc/fido.go
++++ b/internal/frontend/grpc/fido.go
+@@ -15,7 +15,7 @@
+ // You should have received a copy of the GNU General Public License
+ // along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
+ 
+-//go:build linux || darwin
++//go:build (linux || darwin) && !android
+ 
+ package grpc
+ 
+diff --git a/internal/frontend/grpc/fido_android.go b/internal/frontend/grpc/fido_android.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..0a023f4c34a1b06434336c19dd831db8f328720a
+--- /dev/null
++++ b/internal/frontend/grpc/fido_android.go
+@@ -0,0 +1,30 @@
++// Copyright (c) 2026 Proton AG
++//
++// This file is part of Proton Mail Bridge.
++//
++// Proton Mail Bridge is free software: you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// Proton Mail Bridge is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
++
++package grpc
++
++import (
++	"context"
++
++	"google.golang.org/grpc/codes"
++	"google.golang.org/grpc/status"
++	"google.golang.org/protobuf/types/known/emptypb"
++)
++
++func (s *Service) LoginFido(context.Context, *LoginRequest) (*emptypb.Empty, error) {
++	return nil, status.Error(codes.Unimplemented, "hardware-key login is unavailable in the Android prototype")
++}
+diff --git a/internal/frontend/grpc/service.go b/internal/frontend/grpc/service.go
+index a304bce33e95723405320c2f8976722835331ef2..475edc2c2a9f65be94dc1c988f2bc921038d4186 100644
+--- a/internal/frontend/grpc/service.go
++++ b/internal/frontend/grpc/service.go
+@@ -687,5 +687,5 @@ func computeFileSocketPath() (string, error) {
+ // useFileSocket return true iff file socket should be used for the gRPC service.
+ func useFileSocket() bool {
+ 	//goland:noinspection GoBoolExpressions
+-	return runtime.GOOS != platform.WINDOWS
++	return runtime.GOOS != platform.WINDOWS && runtime.GOOS != "android"
+ }
+diff --git a/pkg/keychain/helper_android.go b/pkg/keychain/helper_android.go
+new file mode 100644
+index 0000000000000000000000000000000000000000..beb0e516db60a6f8c853724a0eec5c723270447d
+--- /dev/null
++++ b/pkg/keychain/helper_android.go
+@@ -0,0 +1,22 @@
++// Copyright (c) 2026 Proton AG
++//
++// This file is part of Proton Mail Bridge.
++//
++// Proton Mail Bridge is free software: you can redistribute it and/or modify
++// it under the terms of the GNU General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// Proton Mail Bridge is distributed in the hope that it will be useful,
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU General Public License for more details.
++//
++// You should have received a copy of the GNU General Public License
++// along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
++
++package keychain
++
++func listHelpers() (Helpers, string) {
++	return make(Helpers), ""
++}
+diff --git a/pkg/keychain/helper_dbus_linux.go b/pkg/keychain/helper_dbus_linux.go
+index 5908d066635ce396a96bb5991ba925f9af9d5533..5af53b4d092cd35a9da50a27286f5936363592eb 100644
+--- a/pkg/keychain/helper_dbus_linux.go
++++ b/pkg/keychain/helper_dbus_linux.go
+@@ -15,6 +15,8 @@
+ // You should have received a copy of the GNU General Public License
+ // along with Proton Mail Bridge.  If not, see <https://www.gnu.org/licenses/>.
+ 
++//go:build !android
++
+ package keychain
+ 
+ import (
+diff --git a/pkg/keychain/helper_linux.go b/pkg/keychain/helper_linux.go
+index faf5bb623ffe0f97716f8d10a80ab53f1610149f..4bc92dc99c95bd6f7b72ac232aee892c93dbf4c8 100644
+--- a/pkg/keychain/helper_linux.go
++++ b/pkg/keychain/helper_linux.go
+@@ -15,6 +15,8 @@
+ // You should have received a copy of the GNU General Public License
+ // along with Proton Mail Bridge. If not, see <https://www.gnu.org/licenses/>.
+ 
++//go:build !android
++
+ package keychain
+ 
+ import (

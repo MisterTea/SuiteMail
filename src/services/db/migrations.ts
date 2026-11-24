@@ -987,6 +987,16 @@ export const MIGRATIONS = [
       `).join("")}
     `,
   },
+  {
+    version: 37,
+    description: "Track the last synchronized remote image allowlist for each mailbox",
+    sql: `
+      CREATE TABLE IF NOT EXISTS imap_image_allowlist_sync_state (
+        account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+        senders_json TEXT NOT NULL
+      );
+    `,
+  },
 ];
 
 /**

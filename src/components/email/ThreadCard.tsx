@@ -16,6 +16,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   Newsletters: "bg-orange-500/15 text-orange-600 dark:text-orange-400",
 };
 
+const SWIPE_TRANSITION_MS = 200;
+
 interface ThreadCardProps {
   thread: Thread;
   summarize?: boolean;
@@ -52,6 +54,9 @@ function highlightMatch(text: string | null | undefined, query?: string | null) 
 export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const consumedLongPress = useRef(false);
+  const [touchOffset, setTouchOffset] = useState(0);
+  const [swipeCompletion, setSwipeCompletion] = useState<"exit" | "star" | null>(null);
+  const consumedSwipe = useRef(false);
   useEffect(() => () => {if(longPressTimer.current) clearTimeout(longPressTimer.current);}, []);
   const androidMobile = useAndroidMobile();
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
@@ -115,6 +120,11 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
 
   const handleClick = (e: React.MouseEvent) => {
     if (consumedLongPress.current) {consumedLongPress.current=false;e.preventDefault();return;}
+    if (swipeCompletion || (consumedSwipe.current && e.detail !== 0)) {
+      consumedSwipe.current = false;
+      e.preventDefault();
+      return;
+    }
     if (e.shiftKey) {
       e.preventDefault();
       selectThreadRange(thread.id);
@@ -234,12 +244,38 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
     "?"
   ).toUpperCase();
 
-  const [touchOffset, setTouchOffset] = useState(0);
-  const [isExiting, setIsExiting] = useState(false);
+  const isExiting = swipeCompletion === "exit";
+  const swipeThreshold = androidMobile ? 104 : 75;
+  const swipeReady = Math.abs(touchOffset) > swipeThreshold;
+  const touchOffsetRef = useRef(0);
   const touchStartYRef = useRef<number | null>(null);
   const touchStartXRef = useRef<number | null>(null);
+  const pendingSwipe = useRef<{ run: () => Promise<void>; timeout: ReturnType<typeof setTimeout> } | null>(null);
+
+  useEffect(() => () => {
+    if (pendingSwipe.current) {
+      clearTimeout(pendingSwipe.current.timeout);
+      pendingSwipe.current = null;
+    }
+  }, []);
+
+  const resetSwipe = () => {
+    touchOffsetRef.current = 0;
+    setTouchOffset(0);
+    setSwipeCompletion(null);
+  };
+
+  const finishSwipe = () => {
+    const pending = pendingSwipe.current;
+    if (!pending) return;
+    pendingSwipe.current = null;
+    clearTimeout(pending.timeout);
+    void pending.run();
+  };
 
   const handleTouchStart = (e: React.TouchEvent) => {
+    if (swipeCompletion || pendingSwipe.current) return;
+    consumedSwipe.current = false;
     consumedLongPress.current = false;
     if (androidMobile && (e.target as HTMLElement).closest('[role="checkbox"], [role="button"]')) return;
     if (androidMobile && !(e.target as HTMLElement).closest('[role="checkbox"], [role="button"]')) {
@@ -262,24 +298,16 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
     if (androidMobile && vertical > 12 && vertical > Math.abs(diff)) {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
       touchStartXRef.current = null;
-      setTouchOffset(0);
+      resetSwipe();
       return;
     }
-    if (Math.abs(diff) < 120) {
-      setTouchOffset(diff);
-    }
+    const offset = Math.max(-120, Math.min(120, diff));
+    touchOffsetRef.current = offset;
+    setTouchOffset(offset);
   };
 
-  const handleTouchEnd = async () => {
-    if(longPressTimer.current) clearTimeout(longPressTimer.current);
-    if(consumedLongPress.current) {touchStartXRef.current=null;setTouchOffset(0);return;}
-    if (touchStartXRef.current === null) return;
-    const finalOffset = touchOffset;
-    touchStartXRef.current = null;
-
-    const SWIPE_THRESHOLD = androidMobile ? 104 : 75;
-    if (finalOffset < -SWIPE_THRESHOLD) {
-      setIsExiting(true);
+  const performSwipeAction = async (direction: "exit" | "star") => {
+    if (direction === "exit") {
       if (isDraft || activeLabel === "drafts") {
         try {
           const { deleteThread } = await import("@/services/db/threads");
@@ -294,8 +322,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
           window.dispatchEvent(new CustomEvent("draft-count-changed"));
         } catch (err) {
           console.error("Failed to discard draft on swipe:", err);
-          setIsExiting(false);
-          setTouchOffset(0);
+          resetSwipe();
         }
       } else if (activeLabel === "trash") {
         try {
@@ -303,8 +330,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
           await permanentDeleteThread(thread.accountId, thread.id, []);
         } catch (err) {
           console.error("Failed to delete permanently on swipe:", err);
-          setIsExiting(false);
-          setTouchOffset(0);
+          resetSwipe();
         }
       } else {
         try {
@@ -312,27 +338,57 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
           await archiveThread(thread.accountId, thread.id, []);
         } catch (err) {
           console.error("Failed to archive on swipe:", err);
-          setIsExiting(false);
-          setTouchOffset(0);
+          resetSwipe();
         }
       }
-    } else if (finalOffset > SWIPE_THRESHOLD) {
-      setTouchOffset(0);
+    } else {
+      resetSwipe();
       try {
         const { starThread } = await import("@/services/emailActions");
         await starThread(thread.accountId, thread.id, [], !thread.isStarred);
       } catch (err) {
         console.error("Failed to star on swipe:", err);
       }
-    } else {
-      setTouchOffset(0);
     }
+  };
+
+  const handleTouchEnd = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    if (touchStartXRef.current === null) return;
+    touchStartXRef.current = null;
+
+    const finalOffset = touchOffsetRef.current;
+    if (consumedLongPress.current || Math.abs(finalOffset) <= swipeThreshold) {
+      resetSwipe();
+      return;
+    }
+
+    const direction = finalOffset < 0 ? "exit" : "star";
+    consumedSwipe.current = true;
+    setSwipeCompletion(direction);
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) {
+      void performSwipeAction(direction);
+      return;
+    }
+
+    pendingSwipe.current = {
+      run: () => performSwipeAction(direction),
+      // The transition can be skipped if the browser never paints the drag offset.
+      timeout: setTimeout(finishSwipe, SWIPE_TRANSITION_MS + 50),
+    };
+  };
+
+  const handleTouchCancel = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    if (touchStartXRef.current === null) return;
+    touchStartXRef.current = null;
+    resetSwipe();
   };
 
   return (
     <div
-      className={`relative overflow-hidden border-b border-border-secondary transition-all duration-200 ease-out ${
-        isExiting ? "max-h-0 opacity-0 pointer-events-none -translate-x-full" : "max-h-48 opacity-100"
+      className={`relative overflow-hidden touch-pan-y touch-pinch-zoom border-b border-border-secondary transition-all duration-200 ease-out ${
+        isExiting ? "max-h-0 opacity-0 pointer-events-none" : "max-h-48 opacity-100"
       }`}
     >
       {touchOffset !== 0 && (
@@ -340,18 +396,18 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
           className={`absolute inset-0 flex items-center px-4 transition-all duration-150 ${
             touchOffset > 0
               ? `justify-start ${
-                  touchOffset >= 75
+                  swipeReady
                     ? "bg-amber-500 text-white shadow-inner font-semibold"
                     : "bg-amber-500/20 text-amber-500 font-medium"
                 }`
               : (isDraft || activeLabel === "drafts" || activeLabel === "trash")
                 ? `justify-end ${
-                    touchOffset <= -75
+                    swipeReady
                       ? "bg-red-600 text-white shadow-inner font-semibold"
                       : "bg-red-500/25 text-red-600 dark:text-red-400 font-medium"
                   }`
                 : `justify-end ${
-                    touchOffset <= -75
+                    swipeReady
                       ? "bg-emerald-600 text-white dark:bg-emerald-500 shadow-inner font-semibold"
                       : "bg-emerald-500/20 text-emerald-500 font-medium"
                   }`
@@ -362,7 +418,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
               <Star
                 size={16}
                 className={`transition-transform duration-150 ${
-                  touchOffset >= 75 ? "scale-125" : "scale-100"
+                  swipeReady ? "scale-125" : "scale-100"
                 } ${thread.isStarred ? "" : "fill-current"}`}
               />
               <span>{thread.isStarred ? "Unstar" : "Star"}</span>
@@ -372,7 +428,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
               <Trash2
                 size={16}
                 className={`transition-transform duration-150 ${
-                  touchOffset <= -75 ? "scale-125" : "scale-100"
+                  swipeReady ? "scale-125" : "scale-100"
                 }`}
               />
               <span>Discard draft</span>
@@ -382,7 +438,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
               <Trash2
                 size={16}
                 className={`transition-transform duration-150 ${
-                  touchOffset <= -75 ? "scale-125" : "scale-100"
+                  swipeReady ? "scale-125" : "scale-100"
                 }`}
               />
               <span>Delete permanently</span>
@@ -392,7 +448,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
               <Archive
                 size={16}
                 className={`transition-transform duration-150 ${
-                  touchOffset <= -75 ? "scale-125 -translate-y-0.5" : "scale-100"
+                  swipeReady ? "scale-125 -translate-y-0.5" : "scale-100"
                 }`}
               />
               <span>Archive</span>
@@ -410,10 +466,17 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        onTouchCancel={()=>{if(longPressTimer.current) clearTimeout(longPressTimer.current);touchStartXRef.current=null;setTouchOffset(0);}}
+        onTouchCancel={handleTouchCancel}
+        onTransitionEnd={(e) => {
+          if (e.target === e.currentTarget && e.propertyName === "transform") finishSwipe();
+        }}
         style={{
-          transform: isExiting ? "translateX(-100%)" : touchOffset ? `translateX(${touchOffset}px)` : undefined,
-          transition: isExiting ? "transform 0.2s ease-out, opacity 0.2s ease-out" : touchOffset === 0 ? "transform 0.2s ease-out" : undefined,
+          transform: isExiting
+            ? "translateX(-100%)"
+            : swipeCompletion === "star"
+              ? "translateX(0)"
+              : touchOffset ? `translateX(${touchOffset}px)` : undefined,
+          transition: swipeCompletion || touchOffset === 0 ? `transform ${SWIPE_TRANSITION_MS}ms ease-out` : "none",
         }}
         aria-label={`${isDraft ? "Draft: " : thread.isRead ? "" : "Unread email from "}${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
         aria-describedby={summary ? previewId : undefined}
