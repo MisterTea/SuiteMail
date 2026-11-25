@@ -13,7 +13,7 @@ import { EventCreateModal, type EventFormValues } from "./EventCreateModal";
 import { EventDetailModal } from "./EventDetailModal";
 import { CalendarList } from "./CalendarList";
 import { CalendarReauthBanner } from "./CalendarReauthBanner";
-import { useCalendarSwipe } from "@/hooks/useCalendarSwipe";
+import { useFluidCalendarSwipe } from "@/hooks/useCalendarSwipe";
 
 export function CalendarPage() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -32,30 +32,34 @@ export function CalendarPage() {
   const [showCalendarList, setShowCalendarList] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(true);
   const reauthDoneRef = useRef(false);
+  const swipeViewportRef = useRef<HTMLDivElement>(null);
 
   const getRange = useCallback((): { start: Date; end: Date } => {
     const d = new Date(currentDate);
     if (view === "month") {
-      const start = new Date(d.getFullYear(), d.getMonth(), 1);
+      const start = new Date(d.getFullYear(), d.getMonth() - 1, 1);
       start.setDate(start.getDate() - start.getDay());
-      const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      const end = new Date(d.getFullYear(), d.getMonth() + 2, 0);
       end.setDate(end.getDate() + (6 - end.getDay()));
       end.setHours(23, 59, 59, 999);
       return { start, end };
     }
     if (view === "week" || view === "threeDay") {
+      const span = view === "threeDay" ? 3 : 7;
       const start = new Date(d);
-      if (view === "week") start.setDate(start.getDate() - start.getDay());
       start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + (view === "threeDay" ? 2 : 6));
+      start.setDate(start.getDate() - span);
+      const end = new Date(d);
       end.setHours(23, 59, 59, 999);
+      end.setDate(end.getDate() + span * 2 - 1);
       return { start, end };
     }
     const start = new Date(d);
     start.setHours(0, 0, 0, 0);
+    start.setDate(start.getDate() - 1);
     const end = new Date(d);
     end.setHours(23, 59, 59, 999);
+    end.setDate(end.getDate() + 1);
     return { start, end };
   }, [currentDate, view]);
 
@@ -199,7 +203,30 @@ export function CalendarPage() {
     setCurrentDate(new Date());
   }, []);
 
-  const swipeHandlers = useCalendarSwipe(handlePrev, handleNext);
+  const getStepPx = useCallback(() => {
+    const width = swipeViewportRef.current?.clientWidth || 390;
+    if (view === "month") return width;
+    if (view === "day") return Math.max(1, width - 64);
+    const dayCount = view === "threeDay" ? 3 : 7;
+    return Math.max(1, (width - 44) / dayCount);
+  }, [view]);
+
+  const handleSwipeSnap = useCallback((deltaSteps: number) => {
+    if (deltaSteps === 0) return;
+    setCurrentDate((d) => {
+      const next = new Date(d);
+      if (view === "month") next.setMonth(next.getMonth() + deltaSteps);
+      else next.setDate(next.getDate() + deltaSteps);
+      return next;
+    });
+  }, [view]);
+
+  const maxSwipeSteps = view === "month" || view === "day" ? 1 : view === "threeDay" ? 3 : 7;
+  const fluidSwipe = useFluidCalendarSwipe({
+    getStepPx,
+    maxSteps: maxSwipeSteps,
+    onSnap: handleSwipeSnap,
+  });
 
   const handleCreateEvent = useCallback(async (eventData: EventFormValues) => {
     if (!activeAccountId) return;
@@ -299,15 +326,19 @@ export function CalendarPage() {
         )}
 
         <div
+          ref={swipeViewportRef}
           className="flex flex-col flex-1 min-h-0 min-w-0"
           style={{ touchAction: "pan-y pinch-zoom" }}
-          {...swipeHandlers}
+          {...fluidSwipe.handlers}
         >
           {view === "month" && (
             <MonthView
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              swipeOffsetPx={fluidSwipe.offsetPx}
+              isSnapping={fluidSwipe.isSnapping}
+              snapDurationMs={fluidSwipe.snapDurationMs}
             />
           )}
           {(view === "week" || view === "threeDay") && (
@@ -316,6 +347,9 @@ export function CalendarPage() {
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              swipeOffsetPx={fluidSwipe.offsetPx}
+              isSnapping={fluidSwipe.isSnapping}
+              snapDurationMs={fluidSwipe.snapDurationMs}
             />
           )}
           {view === "day" && (
@@ -323,6 +357,9 @@ export function CalendarPage() {
               currentDate={currentDate}
               events={events}
               onEventClick={handleEventClick}
+              swipeOffsetPx={fluidSwipe.offsetPx}
+              isSnapping={fluidSwipe.isSnapping}
+              snapDurationMs={fluidSwipe.snapDurationMs}
             />
           )}
         </div>
