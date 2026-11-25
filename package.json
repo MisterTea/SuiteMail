@@ -13,7 +13,7 @@
   "scripts": {
     "postinstall": "node scripts/brand-electron.mjs",
     "dev": "vite",
-    "dev:desktop": "npm run build:rust && node scripts/brand-electron.mjs && NODE_ENV=development concurrently -k \"vite\" \"electron .\"",
+    "dev:desktop": "npm run build:rust && node scripts/brand-electron.mjs && node scripts/dev-desktop.mjs",
     "build:rust": "napi build --platform --manifest-path crates/supermail-core/Cargo.toml --output-dir crates/supermail-core",
     "build:rust:release": "napi build --platform --release --manifest-path crates/supermail-core/Cargo.toml --output-dir crates/supermail-core",
     "build": "tsc && vite build",

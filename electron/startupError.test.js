@@ -16,16 +16,17 @@ function fixture(responses, capture = async () => ({ isEmpty: () => false, toDat
   };
 }
 
-test('captures before offering a report; restart and quit never submit', async () => {
+test('captures before offering a report; wait, restart, and quit never submit', async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = () => { throw new Error('Must not submit without consent'); };
   try {
-    for (const [response, action] of [[0, 'restart'], [2, 'quit']]) {
+    for (const [response, action] of [[0, 'wait'], [1, 'restart'], [3, 'quit']]) {
       const f = fixture([response]);
       assert.equal(await showStartupError(f.options), action);
       assert.deepEqual(f.events, ['capture', 'dialog']);
       assert.match(f.messages[0].detail, /screenshot/);
-      assert.equal(f.messages[0].cancelId, 2);
+      assert.deepEqual(f.messages[0].buttons, ['Keep waiting', 'Restart SuiteMail', 'Report Bug', 'Quit']);
+      assert.equal(f.messages[0].cancelId, 3);
     }
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -38,7 +39,7 @@ test('report button submits screenshot and error to Bugcatcher and confirms issu
     return { ok: true, json: async () => ({ success: true, number: 42 }) };
   };
   try {
-    const f = fixture([1, 0]);
+    const f = fixture([2, 1]);
     assert.equal(await showStartupError(f.options), 'restart');
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, `${process.env.VITE_BUGCATCHER_URL ?? DEFAULT_BUGCATCHER_URL}/report`);
@@ -47,7 +48,7 @@ test('report button submits screenshot and error to Bugcatcher and confirms issu
     assert.match(calls[0].text, /Test startup failure/);
     assert.match(calls[0].context, /startup.*0.1.0/);
     assert.match(f.messages[1].detail, /filed as #42/);
-    assert.deepEqual(f.messages[1].buttons, ['Restart SuiteMail', 'Quit']);
+    assert.deepEqual(f.messages[1].buttons, ['Keep waiting', 'Restart SuiteMail', 'Quit']);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -60,7 +61,7 @@ test('failed reports remain available for retry with the same screenshot', async
     return { ok: true, json: async () => ({ success: true }) };
   };
   try {
-    const f = fixture([1, 1, 1]);
+    const f = fixture([2, 2, 2]);
     assert.equal(await showStartupError(f.options), 'quit');
     assert.match(f.messages[1].detail, /not been sent.*Report Bug/s);
     assert.equal(bodies[0], bodies[1]);
@@ -70,8 +71,22 @@ test('failed reports remain available for retry with the same screenshot', async
 
 test('unavailable or hung screenshot capture still offers error recovery', async () => {
   for (const capture of [async () => { throw new Error('renderer crashed'); }, () => new Promise(() => {})]) {
-    const f = fixture([2], capture);
+    const f = fixture([3], capture);
     assert.equal(await showStartupError(f.options), 'quit');
     assert.match(f.messages[0].detail, /screenshot could not be captured/);
   }
+});
+
+test('aborting the dialog signal dismisses the dialog without quitting', async () => {
+  const controller = new AbortController();
+  const f = fixture([]);
+  f.options.signal = controller.signal;
+  f.options.dialog.showMessageBox = (_parent, message) => new Promise((resolve) => {
+    f.messages.push(message);
+    message.signal.addEventListener('abort', () => resolve({ response: message.cancelId }));
+  });
+  const pending = showStartupError(f.options);
+  await new Promise((r) => setTimeout(r, 10));
+  controller.abort();
+  assert.equal(await pending, 'dismissed');
 });

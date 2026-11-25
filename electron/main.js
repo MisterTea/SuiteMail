@@ -33,9 +33,11 @@ let mainWindow = null;
 let splashWindow = null;
 let tray = null;
 let isQuitting = false;
+const STARTUP_TIMEOUT_MS = 30000;
 let startupTimer = null;
 let startupReady = false;
 let startupErrorShown = false;
+let startupErrorAbort = null;
 const startupMarker = path.join(app.getPath('userData'), '.startup-ready');
 const firstStartup = !fs.existsSync(startupMarker);
 let startHidden = process.argv.includes('--hidden');
@@ -77,21 +79,42 @@ const composeShortcut = createComposeShortcut(globalShortcut, () => {
   else pendingCompose = true;
 });
 
+function armStartupTimer() {
+  clearTimeout(startupTimer);
+  startupTimer = setTimeout(() => {
+    reportStartupError('Startup has taken more than thirty seconds. The mail window has not become ready.');
+  }, STARTUP_TIMEOUT_MS);
+}
+
 function reportStartupError(detail) {
   if (startupReady || startupErrorShown || isQuitting) return;
   startupErrorShown = true;
   clearTimeout(startupTimer);
   void telemetry.record('failed');
   console.error("[Startup]", detail);
+  const abortController = new AbortController();
+  startupErrorAbort = abortController;
   showStartupError({
     app, dialog, window: mainWindow,
     getParent: () => splashWindow || mainWindow,
     detail,
+    signal: abortController.signal,
   }).then((action) => {
+    if (startupErrorAbort === abortController) startupErrorAbort = null;
+    startupErrorShown = false;
+    if (action === 'dismissed' || startupReady || isQuitting) return;
+    if (action === 'wait') {
+      armStartupTimer();
+      return;
+    }
     if (action === 'restart') app.relaunch();
     isQuitting = true;
     app.quit();
-  }).catch((err) => console.error("[Startup] Could not show error:", err));
+  }).catch((err) => {
+    if (startupErrorAbort === abortController) startupErrorAbort = null;
+    startupErrorShown = false;
+    console.error("[Startup] Could not show error:", err);
+  });
 }
 
 // 1. Single instance lock
@@ -225,9 +248,7 @@ async function createMainWindow() {
   const isDev = isDevMode();
 
   // Start the watchdog before navigation: a failed page never finishes loading.
-  startupTimer = setTimeout(() => {
-    reportStartupError(`Startup has taken more than ${firstStartup ? 'thirty' : 'five'} seconds. The mail window has not become ready.`);
-  }, firstStartup ? 30000 : 5000);
+  armStartupTimer();
 
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _url, isMainFrame) => {
     if (isMainFrame && errorCode !== -3) {
@@ -379,6 +400,11 @@ rendererSecurity.handle('supermail:invoke', async (_event, cmd, args = {}) => {
     if (_event.sender !== mainWindow?.webContents) return undefined;
     startupReady = true;
     clearTimeout(startupTimer);
+    if (startupErrorAbort) {
+      startupErrorAbort.abort();
+      startupErrorAbort = null;
+    }
+    startupErrorShown = false;
     void telemetry.record('ready');
     if (firstStartup) {
       try { fs.writeFileSync(startupMarker, 'ready\n', { mode: 0o600 }); }
