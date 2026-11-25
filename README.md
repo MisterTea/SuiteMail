@@ -1,149 +1,80 @@
 <p align="center">
-  <img src="assets/icon.png?v1" alt="SuiteMail" width="200" height="200" style="border-radius: 24px;" />
+  <img src="assets/icon.png" alt="SuiteMail" width="128" height="128" style="border-radius: 24px;" />
 </p>
 
 <h1 align="center">SuiteMail</h1>
 
 <p align="center">
-  <strong>Email at the speed of thought.</strong>
+  <strong>Your mail, your machine, your intelligence.</strong>
 </p>
 
 <p align="center">
-  A blazing-fast, keyboard-first desktop email client built with Electron, React, and Rust.<br />
-  Local-first. Privacy-focused. AI-powered.
+  A privacy-first, open-source email client for desktop and mobile—supercharged with local AI, smart agents, direct mail-server metadata sync, and a unified interface for all your mailboxes.
 </p>
 
 <p align="center">
-  <a href="https://mail.suiteleaf.app/">Website</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
-  <a href="#features">Features</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
-  <a href="#installation">Installation</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
-  <a href="docs/keyboard-shortcuts.md">Shortcuts</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
-  <a href="docs/architecture.md">Architecture</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
-  <a href="docs/development.md">Development</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
-  <a href="CONTRIBUTING.md">Contributing</a>
+  <a href="https://mistertea.github.io/SuiteMail/">Website</a>
+  &nbsp;&bull;&nbsp;
+  <a href="https://mistertea.github.io/SuiteMail/features/">20 Narrated Storyboards</a>
+  &nbsp;&bull;&nbsp;
+  <a href="https://github.com/MisterTea/SuiteMail/releases/latest">Download</a>
+  &nbsp;&bull;&nbsp;
+  <a href="https://mistertea.github.io/SuiteMail/privacy/">Privacy Policy</a>
+  &nbsp;&bull;&nbsp;
+  <a href="https://mistertea.github.io/SuiteMail/terms/">Terms of Service</a>
 </p>
 
 ---
 
-<p align="center">
-  <img width="1920" height="1032" alt="Screenshot 2026-02-17 223320" src="https://github.com/user-attachments/assets/dd096d15-4c1e-438c-99f9-c38b50a8a437" />
-</p>
+## Core Principles
+
+### 1. Privacy-First AI — Local on Desktop & Mobile
+Run local language models directly on your desktop (`llama.cpp`) and Android phone so private conversations never leave your hardware. Local vector embeddings power offline semantic search and natural-language inbox queries. Prefer a cloud model? Bring your own API key for Anthropic Claude, OpenAI, or Google Gemini with explicit per-action consent.
+
+### 2. Smart Agents That Work for You
+SuiteMail includes built-in agents that actively help manage your inbox:
+- **Filter Agent** — Create inbox rules and smart auto-labels from plain English.
+- **Meeting Agent** — Detect `.ics` invitations, suggest meeting times, share availability slots, and RSVP in one click.
+- **Reply Agent** — Generate quick replies and context-aware drafts matched to your writing style.
+
+### 3. Sync Metadata & Labels Using Your Existing Mail Server
+Other modern email clients store your labels, snoozes, and metadata on their own proprietary cloud. SuiteMail synchronizes CRDT metadata and labels directly through your existing mail server—**no additional data in the cloud**, no SuiteMail account, and no middleman servers. Everything is backed locally by SQLite for instant offline access.
+
+### 4. One Interface for All Your Mailboxes
+Unify work, personal, and encrypted email in a single keyboard-first workspace with instant account switching and an **All Accounts** unified view:
+- **Gmail** (OAuth 2.0 PKCE + Gmail API & Google Calendar)
+- **Microsoft 365 / Outlook** (Microsoft Graph) & **Exchange (EWS)**
+- **Proton Mail** (Desktop Bridge & Android support)
+- **Any IMAP / SMTP provider** (Fastmail, iCloud, Yahoo, Zoho, GMX, custom servers with auto-discovery)
+- **CalDAV** calendars and **CardDAV / Google Contacts** sync
 
 ---
 
-## Why SuiteMail?
+## Key Capabilities
 
-Most email clients are slow, bloated, or send your data to someone else's server. SuiteMail is different:
+- **Inbox & Triage** — Instant local SQLite + FTS5 search with Gmail-style operators, split inbox categories, snooze, pin, star, mute, follow-up reminders, newsletter bundling, one-click RFC 8058 unsubscribe, quick steps, and bulk actions.
+- **Rich Composer** — TipTap v3 editor, undo send, schedule send, auto-saved drafts, reusable templates, signatures, send-as aliases, CSV mail merge, inline attachment previews, Attachment Library, and OpenPGP-signed contract blocks.
+- **Security & Privacy by Default** — Remote image blocking with per-sender allowlists, DOMPurify HTML sanitization, sandboxed iframe rendering, tracking pixel detection, SPF/DKIM/DMARC verification badges, phishing link heuristics, and AES-256-GCM encrypted local credential storage.
+- **Desktop & Mobile** — Native desktop builds for Windows, macOS, and Linux (Electron + Rust N-API) plus Android mobile (Capacitor) with responsive touch navigation.
 
-- **Local-first** -- Your emails live in a local SQLite database. No middleman servers. Read your mail offline.
-- **Keyboard-driven** -- Superhuman-inspired shortcuts let you fly through your inbox without touching the mouse.
-- **AI-enhanced** -- Summarize threads, generate replies, and search your inbox in natural language -- with your choice of AI provider.
-- **Native performance** -- Electron desktop shell with a Rust backend for email protocols and local storage.
-- **Private by default** -- Remote images blocked, HTML sanitized, emails rendered in sandboxed iframes. Your data stays on your machine.
-
----
-
-## Features
-
-### Email
-
-- Multi-account support: Gmail (API), Proton Mail (via Proton Mail Bridge with end-to-end encryption), and IMAP/SMTP (Outlook, Yahoo, iCloud, Fastmail, and more) with instant switching
-- Threaded conversations with collapsible messages
-- Full-text search with Gmail-style operators (`from:`, `to:`, `subject:`, `has:attachment`, `label:`, etc.)
-- Command palette (`/` or `Ctrl+K`) for quick actions
-- Drag-and-drop labels, multi-select, pin threads, mute threads, context menus
-- Split inbox with category tabs (Primary, Updates, Promotions, Social, Newsletters)
-- Inline reply, contact sidebar with Gravatar
-
-### Composer
-
-- TipTap v3 rich text editor (bold, italic, lists, code, links, images)
-- Undo send, schedule send, auto-save drafts
-- Multiple signatures, reusable templates with variables
-- Send-as email aliases with from-address selector
-- Drag-and-drop attachments with inline preview
-- Frequency-ranked contact autocomplete
-
-### Smart Inbox
-
-- Snooze threads with presets or custom date/time
-- Filters to auto-label, archive, trash, star, or mark read
-- AI + rule-based auto-categorization (Primary, Updates, Promotions, Social, Newsletters)
-- One-click unsubscribe (RFC 8058) and subscription manager
-- Newsletter bundling with delivery schedules
-- Smart folders / saved searches with dynamic query tokens
-- Quick steps -- custom action chains for batch thread processing
-- Follow-up reminders when you haven't received a reply
-
-### AI
-
-Three providers with selectable models -- choose one or mix and match:
-
-| Provider | Models |
-|----------|--------|
-| **Anthropic Claude** | Haiku 4.5, Sonnet 4, Opus 4 |
-| **OpenAI** | GPT-4o Mini, GPT-4o, GPT-4.1 Nano, GPT-4.1 Mini, GPT-4.1 |
-| **Google Gemini** | 2.5 Flash, 2.5 Pro |
-
-Thread summaries, smart reply suggestions, AI compose & reply, text transform (improve/shorten/formalize), Ask My Inbox (natural language search). Pick which model to use per provider in Settings. All results cached locally.
-
-### Calendar
-
-Google Calendar sync with month, week, and day views. Create events without leaving SuiteMail.
-
-### UI & Design
-
-- Glassmorphism with animated gradient background
-- Dark / light / system theme with 9 accent color presets
-- Flexible reading pane (right, bottom, hidden), resizable panels
-- Configurable density and font scaling
-- Pop-out thread windows, custom titlebar, splash screen
-- System tray with taskbar badge count
-
-### Privacy & Security
-
-- OAuth PKCE for Gmail -- no client secret, no backend servers
-- Encrypted password/app-password storage for IMAP accounts (AES-256-GCM)
-- Remote image blocking with per-sender allowlist
-- Phishing link detection with 10 heuristic scoring rules
-- SPF/DKIM/DMARC authentication display with badges and warnings
-- DOMPurify + sandboxed iframe rendering
-- AES-256-GCM encrypted token storage
-
-### System Integration
-
-- `mailto:` deep links, global compose shortcut
-- Autostart (hidden in tray), single instance
-- [Customizable keyboard shortcuts](docs/keyboard-shortcuts.md)
+See all 20 workflows in action on the **[Features & Storyboards page](https://mistertea.github.io/SuiteMail/features/)**, or watch the 30-second **[Account Setup Walkthrough](https://mistertea.github.io/SuiteMail/#account-setup)**.
 
 ---
 
-## Installation
+## Download & Install
 
-Download the latest release for your platform:
+Grab the latest release for your platform from **[GitHub Releases](https://github.com/MisterTea/SuiteMail/releases/latest)**:
 
-**[Download SuiteMail](https://github.com/MisterTea/SuiteMail/releases/latest)** -- Windows `.msi` / `.exe` &nbsp;&bull;&nbsp; macOS `.dmg` &nbsp;&bull;&nbsp; Linux `.deb` / `.AppImage`
+- **Windows:** `.exe` / `.msi`
+- **macOS:** `.dmg`
+- **Linux:** `.AppImage` / `.deb` (see [docs/linux.md](docs/linux.md))
+- **Android:** APK preview (see [docs/android.md](docs/android.md))
 
-No build tools or programming knowledge required -- just download, install, and run.
+---
 
-Linux x64 users: see [Linux installation and desktop support](docs/linux.md) for
-dependencies, AppImage integration, updates and the desktop validation checklist.
+## Building from Source
 
-### Android preview
-
-An experimental Android APK can be built from the Android branch. See [Android build, emulator tests, and storyboard recordings](docs/android.md) for commands and current limitations.
-
-### Account setup
-
-**Gmail:** Create OAuth credentials in [Google Cloud Console](https://console.cloud.google.com/) (enable Gmail API + Calendar API), then enter your Client ID in SuiteMail's Settings. No client secret needed (PKCE).
-
-**IMAP/SMTP:** Click "Add IMAP Account" in the account switcher. Enter your email and password -- SuiteMail auto-discovers server settings for popular providers (Outlook, Yahoo, iCloud, Fastmail, etc.). For other providers, enter IMAP/SMTP server details manually. No Google Cloud project needed.
-
-**AI (optional):** Add an API key for [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [Google Gemini](https://aistudio.google.com/) in Settings. Then select which model to use for each provider.
-
-### Building from source
-
-For developers who want to build SuiteMail themselves or contribute:
+**Prerequisites:** [Node.js](https://nodejs.org/) v22.12+ and [Rust](https://www.rust-lang.org/tools/install)
 
 ```bash
 git clone https://github.com/MisterTea/SuiteMail.git
@@ -152,46 +83,41 @@ npm install
 npm run dev:desktop
 ```
 
-**Prerequisites:** [Node.js](https://nodejs.org/) v22.12+, [Rust](https://www.rust-lang.org/tools/install)
+### Common Commands
 
-See [Development Guide](docs/development.md) for all commands, testing, and build instructions.
-
----
-
-## Tech Stack
-
-| | |
-|--|--|
-| **Framework** | Electron + Rust (N-API) + React 19 + TypeScript |
-| **Styling** | Tailwind CSS v4 |
-| **State** | Zustand 5 (8 stores) |
-| **Editor** | TipTap v3 |
-| **Email** | Gmail API, IMAP/SMTP (via async-imap + lettre in Rust) |
-| **Database** | SQLite + FTS5 (33 tables) |
-| **AI** | Claude, GPT, Gemini |
-| **Testing** | Vitest + Testing Library |
-
-See [Architecture](docs/architecture.md) for detailed design, data flow, and project structure.
+| Command | Description |
+| --- | --- |
+| `npm run dev:desktop` | Build Rust core and start Electron desktop app with Vite HMR |
+| `npm run package` | Build release Rust core, frontend bundle, and desktop installers |
+| `npm run build:android` | Build Android bundle and sync Capacitor project |
+| `npm run dev:landing` | Preview the SuiteMail website (`landing/`) locally |
+| `npm run test` | Run unit & component tests (Vitest) |
+| `npm run test:e2e` | Run Playwright end-to-end tests |
 
 ---
 
-## Building
+## Architecture & Tech Stack
 
-```bash
-npm run package
-```
+| Layer | Technologies |
+| --- | --- |
+| **Desktop & Mobile Shell** | Electron + Rust (N-API) · Capacitor (Android) |
+| **Frontend** | React 19 · TypeScript · Tailwind CSS v4 · Zustand 5 · TipTap v3 |
+| **Storage & Search** | Local SQLite + FTS5 trigram search · 384-d local vector embeddings |
+| **Sync & Protocols** | Gmail API · Microsoft Graph · EWS · Rust `async-imap` / `lettre` · Proton Bridge · Automerge CRDT metadata sync |
+| **AI** | On-device local AI (`llama.cpp` desktop + Android host AI) · Optional BYOK Claude, OpenAI, Gemini |
 
-**Windows** `.msi` / `.exe` &nbsp;&bull;&nbsp; **macOS** `.dmg` / `.app` &nbsp;&bull;&nbsp; **Linux** `.deb` / `.AppImage`
+### Documentation
+
+- [Architecture Overview](docs/architecture.md)
+- [Development Guide](docs/development.md)
+- [Keyboard Shortcuts](docs/keyboard-shortcuts.md)
+- [Linux Support](docs/linux.md)
+- [Android Guide](docs/android.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security Policy](SECURITY.md)
 
 ---
 
 ## License
 
-[Apache-2.0](LICENSE)
-
----
-
-<p align="center">
-  Built with Rust and React.<br />
-  Based on work by <a href="https://github.com/avihaymenahem">Avihay</a>.
-</p>
+SuiteMail is open-source software licensed under the [Apache License, Version 2.0](LICENSE).
