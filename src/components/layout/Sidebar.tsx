@@ -331,7 +331,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const [labelsExpanded, setLabelsExpanded] = useState(false);
   const [isManualSyncing, setIsSyncing] = useState(false);
   const isAccountSyncing = useUIStore((s) =>
-    activeLabel === "unified" ? s.syncingAccountIds.length > 0 : activeAccountId !== null && s.syncingAccountIds.includes(activeAccountId),
+    activeLabel === "unified"
+      ? Object.keys(s.accountSyncProgress).length > 0
+      : activeAccountId !== null && s.accountSyncProgress[activeAccountId] !== undefined,
   );
   const isSyncing = isManualSyncing || isAccountSyncing;
 

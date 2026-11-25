@@ -190,7 +190,7 @@ export async function initialSync(
   accountId: string,
   daysBack = 365,
   onProgress?: SyncProgressCallback,
-  options: {maxThreads?: number} = {},
+  options: { maxThreads?: number; onMessagesStored?: (count: number) => void } = {},
 ): Promise<void> {
   let downloaded = 0;
   const key = `gmail_initial_sync:${accountId}`;
@@ -223,10 +223,12 @@ export async function initialSync(
     for (const stub of stubs) {
       if (checkpoint.storedIds.includes(stub.id)) continue;
       if (downloaded >= (options.maxThreads ?? Infinity)) return;
+      let storedCount = 0;
       try {
         const thread = await client.getThread(stub.id,"full");
         if (thread.messages?.length) {
           await processAndStoreThread(thread,accountId,thread.messages.map(parseGmailMessage),client,autoArchiveCategories);
+          storedCount = thread.messages.length;
         }
       } catch (error) {
         // A thread deleted after listing is safe to skip; every other failure retains the checkpoint.
@@ -237,7 +239,10 @@ export async function initialSync(
       checkpoint.completed++;
       await save();
       onProgress?.({phase:"messages",current:checkpoint.completed,total:checkpoint.total});
-      window.dispatchEvent(new Event("suitemail-sync-progress"));
+      if (storedCount > 0) {
+        options.onMessagesStored?.(storedCount);
+        window.dispatchEvent(new Event("suitemail-sync-progress"));
+      }
     }
     if (!response.nextPageToken) break;
     checkpoint.pageToken = response.nextPageToken;
@@ -296,10 +301,12 @@ export async function deltaSync(
   accountId: string,
   lastHistoryId: string,
   persistHistory: typeof updateAccountSyncState = updateAccountSyncState,
+  onMessagesStored?: (count: number) => void,
 ): Promise<void> {
   try {
     // Paginate through all history pages
     const affectedThreadIds = new Set<string>();
+    const addedMessageIds = new Set<string>();
     const newInboxMessageIds = new Set<string>();
     let latestHistoryId = lastHistoryId;
     let pageToken: string | undefined;
@@ -313,6 +320,7 @@ export async function deltaSync(
           if (item.messagesAdded) {
             for (const added of item.messagesAdded) {
               affectedThreadIds.add(added.message.threadId);
+              addedMessageIds.add(added.message.id);
               // Track new unread inbox messages for notifications
               const labels = added.message.labelIds ?? [];
               if (labels.includes("INBOX") && labels.includes("UNREAD")) {
@@ -381,6 +389,10 @@ export async function deltaSync(
 
           const parsedMessages = thread.messages.map(parseGmailMessage);
           await processAndStoreThread(thread, accountId, parsedMessages, client, autoArchiveCategories);
+          if (onMessagesStored) {
+            const count = parsedMessages.filter((message) => addedMessageIds.has(message.id)).length;
+            if (count > 0) onMessagesStored(count);
+          }
           window.dispatchEvent(new Event("suitemail-sync-progress"));
 
           // Auto-archive muted threads that reappear in INBOX
@@ -468,7 +480,11 @@ export async function deltaSync(
 
 
 /** Poll new mail during backfill without claiming the historical download is complete. */
-export async function syncInitialChanges(client: GmailClient, accountId: string): Promise<void> {
+export async function syncInitialChanges(
+  client: GmailClient,
+  accountId: string,
+  onMessagesStored?: (count: number) => void,
+): Promise<void> {
   const key = `gmail_initial_sync:${accountId}`;
   const raw = await getSetting(key);
   if (!raw) return;
@@ -479,7 +495,7 @@ export async function syncInitialChanges(client: GmailClient, accountId: string)
     await deltaSync(client, accountId, state.historyId, async (_id, historyId) => {
       // The backfill runs after this poll, so the checkpoint cursor cannot be overwritten by a concurrent save.
       await setSetting(key, JSON.stringify({...state,historyId}), {skipNotify:true});
-    });
+    }, onMessagesStored);
   } catch (error) {
     if (error instanceof Error && error.message === "HISTORY_EXPIRED") {
       // Start a fresh listing from newest mail; keep all previously downloaded data.

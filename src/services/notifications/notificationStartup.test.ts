@@ -26,7 +26,11 @@ vi.mock("@capacitor/local-notifications", () => ({ LocalNotifications: {
   addListener: mocks.addListener,
   schedule: mocks.schedule,
 } }));
-vi.mock("../db/settings", () => ({ getSetting: mocks.getSetting, addSettingChangeListener: vi.fn() }));
+vi.mock("../db/settings", () => ({
+  getSetting: mocks.getSetting,
+  setSetting: vi.fn(async () => {}),
+  addSettingChangeListener: vi.fn(),
+}));
 vi.mock("../db/threads", () => ({ getThreadById: mocks.getThreadById }));
 vi.mock("../ai/providerManager", () => ({ isAiAvailable: mocks.isAiAvailable }));
 vi.mock("../ai/aiService", () => ({ summarizeInboxThread: mocks.summarizeInboxThread }));
@@ -123,6 +127,7 @@ describe("Android new mail notifications", () => {
 
     expect(mocks.showNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       title: "Christian",
+      group: "mailbox:account-1",
       body: "Quick question — Christian asks to meet on Tuesday.",
       largeBody: "Quick question\nChristian asks to meet on Tuesday.",
       timestamp: emailTime,
@@ -147,22 +152,48 @@ describe("Android new mail notifications", () => {
     }));
   });
 
-  it("uses the latest email timestamp for batched Android notifications", async () => {
+  it("batches mail by account and keeps each account's newest timestamp", async () => {
     const { queueNewEmailNotification } = await import("./notificationManager");
+    const { useAccountStore } = await import("../../stores/accountStore");
+    useAccountStore.setState({
+      accounts: [
+        { id: "account-1", email: "personal@example.com", displayName: null, avatarUrl: null, isActive: true },
+        { id: "account-2", email: "work@example.com", displayName: null, avatarUrl: null, isActive: true },
+      ],
+    });
 
-    queueNewEmailNotification("Alice", "First", "thread-1", "account-1", "alice@example.com", "One", 1704067200000);
+    queueNewEmailNotification("Carol", "Work mail", "thread-1", "account-2", "carol@example.com", "", 1704068400000);
+    await vi.advanceTimersByTimeAsync(500);
     queueNewEmailNotification("Bob", "Second", "thread-2", "account-1", "bob@example.com", "Two", 1704067800000);
-    await vi.advanceTimersByTimeAsync(2000);
+    queueNewEmailNotification("Alice", "First", "thread-1", "account-1", "alice@example.com", "One", 1704067200000);
+    await vi.advanceTimersByTimeAsync(1500);
 
     expect(mocks.showNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      title: "SuiteMail",
+      title: "Carol",
+      body: "Work mail",
+      timestamp: 1704068400000,
+      group: "mailbox:account-2",
+      groupTitle: "work@example.com",
+      extra: expect.objectContaining({ accountId: "account-2", threadId: "thread-1" }),
+    }));
+
+    await vi.advanceTimersByTimeAsync(500);
+
+    expect(mocks.showNotification).toHaveBeenCalledTimes(2);
+    expect(mocks.showNotification).toHaveBeenLastCalledWith(expect.objectContaining({
+      title: "personal@example.com",
       body: "2 new emails",
       timestamp: 1704067800000,
+      group: "mailbox:account-1",
+      groupTitle: "personal@example.com",
+      extra: { accountId: "account-1" },
     }));
   });
 
-  it("sets desktop notification timestamp to match the email time", async () => {
+  it("keeps the email timestamp when desktop native grouping is unavailable", async () => {
     mocks.getPlatform.mockReturnValue("web");
+    const invoke = vi.fn().mockResolvedValue(false);
+    vi.stubGlobal("supermail", { isElectron: true, invoke, on: vi.fn() });
     const notificationCtor = vi.fn();
     function MockNotification(this: { onclick?: () => void }, title: string, options?: NotificationOptions) {
       notificationCtor(title, options);
@@ -178,5 +209,38 @@ describe("Android new mail notifications", () => {
       body: "Quick question",
       timestamp: 1704067200000,
     });
+  });
+
+  it("opens the grouped desktop notification in its mailbox", async () => {
+    mocks.getPlatform.mockReturnValue("web");
+    const invoke = vi.fn().mockResolvedValue(true);
+    const on = vi.fn();
+    vi.stubGlobal("supermail", { isElectron: true, invoke, on });
+    const notificationCtor = vi.fn();
+    vi.stubGlobal("Notification", Object.assign(notificationCtor, { permission: "granted" }));
+
+    const { initNotifications, sendEmailNotification } = await import("./notificationManager");
+    const { useAccountStore } = await import("../../stores/accountStore");
+    const { navigateToLabel } = await import("../../router/navigate");
+    useAccountStore.setState({
+      accounts: [{ id: "account-2", email: "work@example.com", displayName: null, avatarUrl: null, isActive: true }],
+    });
+    await initNotifications();
+    await sendEmailNotification("Work mail", "2 new emails", { accountId: "account-2" });
+
+    expect(invoke).toHaveBeenCalledExactlyOnceWith("show_grouped_mail_notification", {
+      title: "Work mail",
+      body: "2 new emails",
+      group: "mailbox:account-2",
+      groupTitle: "work@example.com",
+      accountId: "account-2",
+      threadId: undefined,
+    });
+    expect(notificationCtor).not.toHaveBeenCalled();
+    expect(on).toHaveBeenCalledExactlyOnceWith("supermail:mail-notification-opened", expect.any(Function));
+    on.mock.calls[0][1]({ accountId: "account-2" });
+    expect(invoke).toHaveBeenLastCalledWith("show_main_window");
+    expect(useAccountStore.getState().activeAccountId).toBe("account-2");
+    expect(navigateToLabel).toHaveBeenCalledExactlyOnceWith("inbox");
   });
 });

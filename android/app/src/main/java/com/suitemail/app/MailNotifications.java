@@ -54,6 +54,8 @@ final class MailNotifications {
         String body,
         String largeBody,
         long timestampMs,
+        String group,
+        String groupTitle,
         JSObject extra
     ) {
         if (!canPost(context)) return;
@@ -72,6 +74,8 @@ final class MailNotifications {
         if (largeBody != null && !largeBody.isEmpty()) {
             builder.setStyle(new NotificationCompat.BigTextStyle().bigText(largeBody));
         }
+        boolean grouped = group != null && !group.isEmpty();
+        if (grouped) builder.setGroup(group);
 
         long when = normalizeTimestampMs(timestampMs);
         if (when > 0) {
@@ -93,6 +97,19 @@ final class MailNotifications {
         );
         builder.setContentIntent(pendingIntent);
 
-        NotificationManagerCompat.from(context).notify(id, builder.build());
+        NotificationManagerCompat manager = NotificationManagerCompat.from(context);
+        manager.notify(id, builder.build());
+        if (grouped) {
+            Notification summary = new NotificationCompat.Builder(context, CHANNEL_ID)
+                .setContentTitle(groupTitle != null ? groupTitle : context.getString(R.string.app_name))
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setShowWhen(false)
+                .setGroup(group)
+                .setGroupSummary(true)
+                .setGroupAlertBehavior(NotificationCompat.GROUP_ALERT_CHILDREN)
+                .build();
+            manager.notify(group, 0, summary);
+        }
     }
 }

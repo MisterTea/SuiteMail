@@ -60,9 +60,11 @@ public class SuiteMailPlugin extends Plugin {
         String body = call.getString("body", "");
         String largeBody = call.getString("largeBody");
         long timestamp = call.getData().optLong("timestamp", -1L);
+        String group = call.getString("group");
+        String groupTitle = call.getString("groupTitle");
         JSObject extra = call.getObject("extra", new JSObject());
         try {
-            MailNotifications.show(getContext(), id, title, body, largeBody, timestamp, extra);
+            MailNotifications.show(getContext(), id, title, body, largeBody, timestamp, group, groupTitle, extra);
             call.resolve();
         } catch (Exception e) {
             call.reject("Cannot show mail notification", e);

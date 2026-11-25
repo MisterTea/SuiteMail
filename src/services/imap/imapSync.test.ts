@@ -432,11 +432,13 @@ describe("imapInitialSync", () => {
 
     setupFolderWithMessages("INBOX", [recentMsg, oldMsg]);
 
-    await imapInitialSync("acc-1", 365);
+    const onProgress = vi.fn();
+    await imapInitialSync("acc-1", 365, onProgress);
 
     // Only recent message should be stored (old one is beyond 365 days)
     expect(mockUpsertMessage).toHaveBeenCalledTimes(1);
     expect(mockUpsertMessage.mock.calls[0]![0].id).toContain("1"); // uid=1
+    expect(onProgress).toHaveBeenCalledWith(expect.objectContaining({ phase: "messages", current: 1 }));
   });
 
   it("persists final threads but defers filtering when metadata refresh fails", async () => {
@@ -963,7 +965,17 @@ describe("conversation labels and metadata during import", () => {
       return createMockImapFetchResult([msg2]);
     });
 
-    const result = await imapDeltaSync("acc-1");
+    const onMessagesSynced = vi.fn();
+    const result = await imapDeltaSync("acc-1", 365, onMessagesSynced);
+    expect(onMessagesSynced).toHaveBeenCalledExactlyOnceWith(2);
+
+    vi.mocked(imapDeltaCheck).mockResolvedValue([
+      { folder: "INBOX", new_uids: [], highest_modseq: null, vanished: [] },
+      { folder: "Sent", new_uids: [], highest_modseq: null, vanished: [] },
+    ]);
+    onMessagesSynced.mockClear();
+    await imapDeltaSync("acc-1", 365, onMessagesSynced);
+    expect(onMessagesSynced).not.toHaveBeenCalled();
 
     // setThreadLabels and setConversationMetadataLabels should be called with INBOX, NOT Sent
     expect(mockSetThreadLabels).toHaveBeenCalled();

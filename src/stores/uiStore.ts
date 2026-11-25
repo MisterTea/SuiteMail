@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { setSetting } from "@/services/db/settings";
 import type { ColorThemeId } from "@/constants/themes";
 import type { CalendarView } from "@/components/calendar/CalendarToolbar";
+import type { SyncProgress } from "@/services/gmail/sync";
 
 type Theme = "light" | "dark" | "system";
 type ReadingPanePosition = "right" | "bottom" | "hidden";
@@ -37,7 +38,7 @@ interface UIState {
   reduceMotion: boolean;
   isOnline: boolean;
   pendingOpsCount: number;
-  syncingAccountIds: string[];
+  accountSyncProgress: Partial<Record<string, SyncProgress | null>>;
   isSyncingFolder: string | null;
   mobileSidebarOpen: boolean;
   setTheme: (theme: Theme) => void;
@@ -65,7 +66,7 @@ interface UIState {
   setReduceMotion: (reduce: boolean) => void;
   setOnline: (online: boolean) => void;
   setPendingOpsCount: (count: number) => void;
-  setAccountSyncing: (accountId: string, syncing: boolean) => void;
+  setAccountSyncing: (accountId: string, syncing: boolean, progress?: SyncProgress) => void;
   setSyncingFolder: (folder: string | null) => void;
 }
 
@@ -89,7 +90,7 @@ export const useUIStore = create<UIState>((set) => ({
   reduceMotion: false,
   isOnline: true,
   pendingOpsCount: 0,
-  syncingAccountIds: [],
+  accountSyncProgress: {},
   isSyncingFolder: null,
   mobileSidebarOpen: false,
 
@@ -172,12 +173,14 @@ export const useUIStore = create<UIState>((set) => ({
   },
   setOnline: (isOnline) => set({ isOnline }),
   setPendingOpsCount: (pendingOpsCount) => set({ pendingOpsCount }),
-  setAccountSyncing: (accountId, syncing) => set((state) => ({
-    syncingAccountIds: syncing
-      ? state.syncingAccountIds.includes(accountId)
-        ? state.syncingAccountIds
-        : [...state.syncingAccountIds, accountId]
-      : state.syncingAccountIds.filter((id) => id !== accountId),
-  })),
+  setAccountSyncing: (accountId, syncing, progress) => set((state) => {
+    const accountSyncProgress = { ...state.accountSyncProgress };
+    if (syncing) {
+      accountSyncProgress[accountId] = progress ?? null;
+    } else {
+      delete accountSyncProgress[accountId];
+    }
+    return { accountSyncProgress };
+  }),
   setSyncingFolder: (isSyncingFolder) => set({ isSyncingFolder }),
 }));

@@ -21,6 +21,8 @@ interface AndroidMailNotificationsPlugin {
     body: string;
     largeBody?: string;
     timestamp?: number;
+    group?: string;
+    groupTitle?: string;
     extra?: NotificationContext;
   }): Promise<void>;
   addListener(
@@ -117,6 +119,11 @@ async function notifyPlatform(
 ): Promise<void> {
   if (!notificationsEnabled) return;
   const when = normalizeNotificationTimestamp(timestamp);
+  const accountId = context?.accountId;
+  const group = accountId ? `mailbox:${accountId}` : undefined;
+  const groupTitle = accountId
+    ? useAccountStore.getState().accounts.find((account) => account.id === accountId)?.email
+    : undefined;
   try {
     if (Capacitor.getPlatform() === "android") {
       if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
@@ -132,6 +139,8 @@ async function notifyPlatform(
           body: formattedBody,
           ...(largeBody ? { largeBody } : {}),
           ...(when !== undefined ? { timestamp: when } : {}),
+          group,
+          groupTitle,
           extra: context ?? {},
         });
         return;
@@ -144,10 +153,17 @@ async function notifyPlatform(
           ...(largeBody ? { largeBody } : {}),
           smallIcon: "ic_launcher_foreground",
           isExactNotification: false,
+          group,
           extra: context ?? {},
         },
       ] });
     } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      const desktop = typeof window !== "undefined" ? window.supermail : undefined;
+      if (group && desktop?.isElectron && desktop.invoke && desktop.on
+        && await desktop.invoke<boolean>("show_grouped_mail_notification", {
+          title, body, group, groupTitle, accountId, threadId: context?.threadId,
+        })) return;
+
       const options: NotificationOptions & { timestamp?: number } = when !== undefined
         ? { body, timestamp: when }
         : { body };
@@ -203,6 +219,10 @@ export async function initNotifications(): Promise<void> {
     await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
       openNotification(notification.extra as NotificationContext | undefined);
     }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
+  } else if (typeof window !== "undefined" && window.supermail?.isElectron) {
+    window.supermail.on?.("supermail:mail-notification-opened", (context) => {
+      openNotification(context as NotificationContext);
+    });
   }
   if (notificationsEnabled) {
     void requestMailNotificationPermission().catch(() => {});
@@ -237,9 +257,12 @@ export async function sendEmailNotification(
  * Show a notification for new emails.
  * Batches notifications to avoid spam during sync.
  */
-let pendingCount = 0;
-let pendingTimestamp: number | undefined;
-let notifyTimer: ReturnType<typeof setTimeout> | null = null;
+interface PendingMailBatch {
+  count: number;
+  timestamp?: number;
+}
+
+const pendingMailBatches = new Map<string | undefined, PendingMailBatch>();
 
 export function queueNewEmailNotification(
   from: string,
@@ -270,25 +293,28 @@ export function queueNewEmailNotification(
     }
     if (!notificationsEnabled) return;
 
-    const emailTimestamp = normalizeNotificationTimestamp(timestamp);
-    if (emailTimestamp !== undefined && (pendingTimestamp === undefined || emailTimestamp > pendingTimestamp)) {
-      pendingTimestamp = emailTimestamp;
-    }
-
-    pendingCount++;
     const ctx = { threadId, accountId, fromAddress, subject };
     lastNotificationContext = ctx;
+    const emailTimestamp = normalizeNotificationTimestamp(timestamp);
+    const batch = pendingMailBatches.get(accountId);
+    if (batch) {
+      batch.count++;
+      if (emailTimestamp !== undefined && (batch.timestamp === undefined || emailTimestamp > batch.timestamp)) {
+        batch.timestamp = emailTimestamp;
+      }
+      return;
+    }
 
-    if (!notifyTimer) notifyTimer = setTimeout(() => {
-      const count = pendingCount;
-      const when = pendingTimestamp;
-      pendingCount = 0;
-      pendingTimestamp = undefined;
-      notifyTimer = null;
+    const newBatch = { count: 1, timestamp: emailTimestamp };
+    pendingMailBatches.set(accountId, newBatch);
+    setTimeout(() => {
+      pendingMailBatches.delete(accountId);
+      const { count, timestamp: when } = newBatch;
       if (count === 1) {
         void notifyPlatform(from, subject || "(No subject)", ctx, snippet, when);
-      } else if (count > 1) {
-        void notifyPlatform("SuiteMail", `${count} new emails`, undefined, undefined, when);
+      } else {
+        const account = useAccountStore.getState().accounts.find((account) => account.id === accountId);
+        void notifyPlatform(account?.email ?? "SuiteMail", `${count} new emails`, { accountId }, undefined, when);
       }
     }, 2000);
   })().catch((error) => console.warn("Could not queue a mail notification", error));

@@ -215,6 +215,7 @@ async function storeThreadsAndMessages(
   imapMsgByLocalId: Map<string, ImapMessage>,
   labelsByRfcId: Map<string, Set<string>> | undefined,
   config: ImapConfig,
+  onMessagesSynced?: (total: number) => void,
 ): Promise<ParsedMessage[]> {
   const storedMessages: ParsedMessage[] = [];
 
@@ -231,6 +232,7 @@ async function storeThreadsAndMessages(
   // Process in batches within transactions to avoid long-held locks
   for (let i = 0; i < threadGroups.length; i += THREAD_BATCH_SIZE) {
     const batch = threadGroups.slice(i, i + THREAD_BATCH_SIZE);
+    const previousCount = storedMessages.length;
     const filterBatch = await prepareFilterBatch(accountId, config).catch((err) => {
       console.warn("[imapSync] Deferring filters until metadata and rules refresh succeeds:", err);
       return undefined;
@@ -371,6 +373,7 @@ async function storeThreadsAndMessages(
         }
       }
     });
+    if (storedMessages.length > previousCount) onMessagesSynced?.(storedMessages.length);
   }
 
   return storedMessages;
@@ -487,7 +490,6 @@ export async function imapInitialSync(
     totalEstimate += folder.exists;
   }
 
-  let fetchedTotal = 0;
   let totalMessagesFound = 0;
   let storedCount = 0;
   let consecutiveFailures = 0;
@@ -686,14 +688,13 @@ export async function imapInitialSync(
         // Report progress after each chunk (not just each folder)
         onProgress?.({
           phase: "messages",
-          current: fetchedTotal + Math.min(chunkStart + CHUNK_SIZE, uidsToFetch.length),
+          current: storedCount,
           total: totalEstimate,
           folder: folder.path,
         });
       }
 
       totalMessagesFound += folderFetchedCount;
-      fetchedTotal += uidsToFetch.length;
 
       if (dateFallbackCount > 0) {
         console.warn(
@@ -959,7 +960,11 @@ export async function imapInitialSync(
  * Perform delta sync for an IMAP account.
  * Fetches only new messages since the last sync using stored UID state.
  */
-export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<SyncResult> {
+export async function imapDeltaSync(
+  accountId: string,
+  daysBack = 365,
+  onMessagesSynced?: (total: number) => void,
+): Promise<SyncResult> {
   const account = await getAccount(accountId);
   if (!account) {
     throw new Error(`Account ${accountId} not found`);
@@ -1228,6 +1233,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     allImapMsgs,
     labelsByRfcId,
     config,
+    onMessagesSynced,
   );
 
   // Update sync state timestamp

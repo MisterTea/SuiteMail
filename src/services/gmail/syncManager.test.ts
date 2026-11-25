@@ -119,9 +119,12 @@ describe("syncManager", () => {
       await syncAccount("a1");
 
       expect(mockInitialSync).toHaveBeenCalledTimes(1);
-      expect(syncInitialChanges).toHaveBeenCalledWith(expect.anything(), "a1");
+      expect(syncInitialChanges).toHaveBeenCalledWith(expect.anything(), "a1", expect.any(Function));
       expect(vi.mocked(syncInitialChanges).mock.invocationCallOrder[0]).toBeLessThan(mockInitialSync.mock.invocationCallOrder[0]!);
-      expect(mockInitialSync).toHaveBeenCalledWith(expect.anything(), "a1", 365, expect.any(Function), {maxThreads:10});
+      expect(mockInitialSync).toHaveBeenCalledWith(expect.anything(), "a1", 365, undefined, {
+        maxThreads: 10,
+        onMessagesStored: expect.any(Function),
+      });
       expect(mockDeltaSync).not.toHaveBeenCalled();
     });
 

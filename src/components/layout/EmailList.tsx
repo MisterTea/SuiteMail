@@ -26,6 +26,7 @@ import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } fr
 import { getDb } from "@/services/db/connection";
 import { addSettingChangeListener, getSetting } from "@/services/db/settings";
 import { AICORE_READY_EVENT } from "@/services/ai/providers/aicoreProvider";
+import { triggerSync } from "@/services/gmail/syncManager";
 import { archiveThread, trashThread, permanentDeleteThread, spamThread, markThreadRead, starThread } from "@/services/emailActions";
 import { BatchActionBar } from "../email/BatchActionBar";
 import { MoveToFolderDialog } from "../email/MoveToFolderDialog";
@@ -33,7 +34,6 @@ import { Trash2, X, Filter, ChevronRight, Package, FolderSearch, Pin, PenSquare,
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { EmptyState } from "../ui/EmptyState";
 import {
-  InboxClearIllustration,
   NoSearchResultsIllustration,
   NoAccountIllustration,
   GenericEmptyIllustration,
@@ -70,6 +70,24 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accountProvider = useAccountStore((s) => s.accounts.find((account) => account.id === activeAccountId)?.provider);
+  const syncProgress = useUIStore((s) => activeAccountId ? s.accountSyncProgress[activeAccountId] : undefined);
+  const isAccountSyncing = syncProgress !== undefined;
+  const [isCheckingForMail, setIsCheckingForMail] = useState(false);
+  const showsMessageProgress = accountProvider === "ews" || accountProvider === "imap"
+    || accountProvider === "gmail" || accountProvider === "gmail_api";
+  const syncedMessageCount = showsMessageProgress && syncProgress?.phase === "messages" ? syncProgress.current : 0;
+  const checkForNewMail = async () => {
+    if (!activeAccountId || isAccountSyncing || isCheckingForMail) return;
+    setIsCheckingForMail(true);
+    try {
+      await triggerSync([activeAccountId]);
+    } catch (error) {
+      console.error("Manual sync failed:", error);
+    } finally {
+      setIsCheckingForMail(false);
+    }
+  };
   const activeLabel = useActiveLabel();
   const isInboxView = activeLabel === "inbox" || activeLabel === "focused" || activeLabel === "other";
   const [inboxSummariesEnabled, setInboxSummariesEnabled] = useState(false);
@@ -603,6 +621,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
               `${filteredThreads.length} conversation${filteredThreads.length !== 1 ? "s" : ""}`
             )}
           </span>
+          <div role="status">
+            {syncedMessageCount > 0 && (
+              <span className="mt-1 flex items-center gap-1.5 text-xs font-medium text-text-secondary">
+                <RefreshCw size={12} aria-hidden="true" className="shrink-0 text-accent motion-safe:animate-spin" />
+                {syncedMessageCount.toLocaleString()} {syncedMessageCount === 1 ? "message" : "messages"} synced
+              </span>
+            )}
+          </div>
         </div>
         <select
           value={readFilter}
@@ -688,10 +714,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             activeAccountId={activeAccountId}
             activeLabel={activeLabel}
             readFilter={readFilter}
-            activeCategory={activeCategory}
             onClearSearch={clearSearch}
-            onRefresh={loadThreads}
-            isRefreshing={isLoading}
+            onRefresh={checkForNewMail}
+            refreshDisabled={isAccountSyncing || isCheckingForMail}
           />
         ) : (
           <>
@@ -876,19 +901,17 @@ function EmptyStateForContext({
   activeAccountId,
   activeLabel,
   readFilter,
-  activeCategory,
   onClearSearch,
   onRefresh,
-  isRefreshing,
+  refreshDisabled,
 }: {
   searchQuery: string | null;
   activeAccountId: string | null;
   activeLabel: string;
   readFilter: string;
-  activeCategory: string;
   onClearSearch?: () => void;
   onRefresh?: () => void;
-  isRefreshing?: boolean;
+  refreshDisabled: boolean;
 }) {
   if (searchQuery && searchQuery.trim().length > 0) {
     const query = searchQuery.trim();
@@ -931,69 +954,25 @@ function EmptyStateForContext({
     <button
       type="button"
       onClick={onRefresh}
-      disabled={isRefreshing}
+      disabled={refreshDisabled}
       className="inline-flex items-center justify-center gap-2 min-h-[44px] px-5 py-2.5 text-xs sm:text-sm font-medium text-text-primary bg-bg-secondary hover:bg-bg-hover active:bg-bg-tertiary active:scale-95 border border-border-primary/80 rounded-full shadow-xs transition-all touch-manipulation group disabled:opacity-50 cursor-pointer"
     >
       <RefreshCw
         size={14}
-        className={`text-accent transition-transform group-hover:rotate-180 ${isRefreshing ? "animate-spin" : ""}`}
+        className="text-accent transition-transform group-hover:rotate-180"
       />
-      <span>{isRefreshing ? "Checking for mail..." : "Check for new mail"}</span>
+      <span>Check for new mail</span>
     </button>
   ) : undefined;
 
   switch (activeLabel) {
-    case "inbox": {
-      if (activeCategory !== "All") {
-        const categoryMessages: Record<string, { title: string; subtitle: string }> = {
-          Primary: { title: "Primary is clear", subtitle: "No important conversations — your inbox is clear" },
-          Updates: { title: "No updates", subtitle: "Notifications and transactional emails appear here" },
-          Promotions: { title: "No promotions", subtitle: "Marketing and promotional emails appear here" },
-          Social: { title: "No social emails", subtitle: "Social network notifications appear here" },
-          Newsletters: { title: "No newsletters", subtitle: "Newsletters and subscriptions appear here" },
-        };
-        const msg = categoryMessages[activeCategory];
-        if (msg) {
-          return (
-            <EmptyState
-              illustration={InboxClearIllustration}
-              title={msg.title}
-              subtitle={msg.subtitle}
-              badge="Inbox Zero"
-              action={refreshAction}
-            />
-          );
-        }
-      }
-      return (
-        <EmptyState
-          illustration={InboxClearIllustration}
-          title="You're all caught up"
-          subtitle="No new conversations — enjoy your day!"
-          badge="Inbox Zero"
-          action={refreshAction}
-        />
-      );
-    }
+    case "inbox":
     case "focused":
-      return (
-        <EmptyState
-          illustration={InboxClearIllustration}
-          title="You're all caught up"
-          subtitle="No focused conversations — enjoy your day!"
-          badge="Inbox Zero"
-          action={refreshAction}
-        />
-      );
     case "other":
       return (
-        <EmptyState
-          illustration={InboxClearIllustration}
-          title="No other messages"
-          subtitle="All caught up in Other"
-          badge="Inbox Zero"
-          action={refreshAction}
-        />
+        <div className="flex h-full items-center justify-center px-5 py-8">
+          {refreshAction}
+        </div>
       );
     case "starred":
       return (

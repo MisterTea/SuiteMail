@@ -20,15 +20,6 @@ const SYNC_INTERVAL_MS = 60_000; // 60 seconds — delta syncs are lightweight (
 const ANDROID_RESUME_WINDOW_MS = 15_000;
 const ANDROID_RESUME_RETRY_MS = 1_000;
 
-/** Map IMAP sync phases to the SyncProgress phases the UI understands. */
-function mapImapPhase(phase: string): "labels" | "threads" | "messages" | "done" {
-  if (phase === "folders") return "labels";
-  if (phase === "threading" || phase === "storing_threads") return "threads";
-  if (phase === "messages") return "messages";
-  if (phase === "done") return "done";
-  return phase as "labels" | "threads" | "messages" | "done";
-}
-
 let syncTimer: ReturnType<typeof setInterval> | null = null;
 let syncPromise: Promise<void> | null = null;
 let pendingAccountIds: string[] | null = null;
@@ -61,6 +52,10 @@ export function onSyncStatus(cb: SyncStatusCallback): () => void {
   };
 }
 
+function reportSyncedMessages(accountId: string, count: number): void {
+  if (count > 0) statusCallback?.(accountId, "syncing", { phase: "messages", current: count, total: 0 });
+}
+
 /**
  * Run a sync for a single Gmail API account (initial or delta).
  */
@@ -74,29 +69,31 @@ async function syncGmailAccount(accountId: string): Promise<void> {
 
   const syncPeriodStr = await getSetting("sync_period_days");
   const syncDays = parseInt(syncPeriodStr ?? "365", 10) || 365;
+  let messagesSynced = 0;
+  const onMessagesStored = (count: number) => {
+    messagesSynced += count;
+    reportSyncedMessages(accountId, messagesSynced);
+  };
+  const backfill = () => initialSync(client, accountId, syncDays, undefined, { maxThreads: 10, onMessagesStored });
 
   if (account.history_id) {
     // Delta sync
     try {
-      await deltaSync(client, accountId, account.history_id);
+      await deltaSync(client, accountId, account.history_id, undefined, onMessagesStored);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err ?? "");
       if (message === "HISTORY_EXPIRED") {
         // Clear the expired account cursor so subsequent cycles can poll live changes during backfill.
         await clearAccountHistoryId(accountId);
-        await initialSync(client, accountId, syncDays, (progress) => {
-          statusCallback?.(accountId, "syncing", progress);
-        }, {maxThreads:10});
+        await backfill();
       } else {
         throw err;
       }
     }
   } else {
     // New mail gets priority; a bounded backfill must not hold the queue for hours.
-    await syncInitialChanges(client, accountId);
-    await initialSync(client, accountId, syncDays, (progress) => {
-      statusCallback?.(accountId, "syncing", progress);
-    }, {maxThreads:10});
+    await syncInitialChanges(client, accountId, onMessagesStored);
+    await backfill();
   }
 }
 
@@ -120,36 +117,20 @@ async function syncImapAccount(accountId: string): Promise<void> {
 
   if (account.history_id) {
     // Delta sync — IMAP uses folder-level UID tracking
-    const result = await imapDeltaSync(accountId, syncDays);
+    const result = await imapDeltaSync(accountId, syncDays, (count) => reportSyncedMessages(accountId, count));
 
     // Recovery: if delta sync found nothing new but the DB has no threads,
     // the previous initial sync likely failed or stored data incorrectly.
     // Force a full re-sync to recover.
-    if (result.messages.length === 0) {
-      const threadCount = await getThreadCountForAccount(accountId);
-      if (threadCount === 0) {
-        console.warn(`[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`);
-        await clearAccountHistoryId(accountId);
-        await clearAllFolderSyncStates(accountId);
-        await imapInitialSync(accountId, syncDays, (progress) => {
-          statusCallback?.(accountId, "syncing", {
-            phase: mapImapPhase(progress.phase),
-            current: progress.current,
-            total: progress.total,
-          });
-        });
-      }
-    }
-  } else {
-    // First time — full initial sync
-    await imapInitialSync(accountId, syncDays, (progress) => {
-      statusCallback?.(accountId, "syncing", {
-        phase: mapImapPhase(progress.phase),
-        current: progress.current,
-        total: progress.total,
-      });
-    });
+    if (result.messages.length > 0 || await getThreadCountForAccount(accountId) !== 0) return;
+    console.warn(`[syncManager] IMAP delta sync returned 0 new messages and DB has 0 threads for ${accountId} — forcing full re-sync`);
+    await clearAccountHistoryId(accountId);
+    await clearAllFolderSyncStates(accountId);
   }
+
+  await imapInitialSync(accountId, syncDays, (progress) => {
+    if (progress.phase === "messages") reportSyncedMessages(accountId, progress.current);
+  });
 }
 
 /**

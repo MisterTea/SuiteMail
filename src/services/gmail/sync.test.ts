@@ -140,8 +140,10 @@ describe("deltaSync notifications", () => {
       },
     ]);
 
-    await deltaSync(client, "account-1", "99");
+    const onMessagesStored = vi.fn();
+    await deltaSync(client, "account-1", "99", undefined, onMessagesStored);
 
+    expect(onMessagesStored).toHaveBeenCalledExactlyOnceWith(1);
     expect(mockNotify).toHaveBeenCalledWith(
       "Sender",
       "Subject for msg-thread-1",
@@ -200,6 +202,19 @@ describe("deltaSync notifications", () => {
 describe("deltaSync missing threads", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("does not report new mail progress for a label-only change", async () => {
+    const client = createMockClient([{
+      id: "100",
+      labelsAdded: [{ message: { id: "msg-thread-1", threadId: "thread-1" } }],
+    }]);
+    const onMessagesStored = vi.fn();
+
+    await deltaSync(client, "account-1", "99", undefined, onMessagesStored);
+
+    expect(upsertMessage).toHaveBeenCalled();
+    expect(onMessagesStored).not.toHaveBeenCalled();
+  });
+
   it("removes a missing thread locally and advances the sync cursor", async () => {
     const client = createMockClient([{
       messagesDeleted: [{ message: { id: "deleted-message", threadId: "deleted-thread" } }],
@@ -248,6 +263,18 @@ describe("initialSync streaming and recovery",()=>{
   expect(updateAccountSyncState).toHaveBeenCalledWith("initial","100");
   expect(progress).toHaveBeenLastCalledWith({phase:"done",current:2,total:2});
   expect(event).toHaveBeenCalledWith(expect.objectContaining({type:"suitemail-sync-progress"}));event.mockRestore();
+ });
+ it("reports saved messages and skips threads that disappeared before fetching", async () => {
+  const c = client();
+  vi.mocked(c.listThreads).mockResolvedValue({
+    threads: [{ id: "missing", snippet: "" }, { id: "saved", snippet: "" }],
+  });
+  vi.mocked(c.getThread).mockRejectedValueOnce(new GmailApiError(404, "Not found"));
+  const onMessagesStored = vi.fn();
+
+  await initialSync(c, "initial", 365, undefined, { onMessagesStored });
+
+  expect(onMessagesStored).toHaveBeenCalledExactlyOnceWith(1);
  });
  it("does not skip a failed thread or mark a partially downloaded mailbox complete; resumes completed work",async()=>{
   const c=client();vi.mocked(c.listThreads).mockResolvedValue({threads:[{id:"first",snippet:""},{id:"second",snippet:""}]});

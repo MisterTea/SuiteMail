@@ -519,8 +519,8 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, _progress, error) => {
-      useUIStore.getState().setAccountSyncing(accountId, status === "syncing");
+    const unsub = onSyncStatus((accountId, status, progress, error) => {
+      useUIStore.getState().setAccountSyncing(accountId, status === "syncing", progress);
       if (status === "done") {
         setSyncFailure((failure) => failure?.accountId === accountId ? null : failure);
         window.dispatchEvent(new Event("suitemail-sync-done"));

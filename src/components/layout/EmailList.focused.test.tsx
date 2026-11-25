@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { navigateToLabel } from "@/router/navigate";
 import { EmailList } from "./EmailList";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore } from "@/stores/threadStore";
+import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
+import { triggerSync } from "@/services/gmail/syncManager";
+
+vi.mock("@/services/gmail/syncManager", () => ({
+  triggerSync: vi.fn(),
+}));
 
 vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveLabel: vi.fn(),
@@ -44,6 +50,7 @@ vi.mock("@/services/db/bundleRules", () => ({
 describe("EmailList focused and other empty states", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useUIStore.setState({ accountSyncProgress: {} });
     useAccountStore.setState({
       accounts: [{ id: "acc1", email: "user@domain.com", displayName: "User", avatarUrl: null, isActive: true, provider: "ews" }],
       activeAccountId: "acc1",
@@ -60,22 +67,54 @@ describe("EmailList focused and other empty states", () => {
     vi.mocked(useActiveCategory).mockReturnValue("All");
   });
 
-  it("renders empty state for focused without crashing", async () => {
-    vi.mocked(useActiveLabel).mockReturnValue("focused");
+  it.each(["focused", "other"])("keeps the empty %s inbox quiet", async (label) => {
+    vi.mocked(useActiveLabel).mockReturnValue(label);
     render(<EmailList />);
-    await waitFor(() => {
-      expect(screen.getByText("You're all caught up")).toBeInTheDocument();
-      expect(screen.getByText("No focused conversations — enjoy your day!")).toBeInTheDocument();
-    });
+    expect(await screen.findByRole("button", { name: "Check for new mail" })).toBeEnabled();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.queryByText(/caught up|inbox zero/i)).not.toBeInTheDocument();
   });
 
-  it("renders empty state for other without crashing", async () => {
-    vi.mocked(useActiveLabel).mockReturnValue("other");
+  it("syncs the EWS account when checking for new mail from an empty Focused inbox", async () => {
+    vi.mocked(useActiveLabel).mockReturnValue("focused");
+    let finishSync!: () => void;
+    vi.mocked(triggerSync).mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishSync = resolve;
+    }));
     render(<EmailList />);
-    await waitFor(() => {
-      expect(screen.getByText("No other messages")).toBeInTheDocument();
-      expect(screen.getByText("All caught up in Other")).toBeInTheDocument();
+
+    const checkButton = await screen.findByRole("button", { name: "Check for new mail" });
+    fireEvent.click(checkButton);
+    expect(triggerSync).toHaveBeenCalledExactlyOnceWith(["acc1"]);
+    expect(checkButton).toBeDisabled();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+    await act(async () => finishSync());
+    expect(checkButton).toBeEnabled();
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+  });
+
+  it.each(["ews", "gmail_api", "imap"])("shows %s progress only after messages are synced", async (provider) => {
+    vi.mocked(useActiveLabel).mockReturnValue(provider === "ews" ? "focused" : "inbox");
+    useAccountStore.setState(({ accounts }) => ({ accounts: [{ ...accounts[0]!, provider }] }));
+    const { setAccountSyncing } = useUIStore.getState();
+    setAccountSyncing("acc1", true, { phase: "labels", current: 0, total: 0 });
+    render(<EmailList />);
+
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+    act(() => setAccountSyncing("acc1", true, { phase: "messages", current: 0, total: 0 }));
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+
+    act(() => {
+      setAccountSyncing("acc1", true, { phase: "messages", current: 40, total: 0 });
+      setAccountSyncing("another-account", true, { phase: "messages", current: 80, total: 0 });
     });
+    expect(screen.getByRole("status")).toHaveTextContent("40 messages synced");
+
+    act(() => setAccountSyncing("acc1", false));
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(await screen.findByRole("button", { name: "Check for new mail" })).toBeEnabled();
   });
 
   it.each(["focused", "other"])("opens Inbox when switching from EWS %s to Gmail", async (label) => {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage, globalShortcut } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Tray, Menu, nativeImage, globalShortcut, Notification } from 'electron';
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -43,6 +43,7 @@ const firstStartup = !fs.existsSync(startupMarker);
 let startHidden = process.argv.includes('--hidden');
 let pendingCompose = false;
 let shortcutPortalSupport;
+const activeMailNotifications = new Set();
 const appFile = path.join(__dirname, '..', 'dist', 'index.html');
 const preload = path.join(__dirname, 'preload.cjs');
 const devUrl = process.env.VITE_DEV_SERVER_URL || 'http://127.0.0.1:1420';
@@ -445,6 +446,39 @@ rendererSecurity.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   if (cmd === 'get_startup_telemetry') return telemetry.enabled;
   if (cmd === 'set_startup_telemetry') return telemetry.setEnabled(args.enabled);
   if (cmd === 'show_main_window') return showMainWindow();
+  if (cmd === 'show_grouped_mail_notification') {
+    if ((process.platform !== 'darwin' && process.platform !== 'win32') || !Notification.isSupported()) return false;
+    const { title, body, group, groupTitle, accountId, threadId } = args;
+    return new Promise((resolve) => {
+      const notification = new Notification({
+        title,
+        body,
+        groupId: group,
+        groupTitle,
+        subtitle: groupTitle !== title ? groupTitle : undefined,
+      });
+      // Keep click handlers alive after the banner moves into the notification center.
+      activeMailNotifications.add(notification);
+      if (activeMailNotifications.size > 200) {
+        activeMailNotifications.delete(activeMailNotifications.values().next().value);
+      }
+      notification.once('click', () => {
+        activeMailNotifications.delete(notification);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('supermail:mail-notification-opened', { accountId, threadId });
+        }
+      });
+      notification.on('close', ({ reason } = {}) => {
+        if (reason !== 'timedOut' && reason !== 'applicationHidden') activeMailNotifications.delete(notification);
+      });
+      notification.once('failed', () => {
+        activeMailNotifications.delete(notification);
+        resolve(false);
+      });
+      notification.once('show', () => resolve(true));
+      notification.show();
+    });
+  }
 
   if (cmd === 'set_tray_tooltip') {
     if (tray && args.tooltip) tray.setToolTip(args.tooltip);
