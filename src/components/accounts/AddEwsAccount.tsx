@@ -6,7 +6,7 @@ import { saveEwsAccount } from "@/services/db/accounts";
 import { useAccountStore } from "@/stores/accountStore";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
 import { microsoftEwsProvider } from "@/services/oauth/providers";
-import { assertSafeTenant, EWS_HOST_URL, EWS_NATIVE_REDIRECT } from "@/services/microsoft/constants";
+import { assertSafeTenant, EWS_DEFAULT_CLIENT_ID, EWS_HOST_URL, EWS_NATIVE_REDIRECT } from "@/services/microsoft/constants";
 import { ewsPing } from "@/services/microsoft/ewsCommands";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 
@@ -19,7 +19,7 @@ interface AddEwsAccountProps {
 export function AddEwsAccount({ onClose, onSuccess, onBack }: AddEwsAccountProps) {
   const addAccount = useAccountStore((s) => s.addAccount);
   const [tenant, setTenant] = useState("");
-  const [clientId, setClientId] = useState(() => import.meta.env.EWS_OAUTH_CLIENT_ID?.trim() ?? "");
+  const [clientId, setClientId] = useState(() => import.meta.env.EWS_OAUTH_CLIENT_ID?.trim() || EWS_DEFAULT_CLIENT_ID);
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cancelRef = useRef(false);
@@ -106,7 +106,7 @@ export function AddEwsAccount({ onClose, onSuccess, onBack }: AddEwsAccountProps
           <div>
             <h3 className="text-sm font-medium text-text-primary">Exchange Web Services</h3>
             <p className="text-xs text-text-tertiary">
-              Sign in with any work or school mailbox when Graph mail is not available. Enter that organization's tenant and application.
+              Sign in with a work or school mailbox. Use the prefilled application ID or enter your organization's application ID.
             </p>
           </div>
         </div>

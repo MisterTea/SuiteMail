@@ -51,13 +51,7 @@ The Android build excludes both desktop Gmail environment credentials. Backups o
 
 ## EWS application ID default
 
-Set `EWS_OAUTH_CLIENT_ID` in `.env` to prefill the EWS Application (client) ID field:
-
-```dotenv
-EWS_OAUTH_CLIENT_ID=bd4d4c73-8649-4fd0-9c9d-3a88e73432f5
-```
-
-This public ID is bundled at build time for both Android and desktop. Users can edit or clear it before signing in; their chosen ID is saved with the account. The tenant field stays blank. If the variable is unset, the application ID field also starts blank. Restart the development server or rebuild the app after changing the variable.
+Android and desktop prefill the EWS Application (client) ID with the same bundled public ID. Set `EWS_OAUTH_CLIENT_ID` in `.env` to override the default at build time. Users can also enter a different ID during setup, and their chosen ID is saved with the account. Leave the tenant field blank to sign in through the Microsoft `organizations` endpoint. Restart the development server or rebuild the app after changing the variable.
 
 ## Live reload for day-to-day development
 

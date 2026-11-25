@@ -24,6 +24,9 @@ export const EWS_SCOPES = [
 /** Mailbox endpoint documented for Exchange Web Services on Microsoft 365. */
 export const EWS_HOST_URL = "https://outlook.office365.com/EWS/Exchange.asmx";
 
+/** Public EWS application registration shared by desktop and Android. */
+export const EWS_DEFAULT_CLIENT_ID = "bd4d4c73-8649-4fd0-9c9d-3a88e73432f5";
+
 /**
  * Reply address registered for a public mobile and desktop client.
  * Authorization-code sign-in returns here. No client secret is used.
