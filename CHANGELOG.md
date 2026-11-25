@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.8 (2026-11-25)
+
+* Improve calendar UX with continuous multi-hour event blocks, side-by-side overlapping events, spanning multi-day all-day bars, slimmer all-day chips, cleaner time labels, and fluid horizontal touch swiping with 100ms boundary snap.
+* Show saved-mail sync progress, group new mail notifications, and improve notification delivery on Android and desktop.
+* Use the shared EWS application ID across Android and desktop, and extend the desktop startup timeout to 30s with a Keep waiting option.
+* Add opt-in startup diagnostics and telemetry dashboard, plus serve the SuiteMail website on `mail.suiteleaf.app`.
+
 ## 0.1.7 (2026-11-24)
 
 * Move SuiteMail Google OAuth registrations to the `suiteleaf` Google Cloud project and bundle desktop OAuth credentials in release builds.
