@@ -19,7 +19,7 @@ if (Capacitor.getPlatform() === "android") {
     install(): Promise<void>;
   }>("AndroidUpdater");
   const invoke = async <T>(command: string, args: Record<string, unknown> = {}): Promise<T> => {
-    if (["close_splashscreen", "set_tray_tooltip", "set_badge_count", "set_tray_icon"].includes(command)) return undefined as T;
+    if (["set_tray_tooltip", "set_badge_count", "set_tray_icon"].includes(command)) return undefined as T;
     if (command === "get_app_version") return (await App.getInfo()).version as T;
     if (command === "check_for_updates") {
       return (await updater.check({ manual: args.manual === true, startup: args.startup === true })).value as T;

@@ -12,6 +12,7 @@ import { AskInbox } from "./components/search/AskInbox";
 import { AgentConsentPopover } from "./components/ai/AgentConsentPopover";
 import { AiCoreStartup } from "./components/ai/AiCoreStartup";
 import { OutgoingSyncPopover } from "./components/sync/OutgoingSyncPopover";
+import { StartupTelemetryPopover } from "./components/settings/StartupTelemetryPopover";
 import { useUIStore } from "./stores/uiStore";
 import { hasMailAccount, useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
@@ -129,6 +130,7 @@ export default function App() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [showStartupTelemetryPrompt, setShowStartupTelemetryPrompt] = useState<boolean | null>(null);
   const accountCount = useAccountStore((s) => s.accounts.length);
   const [syncFailure, setSyncFailure] = useState<{ accountId: string; message: string } | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
@@ -231,6 +233,8 @@ export default function App() {
   // Initialize database, load accounts, start sync
   useEffect(() => {
     async function init() {
+      let hasConfiguredAccounts = false;
+      let startupSucceeded = false;
       try {
         await runMigrations();
 
@@ -362,6 +366,7 @@ export default function App() {
         await useShortcutStore.getState().loadKeyMap();
 
         const dbAccounts = await getAllAccounts();
+        hasConfiguredAccounts = dbAccounts.some((account) => account.provider !== "sandbox");
         const mapped = toStoreAccounts(dbAccounts);
         const savedAccountId = await getSetting("active_account_id");
         useAccountStore.getState().setAccounts(mapped, savedAccountId);
@@ -421,11 +426,15 @@ export default function App() {
           const count = await getIncompleteTaskCount(activeAcct);
           useTaskStore.getState().setIncompleteCount(count);
         }
+        startupSucceeded = true;
       } catch (err) {
         console.error("Failed to initialize:", err);
       }
       setInitialized(true);
-      invoke("close_splashscreen").catch(() => {});
+      invoke<boolean | undefined>("close_splashscreen", { hasConfiguredAccounts, startupSucceeded }).then(
+        (showPrompt) => setShowStartupTelemetryPrompt((current) => current || showPrompt === true),
+        () => setShowStartupTelemetryPrompt((current) => current ?? false),
+      );
     }
 
     init();
@@ -689,7 +698,12 @@ export default function App() {
       )}
 
       <MobileNavBar />
-      {Capacitor.getPlatform() === "android" && <AiCoreStartup canPrompt={!showAddAccount} />}
+      {Capacitor.getPlatform() === "android" && (
+        <AiCoreStartup canPrompt={!showAddAccount && showStartupTelemetryPrompt === false} />
+      )}
+      {showStartupTelemetryPrompt && (
+        <StartupTelemetryPopover onClose={() => setShowStartupTelemetryPrompt(false)} />
+      )}
 
       {showAddAccount && (
         <AddAccount

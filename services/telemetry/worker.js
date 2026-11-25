@@ -1,6 +1,8 @@
+import { dashboard } from './dashboard.js';
+
 const maxPayloadSize = 256;
 const results = new Set(['ready', 'failed']);
-const platforms = new Set(['win32', 'darwin', 'linux']);
+const platforms = new Set(['win32', 'darwin', 'linux', 'android']);
 const versionPattern = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[a-z0-9.-]{1,24})?$/i;
 
 async function readEvent(body) {
@@ -34,7 +36,9 @@ async function readEvent(body) {
 
 export default {
   async fetch(request, env) {
-    if (new URL(request.url).pathname !== '/v1/startup') return new Response(null, { status: 404 });
+    const url = new URL(request.url);
+    if (url.pathname === '/dashboard') return dashboard(request, env, url);
+    if (url.pathname !== '/v1/startup') return new Response(null, { status: 404 });
     if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } });
     if (request.headers.get('content-type')?.split(';')[0].trim() !== 'application/json') {
       return new Response(null, { status: 415 });

@@ -16,10 +16,12 @@ public class SuiteMailPlugin extends Plugin {
     static { System.loadLibrary("supermail_android"); }
     private static native String nativeCall(String command, String arguments);
     private OAuthLoginDialog oauthLogin;
+    private StartupTelemetry startupTelemetry;
     private final AiCoreBridge aiCore = new AiCoreBridge();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     @Override public void load() {
+        startupTelemetry = StartupTelemetry.forProcess(getContext());
         String path = getContext().getFilesDir().getAbsolutePath() + "/suitemail.db";
         JSObject args = new JSObject();
         args.put("path", path);
@@ -27,6 +29,7 @@ public class SuiteMailPlugin extends Plugin {
             JSObject result = new JSObject(nativeCall("db_init", args.toString()));
             if (result.has("error")) throw new IllegalStateException(result.getString("error"));
         } catch (Exception e) {
+            startupTelemetry.record(false);
             throw new IllegalStateException("Cannot initialize SuiteMail database", e);
         }
         if (getActivity() != null) {
@@ -101,6 +104,24 @@ public class SuiteMailPlugin extends Plugin {
         }
         executor.execute(() -> {
             try {
+                if (command.equals("close_splashscreen") || command.equals("get_startup_telemetry") || command.equals("set_startup_telemetry")) {
+                    boolean value;
+                    if (command.equals("close_splashscreen")) {
+                        value = startupTelemetry.finishStartup(
+                            Boolean.TRUE.equals(args.opt("hasConfiguredAccounts")),
+                            Boolean.TRUE.equals(args.opt("startupSucceeded"))
+                        );
+                    } else if (command.equals("get_startup_telemetry")) {
+                        value = startupTelemetry.isEnabled();
+                    } else {
+                        if (!(args.opt("enabled") instanceof Boolean)) throw new IllegalArgumentException("Expected a telemetry consent boolean");
+                        value = startupTelemetry.setEnabled(args.getBoolean("enabled"));
+                    }
+                    JSObject result = new JSObject();
+                    result.put("value", value);
+                    call.resolve(result);
+                    return;
+                }
                 if (command.equals("aicore_is_available") || command.equals("aicore_generate") || command.equals("aicore_prepare")) {
                     JSObject result = new JSObject();
                     result.put("value", aiCore.invoke(command, args, getContext()));

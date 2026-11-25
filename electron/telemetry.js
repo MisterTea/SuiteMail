@@ -5,12 +5,14 @@ const endpoint = 'https://suitemail-telemetry.jgmath2000.workers.dev/v1/startup'
 
 export function createStartupTelemetry({ userData, version, platform, packaged, fetchImpl = fetch }) {
   const consentFile = path.join(userData, '.telemetry-opt-in');
+  const declinedFile = path.join(userData, '.telemetry-opt-out');
   const optedInAtLaunch = fs.existsSync(consentFile);
   let recorded = false;
   let pending;
 
   return {
     get enabled() { return fs.existsSync(consentFile); },
+    get shouldPrompt() { return packaged && !this.enabled && !fs.existsSync(declinedFile); },
     setEnabled(enabled) {
       if (typeof enabled !== 'boolean') throw new Error('Expected a telemetry consent boolean');
       if (enabled) {
@@ -18,6 +20,7 @@ export function createStartupTelemetry({ userData, version, platform, packaged, 
       } else {
         fs.rmSync(consentFile, { force: true });
         pending?.abort();
+        fs.writeFileSync(declinedFile, '', { mode: 0o600 });
       }
       return enabled;
     },

@@ -398,6 +398,7 @@ rendererSecurity.handle('db:execute', async (_event, query, bindValues = []) => 
 rendererSecurity.handle('supermail:invoke', async (_event, cmd, args = {}) => {
   if (cmd === 'close_splashscreen') {
     if (_event.sender !== mainWindow?.webContents) return undefined;
+    const showTelemetryPrompt = !startupReady && args.hasConfiguredAccounts === true && telemetry.shouldPrompt;
     startupReady = true;
     clearTimeout(startupTimer);
     if (startupErrorAbort) {
@@ -421,7 +422,7 @@ rendererSecurity.handle('supermail:invoke', async (_event, cmd, args = {}) => {
       pendingCompose = false;
       mainWindow?.webContents.send('supermail:compose');
     }
-    return undefined;
+    return showTelemetryPrompt;
   }
 
   if (cmd === 'get_autostart') return autostart.get();

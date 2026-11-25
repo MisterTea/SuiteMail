@@ -27,7 +27,7 @@ export function PrivacyPage() {
             Privacy Policy
           </h1>
           <p className="mt-4 text-base sm:text-lg text-ink-muted max-w-2xl leading-relaxed">
-            Effective Date: November 24, 2026 · Applies to SuiteMail desktop, mobile, and this
+            Effective Date: November 25, 2026 · Applies to SuiteMail desktop, mobile, and this
             website.
           </p>
         </div>
@@ -43,15 +43,15 @@ export function PrivacyPage() {
             <div className="flex items-start gap-2.5">
               <Server className="w-4 h-4 text-pine shrink-0 mt-0.5" />
               <span>
-                <strong>No SuiteMail servers.</strong> We do not operate cloud servers that store,
+                <strong>No hosted mailbox.</strong> We do not operate cloud servers that store,
                 proxy, or read your emails.
               </span>
             </div>
             <div className="flex items-start gap-2.5">
               <Lock className="w-4 h-4 text-pine shrink-0 mt-0.5" />
               <span>
-                <strong>No telemetry or ads.</strong> SuiteMail does not include analytics
-                trackers, advertising SDKs, or behavioral profiling.
+                <strong>No email harvesting or ads.</strong> Optional startup diagnostics
+                help us improve reliability and contain no email addresses or message content.
               </span>
             </div>
             <div className="flex items-start gap-2.5">
@@ -108,9 +108,16 @@ export function PrivacyPage() {
                 2. Data We Do (and Do Not) Collect
               </h2>
               <p>
-                <strong>We collect zero personal data from the SuiteMail application.</strong> The
-                application contains no analytics telemetry, crash-reporting trackers, usage
-                fingerprinting, or advertising identifiers.
+                <strong>Optional startup diagnostics on desktop and Android.</strong> If you agree to share
+                diagnostics when prompted or enable sharing in Settings, SuiteMail sends up to
+                one report per launch containing the app version, operating system, and whether
+                startup succeeded or failed. We use these counts to spot regressions and improve
+                reliability. You can turn off sharing in Settings at any time.
+              </p>
+              <p className="mt-3">
+                Cloudflare processes the source IP address to rate-limit requests. The diagnostics
+                collector stores only daily totals by version, operating system, and outcome and
+                keeps them for 90 days.
               </p>
               <p className="mt-3">
                 This static website is hosted on GitHub Pages. Standard web server access logs
@@ -226,8 +233,7 @@ export function PrivacyPage() {
                 9. Data Retention &amp; Deletion
               </h2>
               <p>
-                Because all application data resides exclusively on your devices and your own
-                mail servers, you have full control over retention and deletion. Removing an
+                Your mailbox data stays on your devices and your own mail servers. Removing an
                 account in SuiteMail or deleting the local SuiteMail application data directory
                 permanently removes all local copies, caches, embeddings, and encrypted tokens
                 from your device.

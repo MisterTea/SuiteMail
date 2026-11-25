@@ -208,6 +208,8 @@ export function SettingsPage() {
       if (isElectron()) {
         try { setAutostartEnabled(await platformInvoke<boolean>("get_autostart")); }
         catch (error) { setAutostartError(String(error)); }
+      }
+      if (android || isElectron()) {
         try { setStartupTelemetry(await platformInvoke<boolean>("get_startup_telemetry")); }
         catch { setStartupTelemetryError(true); }
       }
