@@ -9,8 +9,9 @@ const SECTIONS = [
   { id: 'credentials', title: '5. Credentials & Local Encryption' },
   { id: 'email-safety', title: '6. Remote Images & Tracking Protection' },
   { id: 'third-parties', title: '7. Third-Party Mail & Calendar Providers' },
-  { id: 'retention', title: '8. Data Retention & Deletion' },
-  { id: 'changes', title: '9. Changes & Contact' },
+  { id: 'google-limited-use', title: '8. Google API Services & Limited Use' },
+  { id: 'retention', title: '9. Data Retention & Deletion' },
+  { id: 'changes', title: '10. Changes & Contact' },
 ]
 
 export function PrivacyPage() {
@@ -192,9 +193,37 @@ export function PrivacyPage() {
               </p>
             </section>
 
+            <section id="google-limited-use" className="scroll-mt-24">
+              <h2 className="font-display text-2xl sm:text-3xl text-ink mb-3">
+                8. Google API Services &amp; Limited Use
+              </h2>
+              <p>
+                SuiteMail’s use and transfer of information received from Google APIs to any other
+                app adheres to the{' '}
+                <a
+                  href="https://developers.google.com/terms/api-services-user-data-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-pine underline hover:text-pine-ink"
+                >
+                  Google API Services User Data Policy
+                </a>
+                , including the Limited Use requirements.
+              </p>
+              <p className="mt-3">
+                All Gmail and Google Calendar data accessed through Google APIs is fetched directly
+                by the SuiteMail application running on your local device and stored only in your
+                local encrypted database. SuiteMail does not transfer or store Google user data on
+                any SuiteMail-operated server, does not sell or share Google user data for
+                advertising, and does not use data obtained through Google Workspace APIs to
+                develop, improve, or train generalized artificial intelligence (AI) or machine
+                learning (ML) models.
+              </p>
+            </section>
+
             <section id="retention" className="scroll-mt-24">
               <h2 className="font-display text-2xl sm:text-3xl text-ink mb-3">
-                8. Data Retention &amp; Deletion
+                9. Data Retention &amp; Deletion
               </h2>
               <p>
                 Because all application data resides exclusively on your devices and your own
@@ -207,7 +236,7 @@ export function PrivacyPage() {
 
             <section id="changes" className="scroll-mt-24">
               <h2 className="font-display text-2xl sm:text-3xl text-ink mb-3">
-                9. Changes &amp; Contact
+                10. Changes &amp; Contact
               </h2>
               <p>
                 We may update this Privacy Policy as SuiteMail evolves. Any updates will be
