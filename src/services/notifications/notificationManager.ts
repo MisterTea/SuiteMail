@@ -1,7 +1,7 @@
 import { addSettingChangeListener, getSetting } from "../db/settings";
 import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
-import { Capacitor } from "@capacitor/core";
+import { Capacitor, registerPlugin } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { getDb } from "../db/connection";
 import { getThreadById } from "../db/threads";
@@ -13,6 +13,50 @@ import { normalizeEmail } from "@/utils/emailUtils";
 
 let nextNotificationId = Date.now() % 1_000_000_000;
 const SUMMARY_TIMEOUT_MS = 5_000;
+
+interface AndroidMailNotificationsPlugin {
+  showNotification(options: {
+    id: number;
+    title: string;
+    body: string;
+    largeBody?: string;
+    timestamp?: number;
+    extra?: NotificationContext;
+  }): Promise<void>;
+  addListener(
+    eventName: "mailNotificationOpened",
+    listenerFunc: (context: NotificationContext) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+}
+
+let androidMailNotifications: AndroidMailNotificationsPlugin | null = null;
+
+function getAndroidMailNotifications(): AndroidMailNotificationsPlugin | null {
+  if (Capacitor.getPlatform() !== "android" || typeof registerPlugin !== "function") return null;
+  if (!androidMailNotifications) {
+    androidMailNotifications = registerPlugin<AndroidMailNotificationsPlugin>("SuiteMail");
+  }
+  return androidMailNotifications;
+}
+
+export function normalizeNotificationTimestamp(
+  value?: number | string | Date | null,
+): number | undefined {
+  if (value == null) return undefined;
+  let ms: number;
+  if (value instanceof Date) {
+    ms = value.getTime();
+  } else if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return undefined;
+    const numeric = Number(trimmed);
+    ms = Number.isFinite(numeric) ? numeric : Date.parse(trimmed);
+  } else {
+    ms = value;
+  }
+  if (!Number.isFinite(ms) || ms <= 0) return undefined;
+  return Math.trunc(ms < 10_000_000_000 ? ms * 1000 : ms);
+}
 
 export async function requestMailNotificationPermission(): Promise<boolean> {
   if (Capacitor.getPlatform() === "android") {
@@ -64,26 +108,50 @@ async function getNotificationPreview(snippet: string, context?: NotificationCon
   }
 }
 
-async function notifyPlatform(title: string, body: string, context?: NotificationContext, snippet?: string): Promise<void> {
+async function notifyPlatform(
+  title: string,
+  body: string,
+  context?: NotificationContext,
+  snippet?: string,
+  timestamp?: number | string | Date,
+): Promise<void> {
   if (!notificationsEnabled) return;
+  const when = normalizeNotificationTimestamp(timestamp);
   try {
     if (Capacitor.getPlatform() === "android") {
       if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
       const preview = snippet === undefined ? "" : await getNotificationPreview(snippet, context);
       if (!notificationsEnabled) return;
+      const formattedBody = preview ? `${body} — ${preview}` : body;
+      const largeBody = preview ? `${body}\n${preview}` : undefined;
+      const nativeNotifications = getAndroidMailNotifications();
+      if (nativeNotifications?.showNotification) {
+        await nativeNotifications.showNotification({
+          id: ++nextNotificationId,
+          title,
+          body: formattedBody,
+          ...(largeBody ? { largeBody } : {}),
+          ...(when !== undefined ? { timestamp: when } : {}),
+          extra: context ?? {},
+        });
+        return;
+      }
       await LocalNotifications.schedule({ notifications: [
         {
           id: ++nextNotificationId,
           title,
-          body: preview ? `${body} — ${preview}` : body,
-          ...(preview ? { largeBody: `${body}\n${preview}` } : {}),
+          body: formattedBody,
+          ...(largeBody ? { largeBody } : {}),
           smallIcon: "ic_launcher_foreground",
           isExactNotification: false,
           extra: context ?? {},
         },
       ] });
     } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-      const notification = new Notification(title, { body });
+      const options: NotificationOptions & { timestamp?: number } = when !== undefined
+        ? { body, timestamp: when }
+        : { body };
+      const notification = new Notification(title, options);
       notification.onclick = () => openNotification(context);
     }
   } catch (error) {
@@ -126,6 +194,12 @@ export async function initNotifications(): Promise<void> {
     if (key === "notifications_enabled") notificationsEnabled = value !== "false";
   });
   if (Capacitor.getPlatform() === "android") {
+    const nativeNotifications = getAndroidMailNotifications();
+    if (nativeNotifications?.addListener) {
+      await nativeNotifications.addListener("mailNotificationOpened", (context) => {
+        openNotification(context);
+      }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
+    }
     await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
       openNotification(notification.extra as NotificationContext | undefined);
     }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
@@ -140,6 +214,7 @@ export async function sendEmailNotification(
   title: string,
   body: string,
   context?: NotificationContext,
+  timestamp?: number | string | Date,
 ): Promise<void> {
   if (!notificationsEnabled) return;
 
@@ -155,7 +230,7 @@ export async function sendEmailNotification(
     }
   }
 
-  await notifyPlatform(title, body, context);
+  await notifyPlatform(title, body, context, undefined, timestamp);
 }
 
 /**
@@ -163,6 +238,7 @@ export async function sendEmailNotification(
  * Batches notifications to avoid spam during sync.
  */
 let pendingCount = 0;
+let pendingTimestamp: number | undefined;
 let notifyTimer: ReturnType<typeof setTimeout> | null = null;
 
 export function queueNewEmailNotification(
@@ -172,6 +248,7 @@ export function queueNewEmailNotification(
   accountId?: string,
   fromAddress?: string,
   snippet = "",
+  timestamp?: number | string | Date,
 ): void {
   if (!notificationsEnabled) return;
   void (async () => {
@@ -193,18 +270,26 @@ export function queueNewEmailNotification(
     }
     if (!notificationsEnabled) return;
 
+    const emailTimestamp = normalizeNotificationTimestamp(timestamp);
+    if (emailTimestamp !== undefined && (pendingTimestamp === undefined || emailTimestamp > pendingTimestamp)) {
+      pendingTimestamp = emailTimestamp;
+    }
+
     pendingCount++;
     const ctx = { threadId, accountId, fromAddress, subject };
     lastNotificationContext = ctx;
 
     if (!notifyTimer) notifyTimer = setTimeout(() => {
-      if (pendingCount === 1) {
-        void notifyPlatform(from, subject || "(No subject)", ctx, snippet);
-      } else if (pendingCount > 1) {
-        void notifyPlatform("SuiteMail", `${pendingCount} new emails`);
-      }
+      const count = pendingCount;
+      const when = pendingTimestamp;
       pendingCount = 0;
+      pendingTimestamp = undefined;
       notifyTimer = null;
+      if (count === 1) {
+        void notifyPlatform(from, subject || "(No subject)", ctx, snippet, when);
+      } else if (count > 1) {
+        void notifyPlatform("SuiteMail", `${count} new emails`, undefined, undefined, when);
+      }
     }, 2000);
   })().catch((error) => console.warn("Could not queue a mail notification", error));
 }

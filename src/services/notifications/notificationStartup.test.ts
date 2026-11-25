@@ -2,6 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getPlatform: vi.fn(),
+  registerPlugin: vi.fn(),
+  showNotification: vi.fn(),
+  addMailNotificationListener: vi.fn(),
   getSetting: vi.fn(),
   checkPermissions: vi.fn(),
   requestPermissions: vi.fn(),
@@ -13,7 +16,10 @@ const mocks = vi.hoisted(() => ({
   summarizeInboxThread: vi.fn(),
 }));
 
-vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: mocks.getPlatform } }));
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { getPlatform: mocks.getPlatform },
+  registerPlugin: mocks.registerPlugin,
+}));
 vi.mock("@capacitor/local-notifications", () => ({ LocalNotifications: {
   checkPermissions: mocks.checkPermissions,
   requestPermissions: mocks.requestPermissions,
@@ -31,6 +37,12 @@ beforeEach(() => {
   vi.resetModules();
   vi.resetAllMocks();
   mocks.getPlatform.mockReturnValue("android");
+  mocks.registerPlugin.mockReturnValue({
+    showNotification: mocks.showNotification,
+    addListener: mocks.addMailNotificationListener,
+  });
+  mocks.showNotification.mockResolvedValue(undefined);
+  mocks.addMailNotificationListener.mockResolvedValue({ remove: vi.fn() });
   mocks.getSetting.mockResolvedValue(null);
   mocks.checkPermissions.mockResolvedValue({ display: "prompt" });
   mocks.requestPermissions.mockResolvedValue({ display: "granted" });
@@ -46,6 +58,7 @@ describe("notification startup", () => {
     await initNotifications();
 
     expect(mocks.requestPermissions).toHaveBeenCalledOnce();
+    expect(mocks.addMailNotificationListener).toHaveBeenCalledWith("mailNotificationOpened", expect.any(Function));
     expect(mocks.addListener).toHaveBeenCalledWith("localNotificationActionPerformed", expect.any(Function));
     expect(mocks.start).toHaveBeenCalledOnce();
   });
@@ -99,35 +112,71 @@ describe("Android new mail notifications", () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it("includes the inbox summary and preserves the notification's thread context", async () => {
+  it("includes the inbox summary, email timestamp, and thread context", async () => {
     mocks.summarizeInboxThread.mockResolvedValue("Christian asks to meet on Tuesday.");
     const { queueNewEmailNotification } = await import("./notificationManager");
+    const emailTime = 1704067200000;
 
-    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", "sender@example.com", "Hi, are you free Tuesday?");
+    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", "sender@example.com", "Hi, are you free Tuesday?", emailTime);
     await vi.advanceTimersByTimeAsync(2000);
     await vi.dynamicImportSettled();
 
-    expect(mocks.schedule).toHaveBeenCalledExactlyOnceWith({ notifications: [expect.objectContaining({
+    expect(mocks.showNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       title: "Christian",
       body: "Quick question — Christian asks to meet on Tuesday.",
       largeBody: "Quick question\nChristian asks to meet on Tuesday.",
+      timestamp: emailTime,
       extra: { threadId: "thread-1", accountId: "account-1", fromAddress: "sender@example.com", subject: "Quick question" },
-    })] });
+    }));
   });
 
   it("shows the message preview when the summary takes too long", async () => {
     mocks.summarizeInboxThread.mockImplementation(() => new Promise(() => {}));
     const { queueNewEmailNotification } = await import("./notificationManager");
 
-    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", undefined, "  Hi,\nare you free Tuesday?  ");
+    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", undefined, "  Hi,\nare you free Tuesday?  ", 1704067200);
     await vi.advanceTimersByTimeAsync(2000);
     await vi.dynamicImportSettled();
     expect(mocks.summarizeInboxThread).toHaveBeenCalledOnce();
-    expect(mocks.schedule).not.toHaveBeenCalled();
+    expect(mocks.showNotification).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(5000);
 
-    expect(mocks.schedule).toHaveBeenCalledExactlyOnceWith({ notifications: [expect.objectContaining({
+    expect(mocks.showNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
       largeBody: "Quick question\nHi, are you free Tuesday?",
-    })] });
+      timestamp: 1704067200000,
+    }));
+  });
+
+  it("uses the latest email timestamp for batched Android notifications", async () => {
+    const { queueNewEmailNotification } = await import("./notificationManager");
+
+    queueNewEmailNotification("Alice", "First", "thread-1", "account-1", "alice@example.com", "One", 1704067200000);
+    queueNewEmailNotification("Bob", "Second", "thread-2", "account-1", "bob@example.com", "Two", 1704067800000);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(mocks.showNotification).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      title: "SuiteMail",
+      body: "2 new emails",
+      timestamp: 1704067800000,
+    }));
+  });
+
+  it("sets desktop notification timestamp to match the email time", async () => {
+    mocks.getPlatform.mockReturnValue("web");
+    const notificationCtor = vi.fn();
+    function MockNotification(this: { onclick?: () => void }, title: string, options?: NotificationOptions) {
+      notificationCtor(title, options);
+    }
+    MockNotification.permission = "granted";
+    vi.stubGlobal("Notification", MockNotification);
+
+    const { queueNewEmailNotification } = await import("./notificationManager");
+    queueNewEmailNotification("Christian", "Quick question", "thread-1", "account-1", "sender@example.com", "Hi", 1704067200000);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(notificationCtor).toHaveBeenCalledExactlyOnceWith("Christian", {
+      body: "Quick question",
+      timestamp: 1704067200000,
+    });
   });
 });

@@ -29,6 +29,41 @@ public class SuiteMailPlugin extends Plugin {
         } catch (Exception e) {
             throw new IllegalStateException("Cannot initialize SuiteMail database", e);
         }
+        if (getActivity() != null) {
+            deliverNotificationIntent(getActivity().getIntent());
+        }
+    }
+
+    @Override protected void handleOnNewIntent(Intent intent) {
+        super.handleOnNewIntent(intent);
+        deliverNotificationIntent(intent);
+    }
+
+    private void deliverNotificationIntent(Intent intent) {
+        if (intent == null || !intent.hasExtra(MailNotifications.EXTRA_NOTIFICATION_CONTEXT)) return;
+        String raw = intent.getStringExtra(MailNotifications.EXTRA_NOTIFICATION_CONTEXT);
+        intent.removeExtra(MailNotifications.EXTRA_NOTIFICATION_CONTEXT);
+        try {
+            JSObject context = raw != null && !raw.isEmpty() ? new JSObject(raw) : new JSObject();
+            notifyListeners("mailNotificationOpened", context, true);
+        } catch (Exception e) {
+            Logger.error("SuiteMail", "Could not parse mail notification context", e);
+        }
+    }
+
+    @PluginMethod public void showNotification(PluginCall call) {
+        int id = call.getInt("id", (int) (System.currentTimeMillis() % 1_000_000_000L));
+        String title = call.getString("title", "SuiteMail");
+        String body = call.getString("body", "");
+        String largeBody = call.getString("largeBody");
+        long timestamp = call.getData().optLong("timestamp", -1L);
+        JSObject extra = call.getObject("extra", new JSObject());
+        try {
+            MailNotifications.show(getContext(), id, title, body, largeBody, timestamp, extra);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Cannot show mail notification", e);
+        }
     }
 
     @PluginMethod public void invoke(PluginCall call) {

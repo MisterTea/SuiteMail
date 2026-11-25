@@ -412,6 +412,7 @@ export async function deltaSync(
                   accountId,
                   fromAddr,
                   parsed.snippet,
+                  parsed.date,
                 );
               }
             }

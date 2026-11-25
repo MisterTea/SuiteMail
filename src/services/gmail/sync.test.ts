@@ -149,6 +149,7 @@ describe("deltaSync notifications", () => {
       "account-1",
       "sender@example.com",
       "snippet",
+      "2024-01-01T00:00:00Z",
     );
   });
 

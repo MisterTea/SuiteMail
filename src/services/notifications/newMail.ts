@@ -9,6 +9,7 @@ interface Arrival {
   from_address: string | null;
   subject: string | null;
   snippet: string | null;
+  date: number | null;
   category: string | null;
 }
 
@@ -29,7 +30,7 @@ export async function notifyNewlySyncedMail(accountId: string, previousSync: num
   let fresh: Arrival[] = [];
   await withTransaction(async (db) => {
     fresh = await db.select<Arrival[]>(
-      `SELECT m.thread_id, m.from_name, m.from_address, m.subject, m.snippet, category.category
+      `SELECT m.thread_id, m.from_name, m.from_address, m.subject, m.snippet, m.date, category.category
        FROM new_mail_notifications arrival
        JOIN messages m ON m.account_id = arrival.account_id AND m.id = arrival.message_id
        JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
@@ -59,6 +60,7 @@ export async function notifyNewlySyncedMail(accountId: string, previousSync: num
         accountId,
         address,
         message.snippet ?? "",
+        message.date ?? undefined,
       );
     }
   }
