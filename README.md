@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://mistertea.github.io/SuiteMail/">Website</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
+  <a href="https://mail.suiteleaf.app/">Website</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
   <a href="#features">Features</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
   <a href="#installation">Installation</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
   <a href="docs/keyboard-shortcuts.md">Shortcuts</a>&nbsp;&nbsp;&bull;&nbsp;&nbsp;
