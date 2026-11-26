@@ -46,7 +46,20 @@ vi.mock("../sync/outgoingSyncGuard", () => ({
   LARGE_DIFF_THRESHOLD: 5,
 }));
 
+const mockBatchModify = vi.fn(() => Promise.resolve());
+vi.mock("../db/accounts", () => ({
+  getAccount: vi.fn(() => Promise.resolve({ id: "acct-1", provider: "imap" })),
+}));
+vi.mock("../db/messages", () => ({
+  getMessageIdsForThreads: vi.fn((_account: string, threadIds: string[]) =>
+    Promise.resolve(new Map(threadIds.map((id) => [id, [`${id}-m1`, `${id}-m2`]])))),
+}));
+vi.mock("../gmail/tokenManager", () => ({
+  getGmailClient: vi.fn(() => Promise.resolve({ batchModifyMessages: mockBatchModify })),
+}));
+
 import { useUIStore } from "@/stores/uiStore";
+import { getAccount } from "../db/accounts";
 import {
   getPendingOperations,
   updateOperationStatus,
@@ -234,5 +247,81 @@ describe("queueProcessor", () => {
   it("start and stop work without errors", () => {
     startQueueProcessor();
     stopQueueProcessor();
+  });
+});
+
+describe("queueProcessor Gmail batchModify grouping", () => {
+  const op = (id: string, type: string, threadId: string, params: Record<string, unknown> = {}) => ({
+    id,
+    account_id: "acct-1",
+    operation_type: type,
+    resource_id: threadId,
+    params: JSON.stringify({ threadId, messageIds: [], ...params }),
+    status: "pending" as const,
+    retry_count: 0,
+    max_retries: 10,
+    next_retry_at: null,
+    created_at: 1000,
+    error_message: null,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(useUIStore.getState).mockReturnValue(createMockUIStoreState({ setPendingOpsCount: vi.fn() }) as never);
+    vi.mocked(getAccount).mockResolvedValue({ id: "acct-1", provider: "gmail_api" } as never);
+  });
+
+  it("sends same-effect label edits as one batchModify per group and runs the rest one by one", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([
+      op("a1", "archive", "t1"), op("a2", "archive", "t2"), op("a3", "archive", "t3"),
+      op("r1", "markRead", "t4", { read: true }), op("r2", "markRead", "t5", { read: true }),
+      op("s1", "star", "t6", { starred: true }), // alone: stays threads.modify
+      op("d1", "trash", "t7"), op("d2", "trash", "t8"), // not a plain label edit
+    ] as never);
+
+    await triggerQueueFlush();
+
+    expect(mockBatchModify).toHaveBeenCalledTimes(2);
+    expect(mockBatchModify).toHaveBeenCalledWith(["t1-m1", "t1-m2", "t2-m1", "t2-m2", "t3-m1", "t3-m2"], undefined, ["INBOX"]);
+    expect(mockBatchModify).toHaveBeenCalledWith(["t4-m1", "t4-m2", "t5-m1", "t5-m2"], undefined, ["UNREAD"]);
+    expect(vi.mocked(executeQueuedAction).mock.calls.map(([, type, params]) => [type, (params as { threadId: string }).threadId]))
+      .toEqual([["star", "t6"], ["trash", "t7"], ["trash", "t8"]]);
+    for (const id of ["a1", "a2", "a3", "r1", "r2", "s1", "d1", "d2"]) expect(deleteOperation).toHaveBeenCalledWith(id);
+  });
+
+  it("keeps per-thread order by not grouping a thread with several queued ops", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([
+      op("a1", "archive", "t1"), op("a2", "archive", "t2"), op("u1", "addLabel", "t1", { labelId: "INBOX" }),
+    ] as never);
+
+    await triggerQueueFlush();
+
+    expect(mockBatchModify).not.toHaveBeenCalled();
+    expect(vi.mocked(executeQueuedAction).mock.calls.map(([, type, params]) => [type, (params as { threadId: string }).threadId]))
+      .toEqual([["archive", "t1"], ["archive", "t2"], ["addLabel", "t1"]]);
+  });
+
+  it("records a failed group for retry on every operation in it", async () => {
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([op("a1", "archive", "t1"), op("a2", "archive", "t2")] as never);
+    mockBatchModify.mockRejectedValueOnce(new Error("Failed to fetch"));
+    vi.mocked(classifyError).mockReturnValue({ type: "network", isRetryable: true, message: "Failed to fetch" });
+
+    await triggerQueueFlush();
+
+    expect(updateOperationStatus).toHaveBeenCalledWith("a1", "pending", "Failed to fetch");
+    expect(updateOperationStatus).toHaveBeenCalledWith("a2", "pending", "Failed to fetch");
+    expect(incrementRetry).toHaveBeenCalledTimes(2);
+    expect(deleteOperation).not.toHaveBeenCalled();
+    expect(executeQueuedAction).not.toHaveBeenCalled();
+  });
+
+  it("leaves non-Gmail accounts on the per-thread path", async () => {
+    vi.mocked(getAccount).mockResolvedValue({ id: "acct-1", provider: "imap" } as never);
+    vi.mocked(getPendingOperations).mockResolvedValueOnce([op("a1", "archive", "t1"), op("a2", "archive", "t2")] as never);
+
+    await triggerQueueFlush();
+
+    expect(mockBatchModify).not.toHaveBeenCalled();
+    expect(executeQueuedAction).toHaveBeenCalledTimes(2);
   });
 });
