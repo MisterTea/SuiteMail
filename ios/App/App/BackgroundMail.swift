@@ -1,10 +1,16 @@
 import BackgroundTasks
 import Foundation
 import UIKit
+import UserNotifications
 
 @MainActor
 final class BackgroundMail {
     static let shared = BackgroundMail()
+    static let refreshInterval: TimeInterval = 30 * 60
+    private static let cacheFreshnessInterval: TimeInterval = 45 * 60
+    private static let notifiedIDsKey = "gmail-notified-message-ids"
+    private static let maxNotifiedIDs = 200
+    private static let maxIndividualNotifications = 3
     private let identifier = "com.suitemail.app.gmail-refresh"
     private var foreground = false
     private var worker: Task<Void, Never>?
@@ -41,7 +47,7 @@ final class BackgroundMail {
 
     func schedule() {
         let request = BGAppRefreshTaskRequest(identifier: identifier)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: Self.refreshInterval)
         try? BGTaskScheduler.shared.submit(request)
     }
 
@@ -110,7 +116,7 @@ final class BackgroundMail {
               let data = try? Data(contentsOf: file) else { return nil }
         try? FileManager.default.removeItem(at: file)
         guard let entry = try? JSONDecoder().decode(HistoryPage.self, from: data),
-              entry.request == request, Date().timeIntervalSince(entry.saved) < 15 * 60 else { return nil }
+              entry.request == request, Date().timeIntervalSince(entry.saved) < Self.cacheFreshnessInterval else { return nil }
         return entry.data
     }
 
@@ -153,12 +159,210 @@ final class BackgroundMail {
                 // The regular delta sync owns thread downloads, pending-operation checks and the authoritative cursor.
                 let page = HistoryPage(request: request, saved: Date(), data: response.data)
                 try JSONEncoder().encode(page).write(to: file, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+                await notifyNewMessages(accountId: id, accountEmail: email, history: history, token: token.value)
             } catch {
                 try Task.checkCancellation()
                 // A single revoked or unavailable account must not starve the other accounts.
                 continue
             }
         }
+    }
+
+    // MARK: - Background notifications
+
+    private struct NotifiableMessage {
+        let messageId: String
+        let threadId: String
+        let fromName: String
+        let fromAddress: String
+        let subject: String
+        let snippet: String
+    }
+
+    private static func parseSender(_ fromHeader: String) -> (name: String, address: String) {
+        let trimmed = fromHeader.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let lt = trimmed.lastIndex(of: "<"), let gt = trimmed.lastIndex(of: ">"), lt < gt {
+            let address = trimmed[trimmed.index(after: lt)..<gt].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            var name = trimmed[..<lt].trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.hasPrefix("\"") && name.hasSuffix("\"") && name.count >= 2 {
+                name = String(name.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            return (name.isEmpty ? (address.isEmpty ? "New mail" : address) : name, address)
+        }
+        return (trimmed.isEmpty ? "New mail" : trimmed, trimmed.lowercased())
+    }
+
+    private static func isWithinQuietHours(start: String, end: String, date: Date = Date()) -> Bool {
+        guard !start.isEmpty, !end.isEmpty, start != end else { return false }
+        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+        let now = String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
+        return start < end ? (now >= start && now < end) : (now >= start || now < end)
+    }
+
+    private func loadNotifiedIDs() -> [String] {
+        UserDefaults.standard.stringArray(forKey: Self.notifiedIDsKey) ?? []
+    }
+
+    private func saveNotifiedIDs(_ ids: [String]) {
+        let trimmed = ids.count > Self.maxNotifiedIDs ? Array(ids.suffix(Self.maxNotifiedIDs)) : ids
+        UserDefaults.standard.set(trimmed, forKey: Self.notifiedIDsKey)
+    }
+
+    private func canPostNotifications() async -> Bool {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        return settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
+    }
+
+    private func shouldNotifyForAccount(accountId: String, fromAddress: String) async -> Bool {
+        do {
+            let globalRows = try await Self.select("SELECT value FROM settings WHERE key = $1", ["notifications_enabled"])
+            if let value = globalRows.first?["value"] as? String, value == "false" { return false }
+            let prefRows = try await Self.select("SELECT value FROM settings WHERE key = $1", ["mail_notification_schedule:" + accountId])
+            if let raw = prefRows.first?["value"] as? String,
+               let data = raw.data(using: .utf8),
+               let pref = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                if let enabled = pref["enabled"] as? Bool, !enabled { return false }
+                if let quiet = pref["quiet"] as? Bool, quiet {
+                    let start = pref["start"] as? String ?? "18:00"
+                    let end = pref["end"] as? String ?? "09:00"
+                    if Self.isWithinQuietHours(start: start, end: end) {
+                        let vipBypass = pref["vipBypass"] as? Bool ?? true
+                        guard vipBypass, !fromAddress.isEmpty else { return false }
+                        let vips = try await Self.select(
+                            "SELECT 1 FROM notification_vips WHERE account_id = $1 AND LOWER(email) = $2 LIMIT 1",
+                            [accountId, fromAddress.lowercased()]
+                        )
+                        if vips.isEmpty { return false }
+                    }
+                }
+            }
+        } catch {
+            // Fall through with defaults if settings table is temporarily busy.
+        }
+        return true
+    }
+
+    private func notifyNewMessages(accountId: String, accountEmail: String, history: [Any], token: String) async {
+        guard await canPostNotifications() else { return }
+
+        var notifiedList = loadNotifiedIDs()
+        var notifiedSet = Set(notifiedList)
+        var addedMessageIDs: [String] = []
+        var seenInBatch = Set<String>()
+
+        for entry in history {
+            guard let item = entry as? [String: Any],
+                  let added = item["messagesAdded"] as? [[String: Any]] else { continue }
+            for wrapper in added {
+                guard let msg = wrapper["message"] as? [String: Any],
+                      let msgId = msg["id"] as? String, !msgId.isEmpty else { continue }
+                if let labels = msg["labelIds"] as? [String] {
+                    if !labels.contains("INBOX") || !labels.contains("UNREAD") { continue }
+                    if labels.contains("SENT") || labels.contains("DRAFT") || labels.contains("TRASH") || labels.contains("SPAM") { continue }
+                }
+                if !notifiedSet.contains(msgId), seenInBatch.insert(msgId).inserted {
+                    addedMessageIDs.append(msgId)
+                }
+            }
+        }
+        guard !addedMessageIDs.isEmpty else { return }
+
+        // Newest messages first.
+        let ordered = Array(addedMessageIDs.reversed())
+        if ordered.count > Self.maxIndividualNotifications {
+            guard await shouldNotifyForAccount(accountId: accountId, fromAddress: "") else { return }
+            let content = UNMutableNotificationContent()
+            content.title = accountEmail
+            content.body = "\(ordered.count) new emails"
+            content.sound = .default
+            content.threadIdentifier = "mailbox:\(accountId)"
+            content.userInfo = [
+                "accountId": accountId,
+                "cap_extra": ["accountId": accountId],
+            ]
+            let request = UNNotificationRequest(identifier: "suitemail-batch-\(accountId)", content: content, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
+            for id in ordered where notifiedSet.insert(id).inserted { notifiedList.append(id) }
+            saveNotifiedIDs(notifiedList)
+            return
+        }
+
+        var arrivals: [NotifiableMessage] = []
+        for msgId in ordered {
+            guard !Task.isCancelled else { break }
+            guard let encoded = msgId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                  var components = URLComponents(string: GoogleMail.base + "/messages/" + encoded) else { continue }
+            components.queryItems = [
+                URLQueryItem(name: "format", value: "metadata"),
+                URLQueryItem(name: "metadataHeaders", value: "From"),
+                URLQueryItem(name: "metadataHeaders", value: "Subject"),
+            ]
+            guard let url = components.url else { continue }
+            do {
+                let response = try await GoogleMail.request(url, headers: ["Authorization": "Bearer " + token], timeout: 5)
+                guard response.http.statusCode == 200,
+                      let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else { continue }
+                let labels = json["labelIds"] as? [String] ?? []
+                guard labels.contains("INBOX"), labels.contains("UNREAD"),
+                      !labels.contains("SENT"), !labels.contains("DRAFT"),
+                      !labels.contains("TRASH"), !labels.contains("SPAM") else {
+                    if notifiedSet.insert(msgId).inserted { notifiedList.append(msgId) }
+                    continue
+                }
+                let threadId = json["threadId"] as? String ?? msgId
+                let payload = json["payload"] as? [String: Any]
+                let headers = payload?["headers"] as? [[String: Any]] ?? []
+                let fromRaw = headers.first { ($0["name"] as? String)?.caseInsensitiveCompare("From") == .orderedSame }?["value"] as? String ?? ""
+                let subjectRaw = headers.first { ($0["name"] as? String)?.caseInsensitiveCompare("Subject") == .orderedSame }?["value"] as? String ?? ""
+                let sender = Self.parseSender(fromRaw)
+                if sender.address.caseInsensitiveCompare(accountEmail) == .orderedSame {
+                    if notifiedSet.insert(msgId).inserted { notifiedList.append(msgId) }
+                    continue
+                }
+                let subject = subjectRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                let snippet = (json["snippet"] as? String ?? "")
+                    .components(separatedBy: .whitespacesAndNewlines)
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " ")
+                arrivals.append(NotifiableMessage(
+                    messageId: msgId,
+                    threadId: threadId,
+                    fromName: sender.name,
+                    fromAddress: sender.address,
+                    subject: subject.isEmpty ? "(No subject)" : subject,
+                    snippet: snippet
+                ))
+            } catch {
+                continue
+            }
+        }
+
+        for item in arrivals {
+            guard await shouldNotifyForAccount(accountId: accountId, fromAddress: item.fromAddress) else { continue }
+            let content = UNMutableNotificationContent()
+            content.title = item.fromName
+            content.subtitle = item.subject
+            content.body = item.snippet.isEmpty ? item.subject : item.snippet
+            content.sound = .default
+            content.threadIdentifier = "mailbox:\(accountId)"
+            let extra: [String: String] = [
+                "accountId": accountId,
+                "threadId": item.threadId,
+                "fromAddress": item.fromAddress,
+                "subject": item.subject,
+            ]
+            content.userInfo = [
+                "accountId": accountId,
+                "threadId": item.threadId,
+                "fromAddress": item.fromAddress,
+                "subject": item.subject,
+                "cap_extra": extra,
+            ]
+            let request = UNNotificationRequest(identifier: "suitemail-\(accountId)-\(item.messageId)", content: content, trigger: nil)
+            try? await UNUserNotificationCenter.current().add(request)
+            if notifiedSet.insert(item.messageId).inserted { notifiedList.append(item.messageId) }
+        }
+        saveNotifiedIDs(notifiedList)
     }
 
     // MARK: - Scheduled send

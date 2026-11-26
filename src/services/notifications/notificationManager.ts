@@ -79,7 +79,8 @@ export function normalizeNotificationTimestamp(
 }
 
 export async function requestMailNotificationPermission(): Promise<boolean> {
-  if (Capacitor.getPlatform() === "android") {
+  const platform = Capacitor.getPlatform();
+  if (platform === "android" || platform === "ios") {
     const current = await LocalNotifications.checkPermissions();
     return (current.display === "granted" ? current : await LocalNotifications.requestPermissions()).display === "granted";
   }
@@ -175,27 +176,30 @@ async function notifyPlatform(
     ? useAccountStore.getState().accounts.find((account) => account.id === accountId)?.email
     : undefined;
   try {
-    if (Capacitor.getPlatform() === "android") {
+    const platform = Capacitor.getPlatform();
+    if (platform === "android" || platform === "ios") {
       if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
       const preview = snippet === undefined ? "" : await getNotificationPreview(snippet, context);
-      const smartReplies = snippet === undefined ? [] : await getNotificationSmartReplies(context);
+      const smartReplies = platform === "android" && snippet !== undefined ? await getNotificationSmartReplies(context) : [];
       if (!notificationsEnabled) return;
       const formattedBody = preview ? `${body} — ${preview}` : body;
       const largeBody = preview ? `${body}\n${preview}` : undefined;
-      const nativeNotifications = getAndroidMailNotifications();
-      if (nativeNotifications?.showNotification) {
-        await nativeNotifications.showNotification({
-          id: ++nextNotificationId,
-          title,
-          body: formattedBody,
-          ...(largeBody ? { largeBody } : {}),
-          ...(when !== undefined ? { timestamp: when } : {}),
-          group,
-          groupTitle,
-          extra: context ?? {},
-          ...(smartReplies.length > 0 ? { smartReplies } : {}),
-        });
-        return;
+      if (platform === "android") {
+        const nativeNotifications = getAndroidMailNotifications();
+        if (nativeNotifications?.showNotification) {
+          await nativeNotifications.showNotification({
+            id: ++nextNotificationId,
+            title,
+            body: formattedBody,
+            ...(largeBody ? { largeBody } : {}),
+            ...(when !== undefined ? { timestamp: when } : {}),
+            group,
+            groupTitle,
+            extra: context ?? {},
+            ...(smartReplies.length > 0 ? { smartReplies } : {}),
+          });
+          return;
+        }
       }
       await LocalNotifications.schedule({ notifications: [
         {
@@ -203,8 +207,7 @@ async function notifyPlatform(
           title,
           body: formattedBody,
           ...(largeBody ? { largeBody } : {}),
-          smallIcon: "ic_launcher_foreground",
-          isExactNotification: false,
+          ...(platform === "android" ? { smallIcon: "ic_launcher_foreground", isExactNotification: false } : {}),
           group,
           extra: context ?? {},
         },
@@ -261,24 +264,27 @@ export async function initNotifications(): Promise<void> {
   addSettingChangeListener(({ key, value }) => {
     if (key === "notifications_enabled") notificationsEnabled = value !== "false";
   });
-  if (Capacitor.getPlatform() === "android") {
-    const nativeNotifications = getAndroidMailNotifications();
-    if (nativeNotifications?.addListener) {
-      await nativeNotifications.addListener("mailNotificationOpened", (context) => {
-        openNotification(context);
-      }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
-      await nativeNotifications.addListener("mailNotificationAction", (event) => {
-        void handleAndroidNotificationAction(event);
-      }).catch((error) => console.warn("Could not listen for mail notification actions", error));
-    }
-    if (nativeNotifications?.getPendingNotificationActions) {
-      void nativeNotifications.getPendingNotificationActions()
-        .then(({ actions }) => {
-          for (const event of actions ?? []) {
-            void handleAndroidNotificationAction(event);
-          }
-        })
-        .catch((error) => console.warn("Could not load pending mail notification actions", error));
+  const platform = Capacitor.getPlatform();
+  if (platform === "android" || platform === "ios") {
+    if (platform === "android") {
+      const nativeNotifications = getAndroidMailNotifications();
+      if (nativeNotifications?.addListener) {
+        await nativeNotifications.addListener("mailNotificationOpened", (context) => {
+          openNotification(context);
+        }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
+        await nativeNotifications.addListener("mailNotificationAction", (event) => {
+          void handleAndroidNotificationAction(event);
+        }).catch((error) => console.warn("Could not listen for mail notification actions", error));
+      }
+      if (nativeNotifications?.getPendingNotificationActions) {
+        void nativeNotifications.getPendingNotificationActions()
+          .then(({ actions }) => {
+            for (const event of actions ?? []) {
+              void handleAndroidNotificationAction(event);
+            }
+          })
+          .catch((error) => console.warn("Could not load pending mail notification actions", error));
+      }
     }
     await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
       openNotification(notification.extra as NotificationContext | undefined);

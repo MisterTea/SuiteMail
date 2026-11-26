@@ -13,7 +13,7 @@ export function AndroidBackgroundSyncSettings(){
         setSaving(true);setError('');try{setStatus(await setBackgroundMailEnabled(event.target.checked));}catch{setError('Could not change background sync.');}finally{setSaving(false);}
       }}/><span>Check for mail when SuiteMail is closed</span>
     </label>
-    <p className="text-sm text-text-secondary">Checks about every 15 minutes with an internet connection. Android may delay checks to save battery. Downloaded mail is ready to load when you reopen SuiteMail.</p>
+    <p className="text-sm text-text-secondary">Checks about every {status?.intervalMinutes ?? 30} minutes with an internet connection. Android may delay checks to save battery. Downloaded mail is ready to load when you reopen SuiteMail.</p>
     {status?.lastSuccess ? <p className="text-sm text-text-secondary">Last background check: {new Date(status.lastSuccess).toLocaleString()}</p>:null}
     {status?.lastError&&<p role="status" className="text-sm text-text-secondary">{status.lastError==='reconnect'?'Reconnect your Google account below to resume background checks.':'The last background check could not finish. It will retry when possible.'}</p>}
     {error&&<p role="alert" className="text-sm text-danger">{error}</p>}

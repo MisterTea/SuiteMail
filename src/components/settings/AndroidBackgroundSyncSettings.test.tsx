@@ -3,7 +3,7 @@ import{beforeEach,describe,it,expect,vi}from'vitest';
 import{AndroidBackgroundSyncSettings}from'./AndroidBackgroundSyncSettings';
 const m=vi.hoisted(()=>({android:vi.fn(),status:vi.fn(),configure:vi.fn()}));
 vi.mock('@/services/gmail/androidBackgroundSync',()=>({hasAndroidBackgroundSync:m.android,getBackgroundMailStatus:m.status,setBackgroundMailEnabled:m.configure}));
-const status={enabled:true,intervalMinutes:15,lastAttempt:0,lastSuccess:0,lastError:'',queuedThreads:0};
+const status={enabled:true,intervalMinutes:30,lastAttempt:0,lastSuccess:0,lastError:'',queuedThreads:0};
 beforeEach(()=>{vi.clearAllMocks();m.android.mockReturnValue(true);m.status.mockResolvedValue(status);m.configure.mockResolvedValue({...status,enabled:false});});
 describe('Android background mail settings',()=>{
  it('lets the user disable periodic checks and reflects the saved native setting',async()=>{

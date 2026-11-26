@@ -8,6 +8,7 @@ import java.util.concurrent.TimeUnit;
 public final class BackgroundMailScheduler {
     static final String NAME = "suitemail-periodic-gmail";
     static final String TAG = "suitemail-background-mail";
+    static final int INTERVAL_MINUTES = 30;
     static volatile boolean foreground = false;
     static SharedPreferences prefs(Context context) {
         return context.getSharedPreferences("background_mail", Context.MODE_PRIVATE);
@@ -18,10 +19,10 @@ public final class BackgroundMailScheduler {
     }
     static void schedule(Context context) {
         if (!enabled(context)) return;
-        PeriodicWorkRequest work = new PeriodicWorkRequest.Builder(BackgroundMailWorker.class,15,TimeUnit.MINUTES)
-            .setInitialDelay(15,TimeUnit.MINUTES).setConstraints(constraints())
-            .setBackoffCriteria(BackoffPolicy.LINEAR,30,TimeUnit.SECONDS).addTag(TAG).build();
-        WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME,ExistingPeriodicWorkPolicy.KEEP,work);
+        PeriodicWorkRequest work = new PeriodicWorkRequest.Builder(BackgroundMailWorker.class, INTERVAL_MINUTES, TimeUnit.MINUTES)
+            .setInitialDelay(INTERVAL_MINUTES, TimeUnit.MINUTES).setConstraints(constraints())
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS).addTag(TAG).build();
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME, ExistingPeriodicWorkPolicy.UPDATE, work);
     }
     static final String SCHEDULED_SEND = "suitemail-scheduled-send";
     /** Scheduled mail must go out even when background sync is off or the battery is low, so it has its own job. */

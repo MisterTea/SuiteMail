@@ -26,7 +26,7 @@ public class BackgroundMailPlugin extends Plugin {
     @PluginMethod public void status(PluginCall call) {
         SharedPreferences prefs=BackgroundMailScheduler.prefs(getContext());
         JSObject data=new JSObject();data.put("enabled",BackgroundMailScheduler.enabled(getContext()));
-        data.put("intervalMinutes",15);data.put("lastAttempt",prefs.getLong("last_attempt",0));
+        data.put("intervalMinutes",BackgroundMailScheduler.INTERVAL_MINUTES);data.put("lastAttempt",prefs.getLong("last_attempt",0));
         data.put("lastSuccess",prefs.getLong("last_success",0));data.put("lastError",prefs.getString("last_error",""));
         data.put("queuedThreads",store.count());call.resolve(data);
     }

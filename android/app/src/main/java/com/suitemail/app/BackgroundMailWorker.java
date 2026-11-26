@@ -5,6 +5,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import androidx.annotation.NonNull;
 import androidx.work.*;
+import com.getcapacitor.JSObject;
 import com.google.android.gms.auth.api.identity.*;
 import com.google.android.gms.common.api.ApiException;
 import com.google.android.gms.common.api.Scope;
@@ -132,52 +133,231 @@ public class BackgroundMailWorker extends Worker {
         return new JSONObject().put("id",message.getString("threadId")).put("historyId",message.optString("historyId",""))
             .put("partial",true).put("messages",new JSONArray().put(message));
     }
+    static final class NotifiableMessage {
+        final String messageId;
+        final String threadId;
+        final String fromName;
+        final String fromAddress;
+        final String subject;
+        final String snippet;
+        final long timestampMs;
+        NotifiableMessage(String messageId,String threadId,String fromName,String fromAddress,String subject,String snippet,long timestampMs){
+            this.messageId=messageId;this.threadId=threadId;this.fromName=fromName;this.fromAddress=fromAddress;
+            this.subject=subject;this.snippet=snippet;this.timestampMs=timestampMs;
+        }
+    }
+    private static final String PREFS_NOTIFIED_IDS="notified_message_ids";
+    private static final int MAX_NOTIFIED_IDS=200;
+    private static final int MAX_INDIVIDUAL_NOTIFICATIONS=3;
+
+    static String[] parseSender(String fromHeader){
+        if(fromHeader==null)return new String[]{"New mail",""};
+        String trimmed=fromHeader.trim();
+        int lt=trimmed.lastIndexOf('<');int gt=trimmed.lastIndexOf('>');
+        if(lt>=0 && gt>lt){
+            String address=trimmed.substring(lt+1,gt).trim().toLowerCase(Locale.US);
+            String name=trimmed.substring(0,lt).trim();
+            if(name.startsWith("\"") && name.endsWith("\"") && name.length()>=2)name=name.substring(1,name.length()-1).trim();
+            return new String[]{name.isEmpty()?(address.isEmpty()?"New mail":address):name,address};
+        }
+        String address=trimmed.toLowerCase(Locale.US);
+        return new String[]{trimmed.isEmpty()?"New mail":trimmed,address};
+    }
+
+    static boolean isWithinQuietHours(String start,String end,int hour,int minute){
+        if(start==null || end==null || start.isEmpty() || end.isEmpty() || start.equals(end))return false;
+        String now=String.format(Locale.US,"%02d:%02d",hour,minute);
+        return start.compareTo(end)<0
+            ?(now.compareTo(start)>=0 && now.compareTo(end)<0)
+            :(now.compareTo(start)>=0 || now.compareTo(end)<0);
+    }
+
+    private static String headerValue(JSONObject message,String name){
+        JSONObject payload=message.optJSONObject("payload");
+        if(payload==null)return "";
+        JSONArray headers=payload.optJSONArray("headers");
+        if(headers==null)return "";
+        for(int i=0;i<headers.length();i++){
+            JSONObject h=headers.optJSONObject(i);
+            if(h!=null && name.equalsIgnoreCase(h.optString("name","")))return h.optString("value","");
+        }
+        return "";
+    }
+
+    private static boolean hasLabel(JSONArray labels,String target){
+        if(labels==null)return false;
+        for(int i=0;i<labels.length();i++)if(target.equals(labels.optString(i,"")))return true;
+        return false;
+    }
+
+    static NotifiableMessage extractNotifiableMessage(JSONObject threadOrMessage,String accountEmail){
+        if(threadOrMessage==null)return null;
+        JSONObject message=threadOrMessage;
+        JSONArray messages=threadOrMessage.optJSONArray("messages");
+        if(messages!=null && messages.length()>0){
+            message=messages.optJSONObject(messages.length()-1);
+        }
+        if(message==null)return null;
+        JSONArray labels=message.optJSONArray("labelIds");
+        if(!hasLabel(labels,"INBOX") || !hasLabel(labels,"UNREAD"))return null;
+        if(hasLabel(labels,"SENT") || hasLabel(labels,"DRAFT") || hasLabel(labels,"TRASH") || hasLabel(labels,"SPAM"))return null;
+        String messageId=message.optString("id","");
+        String threadId=message.optString("threadId",threadOrMessage.optString("id",""));
+        if(messageId.isEmpty() || threadId.isEmpty())return null;
+        String[] sender=parseSender(headerValue(message,"From"));
+        if(accountEmail!=null && !accountEmail.isEmpty() && sender[1].equalsIgnoreCase(accountEmail.trim()))return null;
+        String subject=headerValue(message,"Subject").trim();
+        String snippet=message.optString("snippet","").replaceAll("\\s+"," ").trim();
+        long timestampMs=-1L;
+        try{timestampMs=Long.parseLong(message.optString("internalDate","-1"));}catch(NumberFormatException ignored){}
+        return new NotifiableMessage(messageId,threadId,sender[0],sender[1],subject.isEmpty()?"(No subject)":subject,snippet,timestampMs);
+    }
+
+    private Set<String> loadNotifiedIds(){
+        Set<String> ids=new LinkedHashSet<>();
+        try{
+            JSONArray array=new JSONArray(prefs.getString(PREFS_NOTIFIED_IDS,"[]"));
+            for(int i=0;i<array.length();i++){String id=array.optString(i,"");if(!id.isEmpty())ids.add(id);}
+        }catch(Exception ignored){}
+        return ids;
+    }
+
+    private void saveNotifiedIds(Set<String> ids){
+        List<String> list=new ArrayList<>(ids);
+        if(list.size()>MAX_NOTIFIED_IDS)list=list.subList(list.size()-MAX_NOTIFIED_IDS,list.size());
+        prefs.edit().putString(PREFS_NOTIFIED_IDS,new JSONArray(list).toString()).commit();
+    }
+
+    private boolean shouldNotifyForAccount(String accountId,String fromAddress){
+        if(!MailNotifications.canPost(context))return false;
+        try{
+            JSONArray globalRows=AppDatabase.select(context,"SELECT value FROM settings WHERE key=$1","notifications_enabled");
+            if(globalRows.length()>0 && "false".equals(AppDatabase.string(globalRows.getJSONObject(0),"value")))return false;
+            JSONArray prefRows=AppDatabase.select(context,"SELECT value FROM settings WHERE key=$1","mail_notification_schedule:"+accountId);
+            if(prefRows.length()>0){
+                String raw=AppDatabase.string(prefRows.getJSONObject(0),"value");
+                if(raw!=null && !raw.isEmpty()){
+                    JSONObject pref=new JSONObject(raw);
+                    if(!pref.optBoolean("enabled",true))return false;
+                    if(pref.optBoolean("quiet",false)){
+                        Calendar cal=Calendar.getInstance();
+                        if(isWithinQuietHours(pref.optString("start","18:00"),pref.optString("end","09:00"),
+                                cal.get(Calendar.HOUR_OF_DAY),cal.get(Calendar.MINUTE))){
+                            if(!pref.optBoolean("vipBypass",true) || fromAddress==null || fromAddress.isEmpty())return false;
+                            JSONArray vips=AppDatabase.select(context,
+                                "SELECT 1 FROM notification_vips WHERE account_id=$1 AND LOWER(email)=$2 LIMIT 1",
+                                accountId,fromAddress.toLowerCase(Locale.US));
+                            if(vips.length()==0)return false;
+                        }
+                    }
+                }
+            }
+        }catch(Exception ignored){}
+        return true;
+    }
+
+    private void notifyNewMessages(String accountId,String accountEmail,List<NotifiableMessage> arrivals){
+        if(arrivals.isEmpty() || !MailNotifications.canPost(context))return;
+        Set<String> notified=loadNotifiedIds();
+        List<NotifiableMessage> fresh=new ArrayList<>();
+        for(NotifiableMessage item:arrivals){
+            if(notified.contains(item.messageId))continue;
+            if(!shouldNotifyForAccount(accountId,item.fromAddress))continue;
+            fresh.add(item);
+        }
+        if(fresh.isEmpty())return;
+        String group="mailbox:"+accountId;
+        if(fresh.size()<=MAX_INDIVIDUAL_NOTIFICATIONS){
+            for(NotifiableMessage item:fresh){
+                String body=item.snippet.isEmpty()?item.subject:item.subject+" \u2014 "+item.snippet;
+                String largeBody=item.snippet.isEmpty()?null:item.subject+"\n"+item.snippet;
+                JSObject extra=new JSObject();
+                extra.put("accountId",accountId);
+                extra.put("threadId",item.threadId);
+                if(!item.fromAddress.isEmpty())extra.put("fromAddress",item.fromAddress);
+                extra.put("subject",item.subject);
+                int notifId=Math.abs((accountId+":"+item.messageId).hashCode()&0x1fffffff);
+                MailNotifications.show(context,notifId,item.fromName,body,largeBody,item.timestampMs,group,accountEmail,extra,null);
+                notified.add(item.messageId);
+            }
+        }else{
+            long newest=-1L;
+            for(NotifiableMessage item:fresh){
+                if(item.timestampMs>newest)newest=item.timestampMs;
+                notified.add(item.messageId);
+            }
+            JSObject extra=new JSObject();
+            extra.put("accountId",accountId);
+            int notifId=Math.abs((accountId+":batch").hashCode()&0x1fffffff);
+            MailNotifications.show(context,notifId,accountEmail,fresh.size()+" new emails",null,newest,group,accountEmail,extra,null);
+        }
+        saveNotifiedIds(notified);
+    }
+
     private boolean syncAccount(String id,String accountEmail,String historyId) throws Exception {
         currentAccount=id;email=accountEmail;authorize();
         String key="state:"+id;JSONObject state;
         try{state=new JSONObject(prefs.getString(key,"{}"));}catch(JSONException e){state=new JSONObject();}
         if(!state.has("cursor")){state=bootstrap(frontendCursor(id,historyId));save(key,state);}
         long deadline=System.currentTimeMillis()+75_000;int downloaded=0;
-        while(System.currentTimeMillis()<deadline){
-            check();JSONArray pending=state.optJSONArray("pending");
-            if(pending!=null && pending.length()>0){
-                if(downloaded>=15)return false;
-                String entry=pending.getString(0);
-                if(entry.startsWith(SINGLE_MESSAGE)){
-                    // A new conversation's only message: messages.get costs 60 units, threads.get 120.
-                    String messageId=entry.substring(SINGLE_MESSAGE.length());JSONObject message=null;
-                    try{message=request("/messages/"+URLEncoder.encode(messageId,"UTF-8")+"?format=full",60);}
-                    catch(HttpError error){if(error.status!=404)throw error;} // Gone already: the app's own sync settles it.
-                    check();if(message!=null)store.put(id,messageId,singleMessageThread(message));
-                }else{
-                    JSONObject thread;
-                    try{thread=request("/threads/"+URLEncoder.encode(entry,"UTF-8")+"?format=full",120);}
-                    catch(HttpError error){if(error.status==404)thread=null;else throw error;}
-                    check();store.put(id,entry,thread);
+        List<NotifiableMessage> arrivals=new ArrayList<>();
+        try{
+            while(System.currentTimeMillis()<deadline){
+                check();JSONArray pending=state.optJSONArray("pending");
+                if(pending!=null && pending.length()>0){
+                    if(downloaded>=15)return false;
+                    String entry=pending.getString(0);
+                    boolean isBootstrap=state.optBoolean("bootstrap");
+                    if(entry.startsWith(SINGLE_MESSAGE)){
+                        // A new conversation's only message: messages.get costs 60 units, threads.get 120.
+                        String messageId=entry.substring(SINGLE_MESSAGE.length());JSONObject message=null;
+                        try{message=request("/messages/"+URLEncoder.encode(messageId,"UTF-8")+"?format=full",60);}
+                        catch(HttpError error){if(error.status!=404)throw error;} // Gone already: the app's own sync settles it.
+                        check();
+                        if(message!=null){
+                            JSONObject wrapped=singleMessageThread(message);
+                            store.put(id,messageId,wrapped);
+                            if(!isBootstrap){
+                                NotifiableMessage note=extractNotifiableMessage(wrapped,accountEmail);
+                                if(note!=null)arrivals.add(note);
+                            }
+                        }
+                    }else{
+                        JSONObject thread;
+                        try{thread=request("/threads/"+URLEncoder.encode(entry,"UTF-8")+"?format=full",120);}
+                        catch(HttpError error){if(error.status==404)thread=null;else throw error;}
+                        check();store.put(id,entry,thread);
+                        if(!isBootstrap && thread!=null){
+                            NotifiableMessage note=extractNotifiableMessage(thread,accountEmail);
+                            if(note!=null)arrivals.add(note);
+                        }
+                    }
+                    pending.remove(0);downloaded++;save(key,state);continue;
                 }
-                pending.remove(0);downloaded++;save(key,state);continue;
-            }
-            if(state.optBoolean("bootstrap")){state.put("bootstrap",false);save(key,state);}
-            else if(state.optBoolean("pageLoaded")){
-                String next=state.optString("nextPageToken","");
-                if(next.isEmpty()){
-                    state.put("cursor",state.getString("targetCursor"));state.remove("pageToken");state.remove("pageLoaded");state.remove("targetCursor");save(key,state);return true;
+                if(state.optBoolean("bootstrap")){state.put("bootstrap",false);save(key,state);}
+                else if(state.optBoolean("pageLoaded")){
+                    String next=state.optString("nextPageToken","");
+                    if(next.isEmpty()){
+                        state.put("cursor",state.getString("targetCursor"));state.remove("pageToken");state.remove("pageLoaded");state.remove("targetCursor");save(key,state);return true;
+                    }
+                    state.put("pageToken",next);state.remove("pageLoaded");save(key,state);
                 }
-                state.put("pageToken",next);state.remove("pageLoaded");save(key,state);
+                // Only new mail is downloaded here; label changes and deletions are applied by the app's own sync.
+                String resource="/history?maxResults=100&historyTypes=messageAdded&startHistoryId="+URLEncoder.encode(state.getString("cursor"),"UTF-8");
+                if(state.has("pageToken"))resource+="&pageToken="+URLEncoder.encode(state.getString("pageToken"),"UTF-8");
+                JSONObject changes;
+                try{changes=request(resource,2);}
+                catch(HttpError error){
+                    if(error.status==404){save(key,bootstrap(""));return false;} // Expired cursor: bootstrap newest mail on retry.
+                    throw error;
+                }
+                state.put("pending",new JSONArray(downloadsFor(changes))).put("pageLoaded",true).put("targetCursor",changes.getString("historyId"))
+                    .put("nextPageToken",changes.optString("nextPageToken",""));save(key,state);
             }
-            // Only new mail is downloaded here; label changes and deletions are applied by the app's own sync.
-            String resource="/history?maxResults=100&historyTypes=messageAdded&startHistoryId="+URLEncoder.encode(state.getString("cursor"),"UTF-8");
-            if(state.has("pageToken"))resource+="&pageToken="+URLEncoder.encode(state.getString("pageToken"),"UTF-8");
-            JSONObject changes;
-            try{changes=request(resource,2);}
-            catch(HttpError error){
-                if(error.status==404){save(key,bootstrap(""));return false;} // Expired cursor: bootstrap newest mail on retry.
-                throw error;
-            }
-            state.put("pending",new JSONArray(downloadsFor(changes))).put("pageLoaded",true).put("targetCursor",changes.getString("historyId"))
-                .put("nextPageToken",changes.optString("nextPageToken",""));save(key,state);
+            return false;
+        }finally{
+            notifyNewMessages(id,accountEmail,arrivals);
         }
-        return false;
     }
     @NonNull @Override public Result doWork(){
         if(!BackgroundMailScheduler.enabled(context) || BackgroundMailScheduler.foreground)return Result.success();

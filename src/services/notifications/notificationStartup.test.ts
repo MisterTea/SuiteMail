@@ -94,6 +94,20 @@ describe("notification startup", () => {
     expect(mocks.start).toHaveBeenCalledOnce();
   });
 
+  it("requests iOS notification permission and schedules local notifications on iOS", async () => {
+    mocks.getPlatform.mockReturnValue("ios");
+    const { initNotifications, sendEmailNotification } = await import("./notificationManager");
+    await initNotifications();
+
+    expect(mocks.requestPermissions).toHaveBeenCalledOnce();
+    expect(mocks.addListener).toHaveBeenCalledWith("localNotificationActionPerformed", expect.any(Function));
+
+    mocks.checkPermissions.mockResolvedValue({ display: "granted" });
+    await sendEmailNotification("Brian Baraty", "Happy Thanksgiving", { accountId: "account-1", threadId: "thread-1" });
+    expect(mocks.schedule).toHaveBeenCalledOnce();
+    expect(mocks.showNotification).not.toHaveBeenCalled();
+  });
+
   it("still requests desktop notification permission during startup", async () => {
     mocks.getPlatform.mockReturnValue("web");
     const requestPermission = vi.fn().mockResolvedValue("granted");
