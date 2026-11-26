@@ -64,6 +64,13 @@ describe("email calendar suggestions", () => {
     expect(screen.queryByRole("button", { name: "Add to calendar" })).not.toBeInTheDocument();
   });
 
+  it("lays out multiple suggestions two per row", async () => {
+    mocks.analyze.mockResolvedValue([suggestion, { ...suggestion, id: "suggestion-2", title: "IEEE Humanoid Summit" }]);
+    const { container } = render(<CalendarSuggestions message={message} />);
+    await screen.findByText("IEEE Humanoid Summit");
+    expect(container.querySelector(".grid.grid-cols-2")).toBeInTheDocument();
+  });
+
   it("fails quietly when AI is unavailable or extraction fails", async () => {
     mocks.analyze.mockRejectedValue(new Error("offline"));
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});

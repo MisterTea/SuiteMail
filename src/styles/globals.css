@@ -682,6 +682,14 @@ body {
   .native-phone button,
   .native-phone [role="button"],
   .native-phone [role="checkbox"] { min-width: 48px; touch-action: manipulation; }
+  .native-phone button[data-calendar-all-day] {
+    min-height: 22px;
+    min-width: 0;
+  }
+  .native-phone button[data-calendar-timed-event] {
+    min-height: 0;
+    min-width: 0;
+  }
   .native-phone input:not([type="checkbox"]):not([type="radio"]),
   .native-phone textarea,
   .native-phone select { font-size: 16px; }

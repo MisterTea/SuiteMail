@@ -111,7 +111,6 @@ function formatTitle(date: Date, view: CalendarView): string {
   }
   if (view === "week" || view === "threeDay") {
     const start = new Date(date);
-    if (view === "week") start.setDate(start.getDate() - start.getDay());
     const end = new Date(start);
     end.setDate(end.getDate() + (view === "threeDay" ? 2 : 6));
     if (start.getMonth() === end.getMonth()) {

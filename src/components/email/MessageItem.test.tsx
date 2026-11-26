@@ -5,11 +5,15 @@ import { MessageItem } from "./MessageItem";
 import type { DbMessage } from "@/services/db/messages";
 import { useAccountStore } from "@/stores/accountStore";
 
-const { detectInvite, turnOffEmailReminders } = vi.hoisted(() => ({
+const { detectInvite, turnOffEmailReminders, getAttachmentsForMessage } = vi.hoisted(() => ({
   detectInvite: vi.fn(() => null as unknown),
   turnOffEmailReminders: vi.fn(),
+  getAttachmentsForMessage: vi.fn().mockResolvedValue([]),
 }));
-vi.mock("@/services/calendar/inviteDetector", () => ({ detectInviteFromMessage: detectInvite }));
+vi.mock("@/services/calendar/inviteDetector", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/calendar/inviteDetector")>();
+  return { ...actual, detectInviteFromMessage: detectInvite };
+});
 vi.mock("@/services/calendar/googleCalendarProvider", () => ({
   GoogleCalendarProvider: class {
     turnOffEmailReminders = turnOffEmailReminders;
@@ -28,7 +32,7 @@ vi.mock("./InlineAttachmentPreview", () => ({
 
 vi.mock("./AttachmentList", () => ({
   AttachmentList: () => null,
-  getAttachmentsForMessage: vi.fn().mockResolvedValue([]),
+  getAttachmentsForMessage,
 }));
 
 vi.mock("./AuthBadge", () => ({
@@ -74,6 +78,7 @@ describe("MessageItem", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     detectInvite.mockReturnValue(null);
+    getAttachmentsForMessage.mockResolvedValue([]);
     useAccountStore.setState({ accounts: [] });
   });
 
@@ -89,6 +94,25 @@ describe("MessageItem", () => {
     detectInvite.mockReturnValue({ uid: "invite" });
     await act(async () => render(<MessageItem message={makeMessage()} isLast blockImages={false} />));
     expect(screen.getByTestId("calendar-invite")).toBeInTheDocument();
+    expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
+  });
+
+  it("suppresses AI calendar suggestions when the message has an .ics attachment", async () => {
+    getAttachmentsForMessage.mockResolvedValue([
+      {
+        id: "att-ics",
+        message_id: "m1",
+        account_id: "a1",
+        filename: "event.ics",
+        mime_type: "text/calendar",
+        size: 512,
+        gmail_attachment_id: "g1",
+        content_id: null,
+        is_inline: 0,
+        local_path: null,
+      },
+    ]);
+    await act(async () => render(<MessageItem message={makeMessage()} isLast blockImages={false} />));
     expect(screen.queryByTestId("calendar-suggestions")).not.toBeInTheDocument();
   });
 

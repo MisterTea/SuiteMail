@@ -333,21 +333,21 @@ export function EmailRenderer({
   return (
     <div data-email-renderer className="min-w-0 max-w-full">
       {blocked && (
-        <div className="flex items-center gap-2 flex-wrap px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
-          <ImageOff size={14} className="text-text-tertiary shrink-0" />
-          <span className="text-text-secondary">
-            Images hidden to protect your privacy.
-          </span>
+        <div
+          className="flex items-center gap-2 flex-wrap px-2.5 py-1 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary"
+          title="Images hidden to protect your privacy"
+        >
+          <ImageOff size={14} className="text-text-tertiary shrink-0" aria-label="Images hidden" />
           <button
             onClick={handleLoadImages}
-            className="text-accent hover:text-accent-hover font-semibold min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-md active:bg-accent/15 transition-all touch-manipulation"
+            className="text-accent hover:text-accent-hover font-semibold min-h-[32px] px-2 py-1 rounded-md active:bg-accent/15 transition-all touch-manipulation"
           >
             Load images
           </button>
           {senderAddress && accountId && (
             <button
               onClick={handleAlwaysLoad}
-              className="text-accent hover:text-accent-hover font-semibold min-h-[40px] sm:min-h-[32px] px-2.5 py-1 rounded-md active:bg-accent/15 transition-all touch-manipulation"
+              className="text-accent hover:text-accent-hover font-semibold min-h-[32px] px-2 py-1 rounded-md active:bg-accent/15 transition-all touch-manipulation"
             >
               Always load from sender
             </button>

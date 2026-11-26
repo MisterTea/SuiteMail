@@ -92,6 +92,12 @@ describe("calendar suggestion extraction", () => {
     expect(mocks.complete).toHaveBeenCalledTimes(1);
   });
 
+  it("skips AI extraction when an .ics attachment is present", async () => {
+    expect(await getCalendarSuggestions(message, [], "me@example.com", [{ filename: "invite.ICS", mime_type: "application/octet-stream" }])).toEqual([]);
+    expect(await getCalendarSuggestions(message, [], "me@example.com", [{ filename: null, mime_type: "text/calendar; charset=utf-8" }])).toEqual([]);
+    expect(mocks.complete).not.toHaveBeenCalled();
+  });
+
   it("does not cache failed provider calls and allows a later retry", async () => {
     mocks.complete.mockRejectedValueOnce(new Error("offline"));
     await expect(getCalendarSuggestions(message, [], "me@example.com")).rejects.toThrow("offline");

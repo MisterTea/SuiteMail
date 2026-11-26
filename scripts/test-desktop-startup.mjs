@@ -46,10 +46,10 @@ try {
         await page.waitForTimeout(5500);
         assert.equal(await app.evaluate(() => globalThis.startupErrors.length), 0);
         assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length), 1, 'Splash should close');
-      } else if (scenario === 'first-run-stalled') {
+      } else if (scenario === 'stalled' || scenario === 'first-run-stalled') {
         await app.firstWindow();
         await new Promise(resolve => setTimeout(resolve, 5500));
-        assert.equal(await app.evaluate(() => globalThis.startupErrors.length), 0, 'First launch must allow database preparation past five seconds');
+        assert.equal(await app.evaluate(() => globalThis.startupErrors.length), 0, 'Launch must allow startup work past five seconds');
         const deadline = Date.now() + 28000;
         let errors = [];
         while (Date.now() < deadline) {
@@ -57,8 +57,9 @@ try {
           if (errors.length) break;
           await new Promise(resolve => setTimeout(resolve, 100));
         }
-        assert.equal(errors.length, 1, 'A genuinely stalled first launch must still offer recovery');
+        assert.equal(errors.length, 1, 'A genuinely stalled launch must still offer recovery');
         assert.match(errors[0].detail, /thirty seconds/);
+        assert.deepEqual(errors[0].buttons, ['Keep waiting', 'Restart SuiteMail', 'Report Bug', 'Quit']);
       } else {
         await app.firstWindow();
         const deadline = Date.now() + 8000;
@@ -69,8 +70,8 @@ try {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
         assert.equal(errors.length, 1, 'Startup must display one helpful error');
-        assert.match(errors[0].detail, scenario === 'stalled' ? /five seconds/ : /missing page/);
-        assert.deepEqual(errors[0].buttons, ['Restart SuiteMail', 'Report Bug', 'Quit']);
+        assert.match(errors[0].detail, /missing page/);
+        assert.deepEqual(errors[0].buttons, ['Keep waiting', 'Restart SuiteMail', 'Report Bug', 'Quit']);
       }
       console.log(`PASS ${scenario}`);
     } finally {
