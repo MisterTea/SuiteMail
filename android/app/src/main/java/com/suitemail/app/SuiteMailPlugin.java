@@ -2,12 +2,15 @@ package com.suitemail.app;
 
 import android.content.Intent;
 import android.net.Uri;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.lang.ref.WeakReference;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -15,6 +18,7 @@ import java.util.concurrent.Executors;
 public class SuiteMailPlugin extends Plugin {
     static { System.loadLibrary("supermail_android"); }
     private static native String nativeCall(String command, String arguments);
+    private static volatile WeakReference<SuiteMailPlugin> activeInstance = new WeakReference<>(null);
     private OAuthLoginDialog oauthLogin;
     private StartupTelemetry startupTelemetry;
     private final AiCoreBridge aiCore = new AiCoreBridge();
@@ -44,6 +48,7 @@ public class SuiteMailPlugin extends Plugin {
     }
 
     @Override public void load() {
+        activeInstance = new WeakReference<>(this);
         startupTelemetry = StartupTelemetry.forProcess(getContext());
         try {
             initDatabase(getContext());
@@ -73,6 +78,13 @@ public class SuiteMailPlugin extends Plugin {
         }
     }
 
+    static void deliverNotificationAction(JSObject payload) {
+        SuiteMailPlugin plugin = activeInstance.get();
+        if (plugin != null && payload != null) {
+            plugin.notifyListeners("mailNotificationAction", payload, true);
+        }
+    }
+
     @PluginMethod public void showNotification(PluginCall call) {
         int id = call.getInt("id", (int) (System.currentTimeMillis() % 1_000_000_000L));
         String title = call.getString("title", "SuiteMail");
@@ -82,11 +94,33 @@ public class SuiteMailPlugin extends Plugin {
         String group = call.getString("group");
         String groupTitle = call.getString("groupTitle");
         JSObject extra = call.getObject("extra", new JSObject());
+        JSArray smartRepliesRaw = call.getArray("smartReplies");
+        List<String> smartReplies = MailNotifications.extractSmartReplies(smartRepliesRaw);
         try {
-            MailNotifications.show(getContext(), id, title, body, largeBody, timestamp, group, groupTitle, extra);
+            MailNotifications.show(getContext(), id, title, body, largeBody, timestamp, group, groupTitle, extra, smartReplies);
             call.resolve();
         } catch (Exception e) {
             call.reject("Cannot show mail notification", e);
+        }
+    }
+
+    @PluginMethod public void getPendingNotificationActions(PluginCall call) {
+        try {
+            JSObject result = new JSObject();
+            result.put("actions", MailNotifications.readPendingActions(getContext()));
+            call.resolve(result);
+        } catch (Exception e) {
+            call.reject("Cannot read pending notification actions", e);
+        }
+    }
+
+    @PluginMethod public void acknowledgeNotificationAction(PluginCall call) {
+        String id = call.getString("id", "");
+        try {
+            MailNotifications.acknowledgePendingAction(getContext(), id);
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("Cannot acknowledge notification action", e);
         }
     }
 
@@ -201,6 +235,9 @@ public class SuiteMailPlugin extends Plugin {
     }
 
     @Override protected void handleOnDestroy() {
+        if (activeInstance.get() == this) {
+            activeInstance = new WeakReference<>(null);
+        }
         if (oauthLogin != null) getActivity().runOnUiThread(() -> {
             if (oauthLogin != null) oauthLogin.cancel();
         });

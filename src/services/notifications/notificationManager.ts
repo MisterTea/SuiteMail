@@ -4,15 +4,26 @@ import { navigateToLabel } from "../../router/navigate";
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import { getDb } from "../db/connection";
+import { getMessagesForThread } from "../db/messages";
 import { getThreadById } from "../db/threads";
 import { getVipSenders } from "../db/notificationVips";
 import { useAccountStore } from "@/stores/accountStore";
 import { getAccountNotificationPreferences, isDuringQuietHours } from "./notificationPreferences";
 import { createBackgroundChecker } from "../backgroundCheckers";
 import { normalizeEmail } from "@/utils/emailUtils";
+import { isNoReplyAddress } from "@/utils/noReply";
 
 let nextNotificationId = Date.now() % 1_000_000_000;
 const SUMMARY_TIMEOUT_MS = 5_000;
+
+export type AndroidNotificationActionType = "archive" | "mark_read" | "reply";
+
+export interface AndroidNotificationActionEvent {
+  id?: string;
+  action: AndroidNotificationActionType;
+  replyText?: string;
+  context?: NotificationContext;
+}
 
 interface AndroidMailNotificationsPlugin {
   showNotification(options: {
@@ -24,10 +35,17 @@ interface AndroidMailNotificationsPlugin {
     group?: string;
     groupTitle?: string;
     extra?: NotificationContext;
+    smartReplies?: string[];
   }): Promise<void>;
+  getPendingNotificationActions?(): Promise<{ actions: AndroidNotificationActionEvent[] }>;
+  acknowledgeNotificationAction?(options: { id: string }): Promise<void>;
   addListener(
     eventName: "mailNotificationOpened",
     listenerFunc: (context: NotificationContext) => void,
+  ): Promise<{ remove: () => Promise<void> }>;
+  addListener(
+    eventName: "mailNotificationAction",
+    listenerFunc: (event: AndroidNotificationActionEvent) => void,
   ): Promise<{ remove: () => Promise<void> }>;
 }
 
@@ -110,6 +128,38 @@ async function getNotificationPreview(snippet: string, context?: NotificationCon
   }
 }
 
+async function getNotificationSmartReplies(context?: NotificationContext): Promise<string[]> {
+  if (!context?.accountId || !context.threadId) return [];
+  if (isNoReplyAddress(context.fromAddress ?? null)) return [];
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const fetchReplies = async (): Promise<string[]> => {
+      const { isAiAvailable } = await import("../ai/providerManager");
+      if (!(await isAiAvailable())) return [];
+      const aiService = await import("../ai/aiService");
+      if (typeof aiService.generateSmartReplies !== "function") return [];
+      const messages = await getMessagesForThread(context.accountId!, context.threadId!);
+      if (!messages || messages.length === 0) return [];
+      const replies = await aiService.generateSmartReplies(context.threadId!, context.accountId!, messages);
+      return Array.isArray(replies)
+        ? replies.map((r) => r.trim()).filter(Boolean).slice(0, 3)
+        : [];
+    };
+    const timeout = new Promise<string[]>((resolve) => {
+      timer = setTimeout(() => resolve([]), SUMMARY_TIMEOUT_MS);
+    });
+    return await Promise.race([
+      fetchReplies().catch(() => []),
+      timeout,
+    ]);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function notifyPlatform(
   title: string,
   body: string,
@@ -128,6 +178,7 @@ async function notifyPlatform(
     if (Capacitor.getPlatform() === "android") {
       if ((await LocalNotifications.checkPermissions()).display !== "granted") return;
       const preview = snippet === undefined ? "" : await getNotificationPreview(snippet, context);
+      const smartReplies = snippet === undefined ? [] : await getNotificationSmartReplies(context);
       if (!notificationsEnabled) return;
       const formattedBody = preview ? `${body} — ${preview}` : body;
       const largeBody = preview ? `${body}\n${preview}` : undefined;
@@ -142,6 +193,7 @@ async function notifyPlatform(
           group,
           groupTitle,
           extra: context ?? {},
+          ...(smartReplies.length > 0 ? { smartReplies } : {}),
         });
         return;
       }
@@ -215,6 +267,18 @@ export async function initNotifications(): Promise<void> {
       await nativeNotifications.addListener("mailNotificationOpened", (context) => {
         openNotification(context);
       }).catch((error) => console.warn("Could not listen for mail notification clicks", error));
+      await nativeNotifications.addListener("mailNotificationAction", (event) => {
+        void handleAndroidNotificationAction(event);
+      }).catch((error) => console.warn("Could not listen for mail notification actions", error));
+    }
+    if (nativeNotifications?.getPendingNotificationActions) {
+      void nativeNotifications.getPendingNotificationActions()
+        .then(({ actions }) => {
+          for (const event of actions ?? []) {
+            void handleAndroidNotificationAction(event);
+          }
+        })
+        .catch((error) => console.warn("Could not load pending mail notification actions", error));
     }
     await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
       openNotification(notification.extra as NotificationContext | undefined);
@@ -394,6 +458,129 @@ const digestChecker = createBackgroundChecker("QuietMailDigest", async () => {
     flushingDigest = false;
   }
 }, 30_000);
+
+const handledNotificationActions = new Set<string>();
+
+function rememberHandledAction(id: string): boolean {
+  if (handledNotificationActions.has(id)) return false;
+  handledNotificationActions.add(id);
+  if (handledNotificationActions.size > 100) {
+    const oldest = handledNotificationActions.values().next().value;
+    if (oldest) handledNotificationActions.delete(oldest);
+  }
+  return true;
+}
+
+async function resolveAccountEmail(accountId: string): Promise<string | null> {
+  const inStore = useAccountStore.getState().accounts.find((account) => account.id === accountId);
+  if (inStore?.email) return inStore.email;
+  try {
+    const { getAllAccounts } = await import("../db/accounts");
+    const accounts = await getAllAccounts();
+    return accounts.find((account) => account.id === accountId)?.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function handleAndroidNotificationAction(event: AndroidNotificationActionEvent): Promise<void> {
+  if (event.id && !rememberHandledAction(event.id)) return;
+
+  const nativeNotifications = getAndroidMailNotifications();
+  const acknowledge = () => {
+    if (event.id && nativeNotifications?.acknowledgeNotificationAction) {
+      void nativeNotifications.acknowledgeNotificationAction({ id: event.id }).catch(() => {});
+    }
+  };
+
+  const accountId = event.context?.accountId;
+  const threadId = event.context?.threadId;
+  if (!accountId || !threadId) {
+    acknowledge();
+    return;
+  }
+
+  try {
+    const messages = await getMessagesForThread(accountId, threadId).catch(() => []);
+    const messageIds = messages.map((m) => m.id);
+
+    if (event.action === "archive") {
+      const { archiveThread } = await import("../emailActions");
+      await archiveThread(accountId, threadId, messageIds);
+      return;
+    }
+
+    if (event.action === "mark_read") {
+      const { markThreadRead } = await import("../emailActions");
+      await markThreadRead(accountId, threadId, messageIds, true);
+      return;
+    }
+
+    if (event.action === "reply") {
+      const replyText = event.replyText?.trim();
+      if (!replyText) return;
+
+      const accountEmail = await resolveAccountEmail(accountId);
+      if (!accountEmail) return;
+
+      const lastMessage = messages[messages.length - 1];
+      const recipient = lastMessage?.reply_to ?? lastMessage?.from_address ?? event.context?.fromAddress;
+      if (!recipient) return;
+
+      const rawSubject = lastMessage?.subject ?? event.context?.subject ?? "";
+      const subject = /^re:/i.test(rawSubject) ? rawSubject : `Re: ${rawSubject}`;
+      const { escapeHtml } = await import("../../utils/sanitize");
+      let htmlBody = `<p>${escapeHtml(replyText).replace(/\r?\n/g, "<br>")}</p>`;
+      try {
+        const { getDefaultSignature } = await import("../db/signatures");
+        const sig = await getDefaultSignature(accountId);
+        if (sig?.body_html) {
+          htmlBody += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${sig.body_html}</div>`;
+        }
+      } catch {
+        // Ignore signature lookup errors
+      }
+
+      const inReplyTo = lastMessage?.message_id_header ?? lastMessage?.id ?? undefined;
+      const referencesParts = [
+        lastMessage?.references_header?.trim(),
+        lastMessage?.message_id_header?.trim(),
+      ].filter((part): part is string => Boolean(part));
+      const references = referencesParts.length > 0 ? referencesParts.join(" ") : undefined;
+
+      const { buildRawEmail } = await import("../../utils/emailBuilder");
+      const raw = buildRawEmail({
+        from: accountEmail,
+        to: [recipient],
+        subject,
+        htmlBody,
+        inReplyTo,
+        references,
+        threadId,
+      });
+
+      const { sendEmail, markThreadRead } = await import("../emailActions");
+      const result = await sendEmail(accountId, raw, threadId);
+      if (result.success) {
+        try {
+          await markThreadRead(accountId, threadId, messageIds, true);
+        } catch {
+          // Best-effort mark as read after replying
+        }
+        try {
+          const { upsertContact } = await import("../db/contacts");
+          await upsertContact(recipient, null);
+        } catch {
+          // Best-effort contact frequency update
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("Could not execute mail notification action", event.action, error);
+  } finally {
+    acknowledge();
+  }
+}
 
 export function handleNotificationAction(actionId: string, threadId?: string): void {
   const ctx = (threadId ? recentContexts.get(threadId) : null) ?? lastNotificationContext;
