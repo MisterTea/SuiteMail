@@ -1,6 +1,7 @@
 import http from "node:http";
 import { DatabaseSync } from "node:sqlite";
 import { MIGRATIONS, splitStatements } from "../src/services/db/migrations";
+import { FakeGmail } from "./fakeGmail";
 
 export interface FakeServerState {
   aiRequests: Array<{ url: string; body: unknown; timestamp: number }>;
@@ -26,6 +27,8 @@ export class FakeServer {
   private server: http.Server | null = null;
   public port: number;
   public db: DatabaseSync;
+  /** Gmail REST + batch stand-in at /gmail/v1/users/me/... and /batch/gmail/v1 (seed it per test). */
+  public gmail = new FakeGmail();
   public state: FakeServerState = {
     aiRequests: [],
     syncedFilters: [],
@@ -381,7 +384,7 @@ export class FakeServer {
       this.server = http.createServer(async (req, res) => {
         // CORS Headers
         res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+        res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
         res.setHeader("Access-Control-Allow-Headers", "*");
 
         if (req.method === "OPTIONS") {
@@ -405,6 +408,14 @@ export class FakeServer {
           } catch {
             parsedBody = rawBody;
           }
+        }
+
+        if (url.startsWith("/gmail/v1/") || url.startsWith("/batch/gmail/v1")) {
+          const headers = Object.fromEntries(Object.entries(req.headers).map(([name, value]) => [name, String(value ?? "")]));
+          const response = this.gmail.handle(req.method || "GET", url, headers, rawBody);
+          res.writeHead(response.status, { "Content-Type": "application/json", ...response.headers });
+          res.end(response.status === 204 ? undefined : response.body);
+          return;
         }
 
         if (url === "/v1/models" && req.method === "GET") {

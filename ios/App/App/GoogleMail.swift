@@ -114,7 +114,8 @@ final class GoogleMail {
     nonisolated static func request(_ url: URL, method: String = "GET", headers: [String: String], body: String? = nil,
                                     timeout: TimeInterval = 15) async throws -> (data: Data, http: HTTPURLResponse) {
         guard url.scheme == "https", url.host == "www.googleapis.com", url.user == nil, url.password == nil,
-              url.port == nil, url.path.hasPrefix("/gmail/v1/users/me/") else { throw MailError("Invalid Gmail URL.") }
+              url.port == nil, url.path.hasPrefix("/gmail/v1/users/me/") || (url.path == "/batch/gmail/v1" && method == "POST")
+        else { throw MailError("Invalid Gmail URL.") }
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = method
         for name in ["Authorization", "Content-Type"] {
