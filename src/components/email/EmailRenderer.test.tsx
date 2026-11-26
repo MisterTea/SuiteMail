@@ -132,6 +132,8 @@ describe("EmailRenderer", () => {
       accountId: "acc-1",
     };
     const { rerender } = render(<EmailRenderer {...props} senderAllowlisted={false} />);
+    expect(screen.queryByText(/Images hidden to protect your privacy/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Images hidden")).toBeInTheDocument();
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Always load from sender" })));
     expect(addToAllowlist).toHaveBeenCalledWith("acc-1", "sender@example.com");
     rerender(<EmailRenderer {...props} senderAllowlisted />);

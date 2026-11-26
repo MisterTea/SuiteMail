@@ -17,6 +17,20 @@ export function extractRawICal(text?: string | null): string | null {
 }
 
 /**
+ * Check whether any message attachment is an iCalendar (.ics) file.
+ */
+export function hasIcsAttachment(
+  attachments: ReadonlyArray<Pick<DbAttachment, "filename" | "mime_type">>,
+): boolean {
+  return attachments.some(
+    (a) =>
+      a.mime_type?.toLowerCase().includes("text/calendar") ||
+      a.mime_type?.toLowerCase().includes("application/ics") ||
+      a.filename?.trim().toLowerCase().endsWith(".ics"),
+  );
+}
+
+/**
  * Detect and parse calendar invite from email message content and attachments.
  */
 export function detectInviteFromMessage(
@@ -30,18 +44,9 @@ export function detectInviteFromMessage(
   let rawIcal = extractRawICal(message.body_text) || extractRawICal(message.body_html);
 
   // 2. If not found in body, check attachments for inline calendar text or ics filename
-  if (!rawIcal && attachments.length > 0) {
-    const icsAttachment = attachments.find(
-      (a) =>
-        a.mime_type?.toLowerCase().includes("text/calendar") ||
-        a.mime_type?.toLowerCase().includes("application/ics") ||
-        a.filename?.toLowerCase().endsWith(".ics"),
-    );
-    // If we have cached text or local data, or if attachment is marked as calendar
-    if (icsAttachment) {
-      // In tests and mocks, or if raw data is attached
-      rawIcal = extractRawICal(message.body_text) || null;
-    }
+  if (!rawIcal && hasIcsAttachment(attachments)) {
+    // In tests and mocks, or if raw data is attached
+    rawIcal = extractRawICal(message.body_text) || null;
   }
 
   if (!rawIcal) return null;

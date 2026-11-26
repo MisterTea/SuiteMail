@@ -13,7 +13,7 @@ import { TrackingPixelBadge } from "./TrackingPixelBadge";
 import { PackageTrackingCard } from "./PackageTrackingCard";
 import { CalendarSuggestions } from "./CalendarSuggestions";
 import { CalendarReminderBanner } from "./CalendarReminderBanner";
-import { detectInviteFromMessage } from "@/services/calendar/inviteDetector";
+import { detectInviteFromMessage, hasIcsAttachment } from "@/services/calendar/inviteDetector";
 import { getGoogleReminderEvent, isGoogleCalendarReminder } from "@/services/calendar/reminderDetector";
 import { detectShipmentsAndFlights } from "@/utils/trackingDetector";
 import { messageHasContract, stripContractMarkup } from "@/services/contracts/contractMessage";
@@ -42,6 +42,7 @@ interface MessageItemProps {
 export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, contextMessages, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, translation, onExpand, onHideTranslation, onContextMenu }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
+  const [attachmentsLoaded, setAttachmentsLoaded] = useState(false);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
   const [detectedTrackers, setDetectedTrackers] = useState<DetectedTracker[]>([]);
   const attachmentsLoadedRef = useRef(false);
@@ -55,6 +56,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     () => calendarReminder ? null : detectInviteFromMessage(message, attachments),
     [calendarReminder, message, attachments],
   );
+  const hasIcs = useMemo(() => hasIcsAttachment(attachments), [attachments]);
 
   const trackingItems = useMemo(
     () => detectShipmentsAndFlights(message.body_text || message.snippet),
@@ -80,6 +82,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       setAttachments(atts);
     } catch {
       // Non-critical — just show no attachments
+    } finally {
+      setAttachmentsLoaded(true);
     }
   };
 
@@ -212,7 +216,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           {calendarReminder && (
             <CalendarReminderBanner key={message.id} accountId={message.account_id} event={reminderEvent} />
           )}
-          {!calendarInvite && !calendarReminder && <CalendarSuggestions message={message} context={contextMessages} />}
+          {attachmentsLoaded && !calendarInvite && !calendarReminder && !hasIcs && <CalendarSuggestions message={message} context={contextMessages} />}
 
           {trackingItems.length > 0 && (
             <PackageTrackingCard items={trackingItems} />

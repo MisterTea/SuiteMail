@@ -88,18 +88,20 @@ export function CalendarSuggestions({ message, context = EMPTY_CONTEXT }: Props)
 
   if (!suggestions.length) return null;
   const defaultTarget = targets?.find((target) => target.canCreate && (!review?.attendees.length || target.canInvite));
-  return <div className="mb-3 space-y-2" aria-label="Suggested calendar events">
-    {suggestions.map((suggestion) => <div key={suggestion.id} className="rounded-lg border border-accent/30 bg-accent/5 p-3 text-sm">
-      <div className="flex items-start gap-2"><CalendarPlus size={16} className="shrink-0 text-accent" /><div className="min-w-0 flex-1">
-        <p className="font-medium text-text-primary">{suggestion.title}</p>
-        <p className="text-xs text-text-secondary">{suggestion.startTime ? suggestion.isAllDay ? `${suggestion.startTime} · All day` : new Date(suggestion.startTime).toLocaleString() : "Date and time need review"}</p>
-        {suggestion.attendees.length > 0 && <p className="text-xs text-text-secondary break-words">Invitees: {suggestion.attendees.join(", ")}</p>}
-        <button className="mt-2 inline-flex min-h-10 items-center gap-1 rounded bg-accent px-3 py-1 text-xs font-medium text-white"
+  return <div className="mb-2 space-y-1.5" aria-label="Suggested calendar events">
+    <div className={`grid gap-2 ${suggestions.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+      {suggestions.map((suggestion) => <div key={suggestion.id} className="flex min-w-0 flex-col justify-between rounded-lg border border-accent/30 bg-accent/5 p-2.5 text-sm">
+        <div className="flex min-w-0 items-start gap-1.5"><CalendarPlus size={15} className="mt-0.5 shrink-0 text-accent" /><div className="min-w-0 flex-1">
+          <p className="text-xs sm:text-sm font-medium leading-snug text-text-primary break-words">{suggestion.title}</p>
+          <p className="mt-0.5 text-[11px] sm:text-xs leading-snug text-text-secondary break-words">{suggestion.startTime ? suggestion.isAllDay ? `${suggestion.startTime} · All day` : new Date(suggestion.startTime).toLocaleString() : "Date and time need review"}</p>
+          {suggestion.attendees.length > 0 && <p className="mt-0.5 text-[11px] sm:text-xs leading-snug text-text-secondary break-words">Invitees: {suggestion.attendees.join(", ")}</p>}
+        </div></div>
+        <button className={`mt-2 inline-flex min-h-8 items-center justify-center gap-1 rounded bg-accent px-2.5 py-1 text-xs font-medium text-white ${suggestions.length > 1 ? "w-full sm:w-auto sm:self-start" : "self-start"}`}
           onClick={() => created[suggestion.id] ? void view(created[suggestion.id]!) : openReview(suggestion)}>
           {created[suggestion.id] && <Check size={13} />}{created[suggestion.id] ? "View event" : "Add to calendar"}
         </button>
-      </div></div>
-    </div>)}
+      </div>)}
+    </div>
     {viewError && <p role="alert" className="text-xs text-danger">{viewError}</p>}
     {review && (targets && targets.some((target) => target.canCreate) ? <EventCreateModal
       key={review.id} calendars={targets} targets={targets}

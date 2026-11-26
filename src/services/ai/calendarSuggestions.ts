@@ -1,8 +1,10 @@
 import type { DbMessage } from "@/services/db/messages";
+import type { DbAttachment } from "@/services/db/attachments";
 import { getAiCache, setAiCache } from "@/services/db/aiCache";
 import { getActiveProvider, isAiAvailable } from "./providerManager";
 import { validInvitee } from "@/utils/calendarEvent";
 import { isGoogleCalendarReminder } from "@/services/calendar/reminderDetector";
+import { hasIcsAttachment } from "@/services/calendar/inviteDetector";
 
 export interface CalendarSuggestion {
   id: string;
@@ -53,8 +55,13 @@ function serialize(message: DbMessage) {
     sentAt: new Date(message.date).toISOString(), body: messageText(message).slice(0, 12000) };
 }
 
-export async function getCalendarSuggestions(message: DbMessage, context: DbMessage[], userEmail: string): Promise<CalendarSuggestion[]> {
-  if (isGoogleCalendarReminder(message) || !await isAiAvailable()) return [];
+export async function getCalendarSuggestions(
+  message: DbMessage,
+  context: DbMessage[],
+  userEmail: string,
+  attachments: ReadonlyArray<Pick<DbAttachment, "filename" | "mime_type">> = [],
+): Promise<CalendarSuggestion[]> {
+  if (hasIcsAttachment(attachments) || isGoogleCalendarReminder(message) || !await isAiAvailable()) return [];
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const target = serialize(message);
   const earlier = context.filter((item) => item.id !== message.id && item.date <= message.date).slice(-6).map(serialize);
