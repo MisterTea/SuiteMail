@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9 (2026-11-26)
+
+* Add Android notification actions (**Archive**, **Mark as read**, and inline **Reply** with free-form typing and AI-generated quick replies).
+* Sync and notify for new mail roughly every 30 minutes in the background on both Android and iOS, respecting quiet hours and VIP preferences.
+* Add the iOS app target with background scheduled send, Google Mail integration, and iOS simulator CI builds.
+* Significantly improve Gmail sync efficiency with metadata-first initial sync, local history deltas, lazy body hydration, HTTP batch requests, coalesced `messages.batchModify` offline queue ops, and real per-method quota budgeting.
+* Tighten message UX and skip redundant calendar suggestions for ICS attachments.
+
 ## 0.1.8 (2026-11-25)
 
 * Improve calendar UX with continuous multi-hour event blocks, side-by-side overlapping events, spanning multi-day all-day bars, slimmer all-day chips, cleaner time labels, and fluid horizontal touch swiping with 100ms boundary snap.
