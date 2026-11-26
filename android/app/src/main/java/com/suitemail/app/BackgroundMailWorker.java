@@ -60,7 +60,7 @@ public class BackgroundMailWorker extends Worker {
         check();long until=Math.max(nextRequest,prefs.getLong("cooldown:"+currentAccount,0));
         if(until-System.currentTimeMillis()>10_000)throw new HttpError(429);
         while(System.currentTimeMillis()<until){check();Thread.sleep(Math.max(1,Math.min(200,until-System.currentTimeMillis())));}
-        nextRequest=System.currentTimeMillis()+cost*25L; // Same conservative 2,400-unit/minute budget as foreground.
+        nextRequest=System.currentTimeMillis()+cost*40L/3; // 4,500 units/minute, the foreground budget (Gmail allows 6,000).
         String base=debuggable()?prefs.getString(DEBUG_GMAIL_URL,GMAIL_URL):GMAIL_URL;
         HttpURLConnection connection=(HttpURLConnection)new URL(base+resource).openConnection();
         connection.setConnectTimeout(15000);connection.setReadTimeout(20000);connection.setRequestProperty("Authorization","Bearer "+token);
@@ -101,6 +101,37 @@ public class BackgroundMailWorker extends Worker {
         JSONArray pending=new JSONArray();if(threads!=null)for(int i=0;i<threads.length();i++)pending.put(threads.getJSONObject(i).getString("id"));
         return state.put("pending",pending);
     }
+    static final String SINGLE_MESSAGE="m:";
+    /**
+     * Download entries for one history page, newest thread first. A thread whose only new message is its first
+     * message (Gmail thread IDs equal their first message's ID) is a new conversation and is fetched as that one
+     * message; any other thread with new mail is fetched whole.
+     */
+    static List<String> downloadsFor(JSONObject changes) throws JSONException {
+        LinkedHashMap<String,LinkedHashSet<String>> added=new LinkedHashMap<>();
+        JSONArray history=changes.optJSONArray("history");
+        if(history!=null)for(int i=0;i<history.length();i++){
+            JSONArray messages=history.getJSONObject(i).optJSONArray("messagesAdded");
+            if(messages!=null)for(int j=0;j<messages.length();j++){
+                JSONObject message=messages.getJSONObject(j).getJSONObject("message");
+                String threadId=message.getString("threadId");
+                LinkedHashSet<String> ids=added.remove(threadId);if(ids==null)ids=new LinkedHashSet<>();
+                ids.add(message.getString("id"));added.put(threadId,ids); // Re-insert so the latest activity sorts last.
+            }
+        }
+        List<String> result=new ArrayList<>();
+        for(Map.Entry<String,LinkedHashSet<String>> thread:added.entrySet()){
+            Set<String> ids=thread.getValue();
+            result.add(ids.size()==1 && ids.contains(thread.getKey())?SINGLE_MESSAGE+thread.getKey():thread.getKey());
+        }
+        Collections.reverse(result);
+        return result;
+    }
+    /** Shape one message like a threads.get result; `partial` tells the app not to replace a thread it already has. */
+    static JSONObject singleMessageThread(JSONObject message) throws JSONException {
+        return new JSONObject().put("id",message.getString("threadId")).put("historyId",message.optString("historyId",""))
+            .put("partial",true).put("messages",new JSONArray().put(message));
+    }
     private boolean syncAccount(String id,String accountEmail,String historyId) throws Exception {
         currentAccount=id;email=accountEmail;authorize();
         String key="state:"+id;JSONObject state;
@@ -111,10 +142,19 @@ public class BackgroundMailWorker extends Worker {
             check();JSONArray pending=state.optJSONArray("pending");
             if(pending!=null && pending.length()>0){
                 if(downloaded>=15)return false;
-                String threadId=pending.getString(0);JSONObject thread;
-                try{thread=request("/threads/"+URLEncoder.encode(threadId,"UTF-8")+"?format=full",120);}
-                catch(HttpError error){if(error.status==404)thread=null;else throw error;}
-                check();store.put(id,threadId,thread);
+                String entry=pending.getString(0);
+                if(entry.startsWith(SINGLE_MESSAGE)){
+                    // A new conversation's only message: messages.get costs 60 units, threads.get 120.
+                    String messageId=entry.substring(SINGLE_MESSAGE.length());JSONObject message=null;
+                    try{message=request("/messages/"+URLEncoder.encode(messageId,"UTF-8")+"?format=full",60);}
+                    catch(HttpError error){if(error.status!=404)throw error;} // Gone already: the app's own sync settles it.
+                    check();if(message!=null)store.put(id,messageId,singleMessageThread(message));
+                }else{
+                    JSONObject thread;
+                    try{thread=request("/threads/"+URLEncoder.encode(entry,"UTF-8")+"?format=full",120);}
+                    catch(HttpError error){if(error.status==404)thread=null;else throw error;}
+                    check();store.put(id,entry,thread);
+                }
                 pending.remove(0);downloaded++;save(key,state);continue;
             }
             if(state.optBoolean("bootstrap")){state.put("bootstrap",false);save(key,state);}
@@ -125,7 +165,8 @@ public class BackgroundMailWorker extends Worker {
                 }
                 state.put("pageToken",next);state.remove("pageLoaded");save(key,state);
             }
-            String resource="/history?maxResults=100&startHistoryId="+URLEncoder.encode(state.getString("cursor"),"UTF-8");
+            // Only new mail is downloaded here; label changes and deletions are applied by the app's own sync.
+            String resource="/history?maxResults=100&historyTypes=messageAdded&startHistoryId="+URLEncoder.encode(state.getString("cursor"),"UTF-8");
             if(state.has("pageToken"))resource+="&pageToken="+URLEncoder.encode(state.getString("pageToken"),"UTF-8");
             JSONObject changes;
             try{changes=request(resource,2);}
@@ -133,13 +174,7 @@ public class BackgroundMailWorker extends Worker {
                 if(error.status==404){save(key,bootstrap(""));return false;} // Expired cursor: bootstrap newest mail on retry.
                 throw error;
             }
-            LinkedHashSet<String> ids=new LinkedHashSet<>();JSONArray history=changes.optJSONArray("history");
-            if(history!=null)for(int i=0;i<history.length();i++){
-                JSONObject item=history.getJSONObject(i);JSONArray messages=item.optJSONArray("messages");
-                if(messages!=null)for(int j=0;j<messages.length();j++)ids.add(messages.getJSONObject(j).getString("threadId"));
-            }
-            List<String> recent=new ArrayList<>(ids);Collections.reverse(recent);
-            state.put("pending",new JSONArray(recent)).put("pageLoaded",true).put("targetCursor",changes.getString("historyId"))
+            state.put("pending",new JSONArray(downloadsFor(changes))).put("pageLoaded",true).put("targetCursor",changes.getString("historyId"))
                 .put("nextPageToken",changes.optString("nextPageToken",""));save(key,state);
         }
         return false;
