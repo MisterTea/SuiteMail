@@ -2,7 +2,7 @@ import { isIOS } from "@/platform/ios";
 import { notifyNewlySyncedMail } from "../notifications/newMail";
 import { importBackgroundMail } from "./androidBackgroundSync";
 import { getGmailClient } from "./tokenManager";
-import { initialSync, deltaSync, syncInitialChanges, type SyncProgress } from "./sync";
+import { initialSync, deltaSync, syncInitialChanges, backfillBodies, BODY_PREFETCH_DAYS, type SyncProgress } from "./sync";
 import { getAccount, clearAccountHistoryId } from "../db/accounts";
 import { getSetting, setSetting } from "../db/settings";
 import { getThreadCountForAccount, deleteAllThreadsForAccount } from "../db/threads";
@@ -18,6 +18,13 @@ import { upsertCalendarEvent, deleteEventByRemoteId } from "../db/calendarEvents
 import { classifyError } from "@/utils/networkErrors";
 
 const SYNC_INTERVAL_MS = 60_000; // 60 seconds — delta syncs are lightweight (single API call when idle)
+/**
+ * Wall-clock budget per sync cycle for backfill work (initial listing, then body downloads), shared by
+ * the Gmail accounts being synced. New-mail polling always runs first and is not limited.
+ */
+export const GMAIL_BACKFILL_BUDGET_MS = 45_000;
+const MIN_ACCOUNT_BUDGET_MS = 10_000;
+let accountBudgetMs = GMAIL_BACKFILL_BUDGET_MS;
 const ANDROID_RESUME_WINDOW_MS = 15_000;
 const ANDROID_RESUME_RETRY_MS = 1_000;
 
@@ -75,7 +82,11 @@ async function syncGmailAccount(accountId: string): Promise<void> {
     messagesSynced += count;
     reportSyncedMessages(accountId, messagesSynced);
   };
-  const backfill = () => initialSync(client, accountId, syncDays, undefined, { maxThreads: 10, onMessagesStored });
+  // Backfill until this account's share of the cycle budget is used, then resume next cycle.
+  const deadline = Date.now() + accountBudgetMs;
+  // A sync requested meanwhile (user refresh or the next timer tick) takes priority over backfill.
+  const shouldStop = () => pendingAccountIds !== null;
+  const backfill = () => initialSync(client, accountId, syncDays, undefined, { deadline, shouldStop, onMessagesStored });
 
   if (account.history_id) {
     // Delta sync
@@ -95,6 +106,12 @@ async function syncGmailAccount(accountId: string): Promise<void> {
     // New mail gets priority; a bounded backfill must not hold the queue for hours.
     await syncInitialChanges(client, accountId, onMessagesStored);
     await backfill();
+  }
+
+  // Low priority: bodies for mail stored from metadata, recent mail first. Only once the listing is done.
+  if (Date.now() < deadline && (await getAccount(accountId))?.history_id) {
+    await backfillBodies(client, accountId, { deadline, shouldStop, sinceMs: Date.now() - BODY_PREFETCH_DAYS * 86_400_000 });
+    await backfillBodies(client, accountId, { deadline, shouldStop });
   }
 }
 
@@ -311,6 +328,7 @@ async function runSync(accountIds: string[]): Promise<void> {
 
   syncPromise = (async () => {
     try {
+      accountBudgetMs = Math.max(MIN_ACCOUNT_BUDGET_MS, GMAIL_BACKFILL_BUDGET_MS / Math.max(1, accountIds.length));
       await importBackgroundMail().catch((error) => console.warn("Background mail import failed:", error));
       for (const id of accountIds) {
         if (isAndroidSyncPaused()) break;

@@ -37,14 +37,16 @@ export interface ParsedMessage {
 }
 
 export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
-  const headers = msg.payload.headers;
+  // format=metadata messages carry headers but no body; parse them the same way.
+  const headers = msg.payload?.headers ?? [];
   const from = getHeader(headers, "From");
   const { name: fromName, address: fromAddress } = parseEmailAddress(from);
 
-  const bodyHtml = extractBody(msg.payload, "text/html");
-  const bodyText = extractBody(msg.payload, "text/plain");
-  const attachments = extractAttachments(msg.payload);
+  const bodyHtml = msg.payload ? extractBody(msg.payload, "text/html") : null;
+  const bodyText = msg.payload ? extractBody(msg.payload, "text/plain") : null;
+  const attachments = msg.payload ? extractAttachments(msg.payload) : [];
   const authResult = parseAuthenticationResults(headers);
+  const labelIds = msg.labelIds ?? [];
 
   return {
     id: msg.id,
@@ -58,13 +60,13 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
     subject: getHeader(headers, "Subject"),
     snippet: msg.snippet,
     date: parseInt(msg.internalDate, 10),
-    isRead: !msg.labelIds.includes("UNREAD"),
-    isStarred: msg.labelIds.includes("STARRED"),
+    isRead: !labelIds.includes("UNREAD"),
+    isStarred: labelIds.includes("STARRED"),
     bodyHtml: bodyHtml ? decodeBase64Url(bodyHtml) : null,
     bodyText: bodyText ? decodeBase64Url(bodyText) : null,
     rawSize: msg.sizeEstimate,
     internalDate: parseInt(msg.internalDate, 10),
-    labelIds: msg.labelIds,
+    labelIds,
     hasAttachments: attachments.length > 0,
     attachments,
     listUnsubscribe: getHeader(headers, "List-Unsubscribe"),
@@ -102,7 +104,7 @@ function extractBody(
   part: GmailMessagePart,
   mimeType: string,
 ): string | null {
-  if (part.mimeType === mimeType && part.body.data) {
+  if (part.mimeType === mimeType && part.body?.data) {
     return part.body.data;
   }
 
@@ -123,7 +125,7 @@ function extractAttachments(part: GmailMessagePart): ParsedAttachment[] {
 }
 
 function collectAttachments(part: GmailMessagePart, results: ParsedAttachment[]): void {
-  if (part.body.attachmentId) {
+  if (part.body?.attachmentId) {
     const contentIdHeader = part.headers?.find(
       (h) => h.name.toLowerCase() === "content-id",
     );

@@ -133,3 +133,23 @@ describe("parseGmailMessage", () => {
     ]);
   });
 });
+
+describe("parseGmailMessage with lightweight formats", () => {
+  it("parses a format=metadata message that has headers but no body", () => {
+    const message = {
+      id: "m1", threadId: "t1", historyId: "9", internalDate: "1700000000000", snippet: "Hi there",
+      labelIds: ["INBOX", "UNREAD"], sizeEstimate: 10,
+      payload: { mimeType: "multipart/mixed", headers: [
+        { name: "From", value: "Ann <ann@example.com>" }, { name: "Subject", value: "Plans" }, { name: "To", value: "me@example.com" },
+      ] },
+    };
+    const parsed = parseGmailMessage(message as never);
+    expect(parsed).toMatchObject({ id: "m1", threadId: "t1", subject: "Plans", fromAddress: "ann@example.com", isRead: false, bodyHtml: null, bodyText: null });
+    expect(parsed.attachments).toEqual([]);
+  });
+
+  it("parses a format=minimal message with no payload", () => {
+    const parsed = parseGmailMessage({ id: "m2", threadId: "t1", historyId: "9", internalDate: "1", snippet: "", sizeEstimate: 1 } as never);
+    expect(parsed).toMatchObject({ id: "m2", isRead: true, subject: null, labelIds: [] });
+  });
+});

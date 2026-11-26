@@ -69,11 +69,24 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // Load messages
   useEffect(() => {
     if (!activeAccountId) return;
+    let cancelled = false;
     setLoading(true);
     getMessagesForThread(activeAccountId, thread.id)
-      .then(setMessages)
+      .then(async (loaded) => {
+        if (cancelled) return;
+        // Gmail initial sync stores headers first; fetch this thread's bodies now if they're missing.
+        if (!loaded.some((m) => !m.body_cached)) { setMessages(loaded); return; }
+        const { hydrateGmailThreadBodies } = await import("@/services/gmail/bodyHydration");
+        const hydrated = await hydrateGmailThreadBodies(activeAccountId, thread.id).catch((err) => {
+          console.warn("Could not download message bodies:", err);
+          return false;
+        });
+        const messages = hydrated ? await getMessagesForThread(activeAccountId, thread.id) : loaded;
+        if (!cancelled) setMessages(messages);
+      })
       .catch(console.error)
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [activeAccountId, thread.id]);
 
   // Check per-sender allowlist (single batch query instead of N queries)

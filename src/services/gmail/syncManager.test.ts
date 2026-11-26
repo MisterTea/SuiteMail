@@ -8,6 +8,8 @@ vi.mock("./sync", () => ({
   syncInitialChanges: vi.fn().mockResolvedValue(undefined),
   initialSync: vi.fn(),
   deltaSync: vi.fn(),
+  backfillBodies: vi.fn().mockResolvedValue(0),
+  BODY_PREFETCH_DAYS: 30,
 }));
 vi.mock("../db/accounts", () => ({
   getAccount: vi.fn(),
@@ -58,6 +60,8 @@ import {
 } from "./syncManager";
 import { getAccount } from "../db/accounts";
 import { getGmailClient } from "./tokenManager";
+import { backfillBodies } from "./sync";
+import { GMAIL_BACKFILL_BUDGET_MS } from "./syncManager";
 import { initialSync, deltaSync, syncInitialChanges } from "./sync";
 
 const mockGetAccount = vi.mocked(getAccount);
@@ -122,10 +126,40 @@ describe("syncManager", () => {
       expect(syncInitialChanges).toHaveBeenCalledWith(expect.anything(), "a1", expect.any(Function));
       expect(vi.mocked(syncInitialChanges).mock.invocationCallOrder[0]).toBeLessThan(mockInitialSync.mock.invocationCallOrder[0]!);
       expect(mockInitialSync).toHaveBeenCalledWith(expect.anything(), "a1", 365, undefined, {
-        maxThreads: 10,
+        deadline: expect.any(Number),
+        shouldStop: expect.any(Function),
         onMessagesStored: expect.any(Function),
       });
       expect(mockDeltaSync).not.toHaveBeenCalled();
+    });
+
+    it("bounds backfill by a time budget instead of a thread count", async () => {
+      mockGetAccount.mockResolvedValue(makeGmailAccount("a1"));
+      const before = Date.now();
+
+      await syncAccount("a1");
+
+      const { deadline } = mockInitialSync.mock.calls[0]![4] as { deadline: number };
+      expect(deadline - before).toBeGreaterThanOrEqual(GMAIL_BACKFILL_BUDGET_MS - 50);
+      expect(deadline - Date.now()).toBeLessThanOrEqual(GMAIL_BACKFILL_BUDGET_MS);
+    });
+
+    it("downloads bodies (recent mail first) only after the listing is complete", async () => {
+      mockGetAccount.mockResolvedValue(makeGmailAccount("a1", "12345"));
+
+      await syncAccount("a1");
+
+      expect(mockDeltaSync).toHaveBeenCalledTimes(1);
+      expect(backfillBodies).toHaveBeenCalledTimes(2);
+      const [recent, all] = vi.mocked(backfillBodies).mock.calls.map((call) => call[2]!);
+      expect(recent!.sinceMs).toBeGreaterThan(Date.now() - 31 * 86_400_000);
+      expect(all!.sinceMs).toBeUndefined();
+      expect(vi.mocked(backfillBodies).mock.invocationCallOrder[0]).toBeGreaterThan(mockDeltaSync.mock.invocationCallOrder[0]!);
+
+      vi.mocked(backfillBodies).mockClear();
+      mockGetAccount.mockResolvedValue(makeGmailAccount("a2"));
+      await syncAccount("a2");
+      expect(backfillBodies).not.toHaveBeenCalled(); // Listing still in progress (no history cursor yet).
     });
 
     it("runs delta sync for an account with history_id", async () => {

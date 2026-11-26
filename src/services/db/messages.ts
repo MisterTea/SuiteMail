@@ -68,6 +68,8 @@ export async function upsertMessage(msg: {
   inReplyToHeader?: string | null;
   imapUid?: number | null;
   imapFolder?: string | null;
+  /** True once the full body has been downloaded, even if it is empty. Defaults to "has HTML". */
+  bodyCached?: boolean;
 }): Promise<void> {
   const db = await getDb();
   await db.execute(
@@ -78,7 +80,7 @@ export async function upsertMessage(msg: {
        bcc_addresses = $8, reply_to = $9, subject = $10, snippet = $11,
        date = $12, is_read = $13, is_starred = $14,
        body_html = COALESCE($15, body_html), body_text = COALESCE($16, body_text),
-       body_cached = CASE WHEN $15 IS NOT NULL THEN 1 ELSE body_cached END,
+       body_cached = CASE WHEN $17 = 1 THEN 1 ELSE body_cached END,
        raw_size = $18, internal_date = $19, list_unsubscribe = $20, list_unsubscribe_post = $21,
        auth_results = $22, message_id_header = COALESCE($23, message_id_header),
        references_header = COALESCE($24, references_header),
@@ -101,7 +103,7 @@ export async function upsertMessage(msg: {
       msg.isStarred ? 1 : 0,
       msg.bodyHtml,
       msg.bodyText,
-      msg.bodyHtml ? 1 : 0,
+      (msg.bodyCached ?? Boolean(msg.bodyHtml)) ? 1 : 0,
       msg.rawSize,
       msg.internalDate,
       msg.listUnsubscribe ?? null,
@@ -198,4 +200,69 @@ export async function getRecentSentMessages(
      ORDER BY date DESC LIMIT $3`,
     [accountId, accountEmail, limit],
   );
+}
+
+/** Per-message state used to recompute a thread after an incremental change. */
+export interface MessageState {
+  id: string;
+  subject: string | null;
+  snippet: string | null;
+  date: number;
+  is_read: number;
+  is_starred: number;
+  body_cached: number;
+}
+
+export async function getThreadMessageStates(accountId: string, threadId: string): Promise<MessageState[]> {
+  const db = await getDb();
+  return db.select<MessageState[]>(
+    "SELECT id, subject, snippet, date, is_read, is_starred, body_cached FROM messages WHERE account_id = $1 AND thread_id = $2 ORDER BY date ASC",
+    [accountId, threadId],
+  );
+}
+
+export async function setMessageFlags(accountId: string, messageId: string, flags: { isRead?: boolean; isStarred?: boolean }): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE messages SET is_read = COALESCE($3, is_read), is_starred = COALESCE($4, is_starred) WHERE account_id = $1 AND id = $2",
+    [accountId, messageId, flags.isRead === undefined ? null : flags.isRead ? 1 : 0, flags.isStarred === undefined ? null : flags.isStarred ? 1 : 0],
+  );
+}
+
+/** Remove a thread's local messages that the server no longer has. */
+export async function deleteThreadMessagesExcept(accountId: string, threadId: string, keepIds: string[]): Promise<void> {
+  const db = await getDb();
+  const placeholders = keepIds.map((_, i) => `$${i + 3}`).join(", ");
+  await db.execute(
+    `DELETE FROM messages WHERE account_id = $1 AND thread_id = $2${keepIds.length ? ` AND id NOT IN (${placeholders})` : ""}`,
+    [accountId, threadId, ...keepIds],
+  );
+}
+
+/** Threads with at least one message whose body has not been downloaded, newest first. */
+export async function getThreadsMissingBodies(accountId: string, limit: number, sinceMs = 0): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.select<{ thread_id: string }[]>(
+    `SELECT thread_id, MAX(date) AS latest FROM messages
+     WHERE account_id = $1 AND body_cached = 0 AND date >= $2
+     GROUP BY thread_id ORDER BY latest DESC LIMIT $3`,
+    [accountId, sinceMs, limit],
+  );
+  return rows.map((row) => row.thread_id);
+}
+
+/** Local message IDs for each thread (used to turn thread actions into messages.batchModify). */
+export async function getMessageIdsForThreads(accountId: string, threadIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>(threadIds.map((id) => [id, []]));
+  if (!threadIds.length) return result;
+  const db = await getDb();
+  for (let start = 0; start < threadIds.length; start += 500) {
+    const chunk = threadIds.slice(start, start + 500);
+    const rows = await db.select<{ id: string; thread_id: string }[]>(
+      `SELECT id, thread_id FROM messages WHERE account_id = $1 AND thread_id IN (${chunk.map((_, i) => `$${i + 2}`).join(", ")})`,
+      [accountId, ...chunk],
+    );
+    for (const row of rows) result.get(row.thread_id)?.push(row.id);
+  }
+  return result;
 }

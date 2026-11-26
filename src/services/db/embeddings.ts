@@ -92,3 +92,13 @@ export async function clearAllEmbeddings(accountId?: string): Promise<void> {
   }
 }
 
+
+/** Drop embeddings so the indexer rebuilds them (e.g. after a message's full body is downloaded). */
+export async function deleteEmbeddingsForMessages(accountId: string, messageIds: string[]): Promise<void> {
+  if (!messageIds.length) return;
+  const db = await getDb();
+  await db.execute(
+    `DELETE FROM email_embeddings WHERE account_id = $1 AND message_id IN (${messageIds.map((_, i) => `$${i + 2}`).join(", ")})`,
+    [accountId, ...messageIds],
+  );
+}
