@@ -4,6 +4,7 @@ const config: CapacitorConfig = {
   appId: 'com.suitemail.app',
   appName: 'SuiteMail',
   webDir: 'dist',
+  ios: { loggingBehavior: "none" },
   android: {
     allowMixedContent: false,
     // Capacitor debug logging includes plugin arguments and sign-in credentials.

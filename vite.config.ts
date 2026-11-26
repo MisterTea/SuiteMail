@@ -9,15 +9,16 @@ const host = process.env.VITE_DEV_HOST;
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const gmailClientId = mode === "android" ? "" : env.GMAIL_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID || "";
-  const gmailClientSecret = mode === "android" ? "" : env.GMAIL_OAUTH_CLIENT_SECRET || process.env.GMAIL_OAUTH_CLIENT_SECRET || "";
+  const mobile = mode === "android" || mode === "ios";
+  const gmailClientId = mobile ? "" : env.GMAIL_OAUTH_CLIENT_ID || process.env.GMAIL_OAUTH_CLIENT_ID || "";
+  const gmailClientSecret = mobile ? "" : env.GMAIL_OAUTH_CLIENT_SECRET || process.env.GMAIL_OAUTH_CLIENT_SECRET || "";
 
   const ewsClientId = (env.EWS_OAUTH_CLIENT_ID || process.env.EWS_OAUTH_CLIENT_ID || "").trim();
 
   return {
     // Electron loads the packaged page through file://.
     base: "./",
-    envPrefix: mode === "android" ? ["VITE_"] : ["VITE_", "GMAIL_"],
+    envPrefix: mobile ? ["VITE_"] : ["VITE_", "GMAIL_"],
     define: {
       "import.meta.env.EWS_OAUTH_CLIENT_ID": JSON.stringify(ewsClientId),
       "import.meta.env.GMAIL_OAUTH_CLIENT_ID": JSON.stringify(gmailClientId),

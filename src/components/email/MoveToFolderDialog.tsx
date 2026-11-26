@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useRef, useCallback, useMemo, Fragment } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useLabelStore } from "@/stores/labelStore";
@@ -55,7 +55,7 @@ export function MoveToFolderDialog({
   threadIds,
   onClose,
 }: MoveToFolderDialogProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const [query, setQuery] = useState("");
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [isCreating, setIsCreating] = useState(false);

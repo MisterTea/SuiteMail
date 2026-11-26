@@ -55,7 +55,7 @@ Unify work, personal, and encrypted email in a single keyboard-first workspace w
 - **Inbox & Triage** — Instant local SQLite + FTS5 search with Gmail-style operators, split inbox categories, snooze, pin, star, mute, follow-up reminders, newsletter bundling, one-click RFC 8058 unsubscribe, quick steps, and bulk actions.
 - **Rich Composer** — TipTap v3 editor, undo send, schedule send, auto-saved drafts, reusable templates, signatures, send-as aliases, CSV mail merge, inline attachment previews, Attachment Library, and OpenPGP-signed contract blocks.
 - **Security & Privacy by Default** — Remote image blocking with per-sender allowlists, DOMPurify HTML sanitization, sandboxed iframe rendering, tracking pixel detection, SPF/DKIM/DMARC verification badges, phishing link heuristics, and AES-256-GCM encrypted local credential storage.
-- **Desktop & Mobile** — Native desktop builds for Windows, macOS, and Linux (Electron + Rust N-API) plus Android mobile (Capacitor) with responsive touch navigation.
+- **Desktop & Mobile** — Native desktop builds for Windows, macOS, and Linux (Electron + Rust N-API) plus Android and iPhone builds (Capacitor) with responsive touch navigation.
 
 See all 20 workflows in action on the **[Features & Storyboards page](https://mistertea.github.io/SuiteMail/features/)**, or watch the 30-second **[Account Setup Walkthrough](https://mistertea.github.io/SuiteMail/#account-setup)**.
 
@@ -89,6 +89,7 @@ npm run dev:desktop
 | --- | --- |
 | `npm run dev:desktop` | Build Rust core and start Electron desktop app with Vite HMR |
 | `npm run package` | Build release Rust core, frontend bundle, and desktop installers |
+| `npm run dev:ios` | Build SuiteMail for iPhone and open the Xcode project |
 | `npm run build:android` | Build Android bundle and sync Capacitor project |
 | `npm run dev:landing` | Preview the SuiteMail website (`landing/`) locally |
 | `npm run test` | Run unit & component tests (Vitest) |
@@ -113,6 +114,7 @@ npm run dev:desktop
 - [Keyboard Shortcuts](docs/keyboard-shortcuts.md)
 - [Linux Support](docs/linux.md)
 - [Android Guide](docs/android.md)
+- [iPhone Build and TestFlight Guide](docs/ios.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security Policy](SECURITY.md)
 

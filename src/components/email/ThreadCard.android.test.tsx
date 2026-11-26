@@ -4,7 +4,7 @@ import { ThreadCard } from "./ThreadCard";
 import type { Thread } from "@/stores/threadStore";
 
 const state = vi.hoisted(()=>({archive:vi.fn(), star:vi.fn(), select:vi.fn(), label:"inbox"}));
-vi.mock("@/hooks/useAndroidMobile",()=>({useAndroidMobile:()=>true}));
+vi.mock("@/hooks/useNativePhone",()=>({useNativePhone:()=>true}));
 vi.mock("@/hooks/useRouteNavigation",()=>({useActiveLabel:()=>state.label}));
 vi.mock("@dnd-kit/core",()=>({useDraggable:()=>({attributes:{"aria-disabled":true,"aria-roledescription":"draggable"},listeners:{},setNodeRef:vi.fn(),isDragging:false})}));
 vi.mock("@/services/emailActions",()=>({archiveThread:state.archive,starThread:state.star}));

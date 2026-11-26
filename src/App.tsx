@@ -1,3 +1,4 @@
+import { isIOS } from "@/platform/ios";
 import { startAttachmentIndex, stopAttachmentIndex } from "@/services/attachments/attachmentIndex";
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Outlet } from "@tanstack/react-router";
@@ -386,7 +387,7 @@ export default function App() {
         const gmailAccountIds = mapped
           .filter((a) => a.isActive && (a.provider === "gmail" || a.provider === "gmail_api"))
           .map((a) => a.id);
-        for (const accountId of gmailAccountIds) {
+        for (const accountId of isIOS() ? [] : gmailAccountIds) {
           getGmailClient(accountId)
             .then((client) => fetchSendAsAliases(client, accountId))
             .catch((err) => {
@@ -400,7 +401,7 @@ export default function App() {
         }
 
         // Start IMAP IDLE push listeners
-        startAllIdle(dbAccounts);
+        if (!isIOS()) startAllIdle(dbAccounts);
 
         // Start snooze, scheduled send, follow-up, bundle, and queue checkers
         startSnoozeChecker();
@@ -491,13 +492,13 @@ export default function App() {
   }, [initialized, accountCount]);
 
   useEffect(() => {
-    if (!initialized || !hasAndroidBackgroundSync()) return;
+    if (!initialized || (!hasAndroidBackgroundSync() && !isIOS())) return;
     let disposed = false;
     let foreground: boolean | undefined;
     const onStateChange = ({ isActive }: { isActive: boolean }) => {
       if (disposed || foreground === isActive) return;
       foreground = isActive;
-      setAndroidSyncForeground(isActive);
+      if (!isIOS()) setAndroidSyncForeground(isActive);
       if (!isActive) {
         stopBackgroundSync();
         return;
@@ -634,7 +635,7 @@ export default function App() {
       syncAccount(newest.id);
 
       // Fetch send-as aliases in the background (non-blocking, skip CalDAV-only accounts)
-      if (newest.provider !== "caldav") {
+      if (!isIOS() && newest.provider !== "caldav") {
         getGmailClient(newest.id)
           .then((client) => fetchSendAsAliases(client, newest.id))
           .catch((err) => console.warn(`Failed to fetch send-as aliases for new account:`, err));

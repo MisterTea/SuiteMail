@@ -1,3 +1,4 @@
+import { iosNative, isIOS } from "@/platform/ios";
 import { useRef, useState, useEffect } from "react";
 import { platformInvoke } from "@/platform";
 import { Capacitor } from "@capacitor/core";
@@ -26,6 +27,7 @@ interface AddAccountProps {
 type View = "select-provider" | "gmail" | "imap" | "caldav" | "proton" | "microsoft" | "ews";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
+  const ios = isIOS();
   const androidPreview = Capacitor.getPlatform() === "android";
   const [androidProton, setAndroidProton] = useState<boolean | null>(null);
 
@@ -59,13 +61,16 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
     setError(null);
 
     try {
-      const clientId = androidPreview ? "" : await getClientId();
-      const clientSecret = androidPreview ? undefined : await getClientSecret();
+      const clientId = androidPreview || ios ? "" : await getClientId();
+      const clientSecret = androidPreview || ios ? undefined : await getClientSecret();
       setStatus("authenticating");
 
-      const { tokens, userInfo } = androidPreview
-        ? await authorizeAndroidGoogle()
-        : await startOAuthFlow(clientId, clientSecret);
+      const { tokens, userInfo } = ios
+        ? await iosNative.authorizeGoogle({}).then(({ email }) => ({
+            tokens: { access_token: "", refresh_token: "", expires_in: 0 },
+            userInfo: { email, name: email, picture: "" },
+          }))
+        : androidPreview ? await authorizeAndroidGoogle() : await startOAuthFlow(clientId, clientSecret);
       if (!active.current || request !== attempt.current) return;
 
       const accountId = crypto.randomUUID();
@@ -276,7 +281,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          {!androidPreview && <button
+          {!androidPreview && !ios && <button
             onClick={() => setView("microsoft")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -293,7 +298,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>}
 
-          <button
+          {!ios && <button
             onClick={() => setView("ews")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -308,9 +313,9 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Office 365 mail via Exchange Web Services
               </div>
             </div>
-          </button>
+          </button>}
 
-          <button
+          {!ios && <button
             onClick={() => setView("proton")}
             disabled={androidPreview && androidProton !== true}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary enabled:hover:bg-bg-hover transition-colors text-left group disabled:opacity-60"
@@ -330,7 +335,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                   : "Connect via Proton Mail Bridge with end-to-end encryption"}
               </div>
             </div>
-          </button>
+          </button>}
 
           <button
             onClick={() => setView("imap")}
@@ -349,7 +354,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
           </button>
 
-          <button
+          {!ios && <button
             onClick={() => setView("caldav")}
             className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
           >
@@ -364,7 +369,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 Connect iCloud, Fastmail, Nextcloud, or any CalDAV calendar server
               </div>
             </div>
-          </button>
+          </button>}
         </div>
 
         <div className="flex justify-end mt-4">

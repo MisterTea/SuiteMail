@@ -1,3 +1,5 @@
+import { isIOS } from "@/platform/ios";
+import { IOSDrafts, useIOSDrafts } from "./IOSDrafts";
 import { openThreadDraft } from "@/services/draft/openThreadDraft";
 import { useEffect, useMemo, useState } from "react";
 import { Inbox, Menu, Search } from "lucide-react";
@@ -31,6 +33,7 @@ export function UnifiedMailbox() {
   const selectedKey = useSelectedThreadId();
   const [label, setLabel] = useState<string | null>("INBOX");
   const [query, setQuery] = useState("");
+  const deviceDrafts = useIOSDrafts(mailAccounts.map((account) => account.id).join(","), isIOS() && label === "DRAFT" && !query.trim());
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [threads, setThreads] = useState<Thread[]>([]);
   const [revision, setRevision] = useState(0);
@@ -120,7 +123,8 @@ export function UnifiedMailbox() {
         </div>
         <MailListScrollArea unified>
           {error && <p role="alert" className="p-4 text-sm text-danger">Couldn’t load mail from your accounts.</p>}
-          {!error && !threads.length && <p className="p-4 text-sm text-text-secondary">{loading ? "Loading mail…" : "No conversations found."}</p>}
+          <IOSDrafts drafts={deviceDrafts} />
+          {!error && !threads.length && !deviceDrafts.length && <p className="p-4 text-sm text-text-secondary">{loading ? "Loading mail…" : "No conversations found."}</p>}
           {threads.map((thread) => {
             const key = mailboxThreadKey(thread);
             const email = mailAccounts.find((account) => account.id === thread.accountId)?.email;

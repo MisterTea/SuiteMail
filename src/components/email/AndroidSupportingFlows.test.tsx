@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { ScheduleSendDialog } from "../composer/ScheduleSendDialog";
-vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: () => true }));
+vi.mock("@/hooks/useNativePhone", () => ({ useNativePhone: () => true }));
 const authResults = JSON.stringify({ aggregate: "fail", spf: { result: "fail" }, dkim: { result: "fail" }, dmarc: { result: "fail" } });
 describe("Android supporting flows", () => {
   it("requires explicit confirmation before trusting and has one spam action", () => {

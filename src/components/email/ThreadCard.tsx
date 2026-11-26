@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { memo, useId, useMemo, useState, useRef, useEffect } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
@@ -58,7 +58,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, summarize, isSelect
   const [swipeCompletion, setSwipeCompletion] = useState<"exit" | "star" | null>(null);
   const consumedSwipe = useRef(false);
   useEffect(() => () => {if(longPressTimer.current) clearTimeout(longPressTimer.current);}, []);
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
   const hasMultiSelect = useThreadStore((s) => s.selectedThreadIds.size > 0);
   const toggleThreadSelection = useThreadStore((s) => s.toggleThreadSelection);

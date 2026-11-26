@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState } from "react";
 import { ShieldAlert, X, Ban, FolderMinus, ShieldCheck, ChevronDown, ChevronUp } from "lucide-react";
 import type { AuthResult } from "@/services/gmail/authParser";
@@ -18,7 +18,7 @@ export function AuthWarningBanner({
   onReportSpam,
   onTrustSender,
 }: AuthWarningBannerProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const [confirmTrust, setConfirmTrust] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
 

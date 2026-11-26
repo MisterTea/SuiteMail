@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { Capacitor } from "@capacitor/core";
 import { useRef, useCallback, useLayoutEffect, useMemo, useState, useEffect } from "react";
 import { ImageOff } from "lucide-react";
@@ -59,7 +59,7 @@ export function EmailRenderer({
   inlineAttachments,
   onTrackersDetected,
 }: EmailRendererProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const android = Capacitor.getPlatform() === "android";
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const observerRef = useRef<ResizeObserver | null>(null);

@@ -72,7 +72,7 @@ export async function getAttachmentsForAccount(
   offset = 0,
 ): Promise<AttachmentWithContext[]> {
   const db = await getDb();
-  return db.select<AttachmentWithContext[]>(
+  const rows = await db.select<AttachmentWithContext[]>(
     `SELECT a.*, m.from_address, m.from_name, m.date, m.subject, m.thread_id
      FROM attachments a
      JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
@@ -81,6 +81,12 @@ export async function getAttachmentsForAccount(
      LIMIT $2 OFFSET $3`,
     [accountId, limit, offset],
   );
+  // messages.date is stored in Unix seconds; the attachment UI works in milliseconds.
+  return rows.map((row) => ({ ...row, date: toMillis(row.date) }));
+}
+
+function toMillis(timestamp: number | null): number | null {
+  return timestamp != null && timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp;
 }
 
 export interface AttachmentSender {

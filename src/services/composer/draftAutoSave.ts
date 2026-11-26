@@ -1,3 +1,5 @@
+import { isIOS } from "@/platform/ios";
+import { saveIOSDraft } from "@/services/draft/iosDrafts";
 import { useComposerStore } from "@/stores/composerStore";
 import { createDraft as createDraftAction, updateDraft as updateDraftAction } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
@@ -29,36 +31,41 @@ async function saveDraft(expectedSession: number): Promise<void> {
   state.setIsSaving(true);
 
   try {
-    const raw = buildRawEmail({
-      from: state.fromEmail ?? account.email,
-      cc: state.cc.length ? state.cc : undefined,
-      bcc: state.bcc.length ? state.bcc : undefined,
-      inReplyTo: state.inReplyToMessageId ?? undefined,
-      to: state.to.length > 0 ? state.to : [""],
-      subject: state.subject,
-      htmlBody: embedDraftContract(
-        [state.bodyHtml, state.quotedHtml, state.signatureHtml].filter(Boolean).join("<br><br>"),
-        state.contractActive ? state.contractText : "",
-      ),
-      threadId: state.threadId ?? undefined,
-      attachments: state.attachments.length > 0
-        ? state.attachments.map((a) => ({
-            filename: a.filename,
-            mimeType: a.mimeType,
-            content: a.content,
-          }))
-        : undefined,
-    });
-
-    if (state.draftId) {
-      const result = await updateDraftAction(accountId, state.draftId, raw, state.threadId ?? undefined);
-      if (!result.success) throw new Error("Could not update draft");
+    if (isIOS()) {
+      const id = await saveIOSDraft(accountId, state);
+      if (expectedSession === session) state.setDraftId(id);
     } else {
-      const result = await createDraftAction(accountId, raw, state.threadId ?? undefined);
-      if (!result.success) throw new Error("Could not create draft");
-      if (expectedSession !== session) return;
-      if (result.data && typeof result.data === "object" && "draftId" in result.data) {
-        state.setDraftId((result.data as { draftId: string }).draftId);
+      const raw = buildRawEmail({
+        from: state.fromEmail ?? account.email,
+        cc: state.cc.length ? state.cc : undefined,
+        bcc: state.bcc.length ? state.bcc : undefined,
+        inReplyTo: state.inReplyToMessageId ?? undefined,
+        to: state.to.length > 0 ? state.to : [""],
+        subject: state.subject,
+        htmlBody: embedDraftContract(
+          [state.bodyHtml, state.quotedHtml, state.signatureHtml].filter(Boolean).join("<br><br>"),
+          state.contractActive ? state.contractText : "",
+        ),
+        threadId: state.threadId ?? undefined,
+        attachments: state.attachments.length > 0
+          ? state.attachments.map((a) => ({
+              filename: a.filename,
+              mimeType: a.mimeType,
+              content: a.content,
+            }))
+          : undefined,
+      });
+
+      if (state.draftId) {
+        const result = await updateDraftAction(accountId, state.draftId, raw, state.threadId ?? undefined);
+        if (!result.success) throw new Error("Could not update draft");
+      } else {
+        const result = await createDraftAction(accountId, raw, state.threadId ?? undefined);
+        if (!result.success) throw new Error("Could not create draft");
+        if (expectedSession !== session) return;
+        if (result.data && typeof result.data === "object" && "draftId" in result.data) {
+          state.setDraftId((result.data as { draftId: string }).draftId);
+        }
       }
     }
 

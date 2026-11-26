@@ -189,6 +189,37 @@ pub fn db_execute(query: &str, params: Vec<Value>) -> Result<Value, String> {
     }))
 }
 
+/// Runs the statements as one committed transaction while holding the connection, so no other
+/// caller's statements can interleave. Fails without running anything if another caller already has a
+/// transaction open on this connection, so this work can never be rolled back by someone else.
+/// Returns the rows affected by each statement.
+pub fn db_transaction(statements: Vec<(String, Vec<Value>)>) -> Result<Value, String> {
+    let guard = DB_CONN.lock().map_err(|e| e.to_string())?;
+    let conn = guard.as_ref().ok_or("Database not initialized")?;
+    if !conn.is_autocommit() {
+        return Err("Another transaction is in progress".into());
+    }
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("Execute error: {e} in BEGIN IMMEDIATE"))?;
+    let mut affected = Vec::with_capacity(statements.len());
+    for (query, params) in statements {
+        let normalized = normalize_query(&query);
+        let sql_params: Vec<DynamicSqlParam> = params.into_iter().map(json_value_to_param).collect();
+        match conn.execute(&normalized, params_from_iter(sql_params.iter())) {
+            Ok(rows) => affected.push(json!(rows)),
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                return Err(format!("Execute error: {e} in {normalized}"));
+            }
+        }
+    }
+    if let Err(e) = conn.execute_batch("COMMIT") {
+        let _ = conn.execute_batch("ROLLBACK");
+        return Err(format!("Execute error: {e} in COMMIT"));
+    }
+    Ok(Value::Array(affected))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,6 +284,32 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fts_res.as_array().unwrap().len(), 1);
+
+        // Transactions: conditional updates report rows affected, and a failure rolls everything back.
+        let claimed = db_transaction(vec![(
+            "UPDATE items SET count = 43 WHERE id = $1 AND count = $2".into(),
+            vec![json!("item-1"), json!(42)],
+        )])
+        .unwrap();
+        assert_eq!(claimed, json!([1]));
+        let again = db_transaction(vec![(
+            "UPDATE items SET count = 44 WHERE id = $1 AND count = $2".into(),
+            vec![json!("item-1"), json!(42)],
+        )])
+        .unwrap();
+        assert_eq!(again, json!([0]));
+        assert!(db_transaction(vec![
+            ("UPDATE items SET count = 99 WHERE id = $1".into(), vec![json!("item-1")]),
+            ("INSERT INTO missing_table VALUES (1)".into(), vec![]),
+        ])
+        .is_err());
+        let count = db_select("SELECT count FROM items WHERE id = $1", vec![json!("item-1")]).unwrap();
+        assert_eq!(count[0]["count"], 43);
+
+        // Never joins (and so can never be rolled back by) a transaction someone else opened.
+        db_execute("BEGIN", vec![]).unwrap();
+        assert!(db_transaction(vec![("UPDATE items SET count = 1".into(), vec![])]).is_err());
+        db_execute("ROLLBACK", vec![]).unwrap();
 
         let _ = std::fs::remove_dir_all(temp_dir);
     }

@@ -20,14 +20,33 @@ public class SuiteMailPlugin extends Plugin {
     private final AiCoreBridge aiCore = new AiCoreBridge();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
-    @Override public void load() {
-        startupTelemetry = StartupTelemetry.forProcess(getContext());
-        String path = getContext().getFilesDir().getAbsolutePath() + "/suitemail.db";
-        JSObject args = new JSObject();
-        args.put("path", path);
-        try {
+    private static final Object DATABASE = new Object();
+    private static volatile boolean databaseReady = false;
+
+    private static void initDatabase(android.content.Context context) throws Exception {
+        synchronized (DATABASE) {
+            if (databaseReady) return;
+            JSObject args = new JSObject();
+            args.put("path", context.getFilesDir().getAbsolutePath() + "/suitemail.db");
             JSObject result = new JSObject(nativeCall("db_init", args.toString()));
             if (result.has("error")) throw new IllegalStateException(result.getString("error"));
+            databaseReady = true;
+        }
+    }
+
+    /**
+     * Raw database command on the app's own Rust connection, initializing it first when WorkManager
+     * cold-started this process without the WebView. Use AppDatabase instead of calling this directly.
+     */
+    static String databaseCall(android.content.Context context, String command, String args) throws Exception {
+        initDatabase(context);
+        return nativeCall(command, args);
+    }
+
+    @Override public void load() {
+        startupTelemetry = StartupTelemetry.forProcess(getContext());
+        try {
+            initDatabase(getContext());
         } catch (Exception e) {
             startupTelemetry.record(false);
             throw new IllegalStateException("Cannot initialize SuiteMail database", e);

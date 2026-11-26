@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { searchMessages } from "@/services/db/search";
 import { useAccountStore } from "@/stores/accountStore";
@@ -8,7 +8,7 @@ import { InputDialog } from "@/components/ui/InputDialog";
 import { Search, X, FolderPlus } from "lucide-react";
 
 export function SearchBar() {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const searchRequestRef = useRef(0);
   const [searchStatus, setSearchStatus] = useState("");
   const searchQuery = useThreadStore((s) => s.searchQuery);

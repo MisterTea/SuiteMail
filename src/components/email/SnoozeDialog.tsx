@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { CSSTransition } from "react-transition-group";
@@ -122,7 +122,7 @@ export function getSnoozePresets(): SnoozePreset[] {
 }
 
 export function SnoozeDialog({ isOpen = true, onSnooze, onClose }: SnoozeDialogProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const overlayRef = useRef<HTMLDivElement>(null);
   const presets = useMemo(() => getSnoozePresets(), [isOpen]);
   const [isCustomOpen, setIsCustomOpen] = useState(false);

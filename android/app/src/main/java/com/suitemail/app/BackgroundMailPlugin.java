@@ -7,7 +7,19 @@ import android.content.SharedPreferences;
 @CapacitorPlugin(name="BackgroundMail")
 public class BackgroundMailPlugin extends Plugin {
     private BackgroundMailStore store;
-    @Override public void load() { store=new BackgroundMailStore(getContext());BackgroundMailScheduler.schedule(getContext()); }
+    private static final java.util.concurrent.ExecutorService scheduledSends=java.util.concurrent.Executors.newSingleThreadExecutor();
+    @Override public void load() {
+        store=new BackgroundMailStore(getContext());BackgroundMailScheduler.schedule(getContext());
+        BackgroundMailScheduler.scheduleScheduledSend(getContext());
+    }
+    /** WorkManager doesn't run while the app is open, so the app asks the same native sender to run. */
+    @PluginMethod public void runDueScheduledSends(PluginCall call) {
+        android.content.Context context=getContext().getApplicationContext();
+        scheduledSends.execute(() -> {
+            ScheduledSender.Result result=ScheduledSender.run(context);
+            JSObject data=new JSObject();data.put("sent",result.sent);data.put("failed",result.failed);call.resolve(data);
+        });
+    }
     @PluginMethod public void configure(PluginCall call) {
         BackgroundMailScheduler.setEnabled(getContext(),call.getBoolean("enabled",true));status(call);
     }

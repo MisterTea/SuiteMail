@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useRef, useState } from "react";
 import type { Editor } from "@tiptap/react";
 import { InputDialog } from "@/components/ui/InputDialog";
@@ -31,7 +31,7 @@ interface EditorToolbarProps {
 }
 
 export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen }: EditorToolbarProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [showLinkDialog, setShowLinkDialog] = useState(false);
   const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);

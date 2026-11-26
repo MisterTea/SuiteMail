@@ -23,6 +23,13 @@ public final class BackgroundMailScheduler {
             .setBackoffCriteria(BackoffPolicy.LINEAR,30,TimeUnit.SECONDS).addTag(TAG).build();
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(NAME,ExistingPeriodicWorkPolicy.KEEP,work);
     }
+    static final String SCHEDULED_SEND = "suitemail-scheduled-send";
+    /** Scheduled mail must go out even when background sync is off or the battery is low, so it has its own job. */
+    static void scheduleScheduledSend(Context context) {
+        PeriodicWorkRequest work = new PeriodicWorkRequest.Builder(ScheduledSendWorker.class,15,TimeUnit.MINUTES)
+            .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build();
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(SCHEDULED_SEND,ExistingPeriodicWorkPolicy.KEEP,work);
+    }
     static void setEnabled(Context context, boolean enabled) {
         prefs(context).edit().putBoolean("enabled",enabled).commit();
         if (enabled) schedule(context);

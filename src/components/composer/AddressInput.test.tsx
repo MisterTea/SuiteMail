@@ -109,4 +109,41 @@ describe("AddressInput debounce behavior", () => {
     expect(fireEvent.keyDown(getByRole("textbox", { name: "To" }), { key: "Tab" })).toBe(true);
   });
 
+  it("cancels the pending search when Enter commits an address before the debounce fires", async () => {
+    mockSearchContacts.mockResolvedValue([{ id: "c1", email: "alex@example.com", display_name: "Alex" }]);
+    const onChange = vi.fn();
+    const { getByRole, queryByText } = render(<AddressInput label="To" addresses={[]} onChange={onChange} />);
+    const input = getByRole("textbox", { name: "To" });
+    fireEvent.change(input, { target: { value: "alex@example.com" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onChange).toHaveBeenCalledWith(["alex@example.com"]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(mockSearchContacts).not.toHaveBeenCalled();
+    expect(queryByText("Alex")).toBeNull();
+    mockSearchContacts.mockResolvedValue([]);
+  });
+
+  it("ignores an in-flight search that resolves after the address was committed", async () => {
+    let resolveSearch: (value: unknown) => void = () => {};
+    mockSearchContacts.mockImplementationOnce(() => new Promise((resolve) => { resolveSearch = resolve; }));
+    const onChange = vi.fn();
+    const { getByRole, queryByText } = render(<AddressInput label="To" addresses={[]} onChange={onChange} />);
+    const input = getByRole("textbox", { name: "To" });
+    fireEvent.change(input, { target: { value: "alex@example.com" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mockSearchContacts).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(input, { key: "Enter" });
+    await act(async () => { resolveSearch([{ id: "c1", email: "alex@example.com", display_name: "Alex" }]); });
+    expect(queryByText("Alex")).toBeNull();
+    expect(input).toHaveValue("");
+  });
+
+  it("still shows suggestions for a search that is not superseded", async () => {
+    mockSearchContacts.mockResolvedValueOnce([{ id: "c1", email: "alex@example.com", display_name: "Alex" }]);
+    const { getByRole, queryByText } = render(<AddressInput label="To" addresses={[]} onChange={vi.fn()} />);
+    fireEvent.change(getByRole("textbox", { name: "To" }), { target: { value: "al" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(queryByText("Alex")).not.toBeNull();
+  });
+
 });

@@ -5,6 +5,9 @@
  */
 
 
+import { Capacitor } from "@capacitor/core";
+import { platformInvoke } from "@/platform";
+
 const KEY_FILE_NAME = "suitemail.key";
 const LEGACY_KEY_FILE_NAME = "velo.key";
 const ALGORITHM = "AES-GCM";
@@ -64,7 +67,9 @@ function asBufferSource(arr: Uint8Array): BufferSource {
 async function getOrCreateKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey;
 
-  const existingKey = await readKeyFile();
+  const ios = Capacitor.getPlatform() === "ios";
+  const existingKey = ios ? await platformInvoke<string>("credential_key") : await readKeyFile();
+  if (ios && !existingKey) throw new Error("The SuiteMail credential key is unavailable.");
   let rawKeyB64: string;
   if (existingKey) {
     rawKeyB64 = existingKey.trim();

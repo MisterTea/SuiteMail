@@ -1,3 +1,4 @@
+import { isIOS } from "@/platform/ios";
 import { notifyNewlySyncedMail } from "../notifications/newMail";
 import { importBackgroundMail } from "./androidBackgroundSync";
 import { getGmailClient } from "./tokenManager";
@@ -138,6 +139,7 @@ async function syncImapAccount(accountId: string): Promise<void> {
  * Discovers calendars, syncs events for each visible calendar, stores results in DB.
  */
 async function syncCalendarForAccount(accountId: string): Promise<void> {
+  if (isIOS()) return;
   try {
     const supported = await hasCalendarSupport(accountId);
     if (!supported) return;

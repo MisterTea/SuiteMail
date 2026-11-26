@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useMemo, useRef } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
@@ -99,7 +99,7 @@ function getSchedulePresets(): PresetItem[] {
 }
 
 export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const [validationError, setValidationError] = useState("");
   const presets = useMemo(() => getSchedulePresets(), []);
   const [recurrence, setRecurrence] = useState<RecurrenceRule>("none");

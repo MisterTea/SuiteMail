@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { Modal } from "@/components/ui/Modal";
 import { memo, useState } from "react";
 import {
@@ -45,7 +45,7 @@ export const BatchActionBar = memo(function BatchActionBar({
   onClear,
   onSelectAll,
 }: BatchActionBarProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const [showMore, setShowMore] = useState(false);
   if (androidMobile) return <>
     <div role="toolbar" aria-label="Bulk actions toolbar" className="w-[calc(100vw-2rem)] rounded-2xl border border-border-primary bg-bg-primary p-2 shadow-xl pointer-events-auto">

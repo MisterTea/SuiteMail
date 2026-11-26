@@ -1,5 +1,5 @@
 import { readAttachmentBytes } from "@/services/attachments/readAttachmentBytes";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { platformSaveFile } from "@/platform";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
@@ -28,7 +28,7 @@ interface AttachmentListProps {
 }
 
 export function AttachmentList({ accountId, messageId, attachments, referencedCids }: AttachmentListProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<DbAttachment | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -68,6 +68,21 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
       setDownloadingId(null);
     }
   }, [accountId, messageId, downloadingId]);
+
+  const openAttachment = useCallback(async (att: DbAttachment) => {
+    if (!window.supermail?.presentFile || !canPreview(att.mime_type, att.filename)) {
+      setPreview(att);
+      return;
+    }
+    setDownloadError(null);
+    try {
+      const bytes = await readAttachmentBytes({ ...att, account_id: accountId, message_id: messageId });
+      if (!bytes) throw new Error("Attachment is unavailable");
+      await window.supermail.presentFile(att.filename ?? "attachment", bytes, true);
+    } catch {
+      setDownloadError("Couldn’t open the attachment. Try Open again.");
+    }
+  }, [accountId, messageId]);
 
   const handleDownloadAll = useCallback(async () => {
     for (const att of fileAttachments) {
@@ -120,13 +135,13 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
               <div
                 key={att.id}
                 style={android ? { flexWrap: "wrap" } : undefined}
-                onClick={() => setPreview(att)}
+                onClick={() => void openAttachment(att)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    setPreview(att);
+                    void openAttachment(att);
                   }
                 }}
                 className={`group relative flex items-center gap-2.5 pl-2.5 pr-2 py-2 min-h-[48px] sm:min-h-0 rounded-xl sm:rounded-lg border border-border-primary/80 bg-bg-secondary/40 hover:bg-bg-secondary hover:border-border-secondary hover:shadow-xs transition-all duration-150 w-full sm:w-auto max-w-full sm:max-w-[260px] cursor-pointer text-left select-none touch-manipulation active:scale-[0.99] ${meta.cardBorderHover}`}
@@ -161,7 +176,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        setPreview(att);
+                        void openAttachment(att);
                       }}
                       className="min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1 rounded-lg sm:rounded-md text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary active:scale-90 transition-all flex items-center justify-center touch-manipulation"
                       title="Preview"
@@ -211,7 +226,7 @@ export function AttachmentPreview({
   messageId: string;
   onClose: () => void;
 }) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);

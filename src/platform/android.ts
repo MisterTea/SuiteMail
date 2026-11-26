@@ -2,7 +2,7 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
 import { App } from "@capacitor/app";
 import { Directory, Encoding, Filesystem } from "@capacitor/filesystem";
 import type { PlatformBridge } from "./index";
-import { installAndroidViewport } from "./androidViewport";
+import { installMobileViewport } from "./mobileViewport";
 
 interface NativeCore {
   invoke(options: { command: string; args: Record<string, unknown> }): Promise<{ value: unknown }>;
@@ -11,8 +11,8 @@ interface NativeCore {
 
 // The same platform contract as desktop; mail and SQLite execute locally in Rust.
 if (Capacitor.getPlatform() === "android") {
-  document.documentElement.classList.add("android-app");
-  installAndroidViewport();
+  document.documentElement.classList.add("android-app", "native-phone");
+  installMobileViewport();
   const native = registerPlugin<NativeCore>("SuiteMail");
   const updater = registerPlugin<{
     check(options: { manual: boolean; startup: boolean }): Promise<{ value: { version: string; body: string | null } | null }>;

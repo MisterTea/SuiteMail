@@ -17,7 +17,7 @@ import { insertFollowUpReminder, getFollowUpForThread, cancelFollowUpForThread }
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useToastStore } from "@/stores/toastStore";
 
 interface ActionBarProps {
@@ -45,7 +45,7 @@ function Separator() {
 }
 
 export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply", contactSidebarVisible, taskSidebarVisible, onReply, onReplyAll, onForward, onTranslate, translationLabel = "Translate", translating, onPrint, onExport, onPopOut, onToggleContactSidebar, onToggleTaskSidebar }: ActionBarProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showMore, setShowMore] = useState(false);
   const updateThread = useThreadStore((s) => s.updateThread);

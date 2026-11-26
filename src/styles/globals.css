@@ -632,24 +632,24 @@ body {
   color: #e8eaed !important;
 }
 
-/* Android edge-to-edge layout: keep the inbox clear of system status icons. */
-.android-app #root {
+/* Mobile edge-to-edge layout: keep the inbox clear of system status icons. */
+.native-phone #root {
   padding-top: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
 }
-.android-app #root > .h-screen {
+.native-phone #root > .h-screen {
   height: calc(100dvh - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)));
 }
-.android-app [role="dialog"] {
+.native-phone [role="dialog"] {
   padding-bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
 }
 
-/* Native Android phone ergonomics. CSS pixels map to the WebView's dp scale. */
+/* Native phone ergonomics. */
 /* Messages use the screen width; wide sender HTML scrolls inside its iframe. */
-.android-app [data-thread-messages] {
+.native-phone [data-thread-messages] {
   padding-inline: 0;
   overflow-x: hidden;
 }
-.android-app [data-message-card] {
+.native-phone [data-message-card] {
   min-width: 0;
   max-width: 100%;
   border: 0;
@@ -658,78 +658,95 @@ body {
   background: transparent;
   box-shadow: none;
 }
-.android-app [data-message-card][data-message-focused="true"] {
+.native-phone [data-message-card][data-message-focused="true"] {
   outline: 2px solid var(--color-accent);
   outline-offset: -2px;
 }
-.android-app [data-message-body] { padding-inline: 0; }
-.android-app [data-message-body] > :not([data-email-renderer]) { margin-inline: 12px; }
-.android-app [data-android-feedback] { bottom: calc(16px + var(--safe-area-inset-bottom, 0px)); }
-.android-app [data-sync-failure] { bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
+.native-phone [data-message-body] { padding-inline: 0; }
+.native-phone [data-message-body] > :not([data-email-renderer]) { margin-inline: 12px; }
+.native-phone [data-android-feedback] { bottom: calc(16px + var(--safe-area-inset-bottom, 0px)); }
+.native-phone [data-sync-failure] { bottom: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)); }
 
 @media (max-width: 767px) {
-  .android-app { -webkit-tap-highlight-color: transparent; }
-  .android-app #root > .h-screen {
-    height: calc(var(--android-viewport-height, 100dvh) - var(--safe-area-inset-top, 0px));
+  .native-phone { -webkit-tap-highlight-color: transparent; }
+  .native-phone #root > .h-screen {
+    height: calc(var(--mobile-viewport-height, 100dvh) - var(--safe-area-inset-top, 0px));
   }
-  .android-app button,
-  .android-app [role="button"],
-  .android-app [role="checkbox"],
-  .android-app input:not([type="checkbox"]):not([type="radio"]),
-  .android-app select {
+  .native-phone button,
+  .native-phone [role="button"],
+  .native-phone [role="checkbox"],
+  .native-phone input:not([type="checkbox"]):not([type="radio"]),
+  .native-phone select {
     min-height: 48px;
   }
-  .android-app button,
-  .android-app [role="button"],
-  .android-app [role="checkbox"] { min-width: 48px; touch-action: manipulation; }
-  .android-app input:not([type="checkbox"]):not([type="radio"]),
-  .android-app textarea,
-  .android-app select { font-size: 16px; }
-  .android-app nav[data-mobile-nav] {
+  .native-phone button,
+  .native-phone [role="button"],
+  .native-phone [role="checkbox"] { min-width: 48px; touch-action: manipulation; }
+  .native-phone input:not([type="checkbox"]):not([type="radio"]),
+  .native-phone textarea,
+  .native-phone select { font-size: 16px; }
+  .native-phone nav[data-mobile-nav] {
     padding-bottom: max(8px, var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)));
   }
-  .android-app[data-android-keyboard="open"] [data-mobile-nav] { display: none; }
-  .android-app :is([data-android-compose], [data-android-feedback]) { bottom: calc(88px + var(--safe-area-inset-bottom, 0px)); }
-  .android-app [data-android-feedback][data-composer-open] { bottom: calc(144px + var(--safe-area-inset-bottom, 0px)); }
-  .android-app [data-android-feedback][data-bulk-selected] { bottom: calc(216px + var(--safe-area-inset-bottom, 0px)); }
-  .android-app [role="dialog"] { overscroll-behavior: contain; }
-  .android-app [role="dialog"] .modal-panel { max-height: calc(var(--android-viewport-height, 100dvh) - 32px); }
-  .android-app [role="dialog"] h3 { font-size: 18px; }
-  .android-app [role="dialog"] button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .native-phone[data-mobile-keyboard="open"] [data-mobile-nav] { display: none; }
+  .native-phone :is([data-android-compose], [data-android-feedback]) { bottom: calc(88px + var(--safe-area-inset-bottom, 0px)); }
+  .native-phone [data-android-feedback][data-composer-open] { bottom: calc(144px + var(--safe-area-inset-bottom, 0px)); }
+  .native-phone [data-android-feedback][data-bulk-selected] { bottom: calc(216px + var(--safe-area-inset-bottom, 0px)); }
+  .native-phone [role="dialog"] { overscroll-behavior: contain; }
+  .native-phone [role="dialog"] .modal-panel { max-height: calc(var(--mobile-viewport-height, 100dvh) - 32px); }
+  .native-phone [role="dialog"] h3 { font-size: 18px; }
+  .native-phone [role="dialog"] button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 }
-.android-app[data-android-keyboard="open"] [data-android-feedback] {
-  top: max(16px, calc(var(--android-viewport-height, 100dvh) - 72px));
+.native-phone[data-mobile-keyboard="open"] [data-android-feedback] {
+  top: max(16px, calc(var(--mobile-viewport-height, 100dvh) - 72px));
   right: 16px;
   bottom: auto;
 }
-.android-app[data-android-keyboard="open"] [data-android-feedback][data-composer-open] {
-  top: max(16px, calc(var(--android-viewport-height, 100dvh) - 200px));
+.native-phone[data-mobile-keyboard="open"] [data-android-feedback][data-composer-open] {
+  top: max(16px, calc(var(--mobile-viewport-height, 100dvh) - 200px));
 }
 @media (max-width: 767px) {
-  .android-app [data-message-sender-row] { flex-direction: column; align-items: flex-start; gap: 4px; }
-  .android-app [data-message-address-inline] { display: none; }
-  .android-app [data-message-date] { background: transparent; border: 0; padding: 0; }
-  .android-app aside { padding-top: var(--safe-area-inset-top, 0px); padding-bottom: var(--safe-area-inset-bottom, 0px); }
+  .native-phone [data-message-sender-row] { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .native-phone [data-message-address-inline] { display: none; }
+  .native-phone [data-message-date] { background: transparent; border: 0; padding: 0; }
+  .native-phone aside { padding-top: var(--safe-area-inset-top, 0px); padding-bottom: var(--safe-area-inset-bottom, 0px); }
 }
 @media (max-width: 767px) {
-  .android-app [data-thread-pin-toggle] { display: none; }
-  .android-app .action-feedback-toast { border-radius: 16px; }
+  .native-phone [data-thread-pin-toggle] { display: none; }
+  /* Phones remount the list after every thread view; replaying the fade-in blanks it mid-action. */
+  .native-phone .stagger-in { animation: none; }
+  .native-phone .action-feedback-toast { border-radius: 16px; }
 }
 @media (max-width: 767px) {
-  .android-app [role="dialog"] .modal-panel { width: 100%; max-width: 100%; border-radius: 24px 24px 0 0; }
-  .android-app [data-action-feedback] { width: calc(100vw - 24px); border-radius: 16px; padding: 8px 12px; }
-  .android-app [data-action-feedback] .truncate { white-space: normal; overflow: visible; }
+  .native-phone [role="dialog"] .modal-panel { width: 100%; max-width: 100%; border-radius: 24px 24px 0 0; }
+  .native-phone [data-action-feedback] { width: calc(100vw - 24px); border-radius: 16px; padding: 8px 12px; }
+  .native-phone [data-action-feedback] .truncate { white-space: normal; overflow: visible; }
 }
 @media (max-width: 767px) {
-  .android-app [data-app-shell] :is([data-sync-failure], nav[data-mobile-nav]) {
+  .native-phone [data-app-shell] :is([data-sync-failure], nav[data-mobile-nav]) {
     position: relative;
     flex-shrink: 0;
     inset: auto;
   }
-  .android-app [data-email-scroll] { padding-bottom: 88px; }
-  .android-app [data-bulk-anchor] { bottom: 12px; }
-  .android-app [data-action-feedback] { bottom: calc(88px + var(--safe-area-inset-bottom, 0px)); }
+  .native-phone [data-email-scroll] { padding-bottom: 88px; }
+  .native-phone [data-bulk-anchor] { bottom: 12px; }
+  .native-phone [data-action-feedback] { bottom: calc(88px + var(--safe-area-inset-bottom, 0px)); }
 }
 @media (max-width: 767px) {
-  .android-app [data-mail-layout] { padding-bottom: 0; }
+  .native-phone [data-mail-layout] { padding-bottom: 0; }
+}
+
+.ios-app {
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+}
+.ios-app #root {
+  padding-inline: env(safe-area-inset-left, 0px) env(safe-area-inset-right, 0px);
+}
+
+.ios-app[data-mobile-keyboard="open"] [data-composer-accessories] {
+  display: none;
+}
+.ios-app[data-mobile-keyboard="open"] [data-composer-footer] {
+  padding-block: 4px;
 }

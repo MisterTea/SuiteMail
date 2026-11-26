@@ -52,7 +52,8 @@ test.describe("Top 20 Email Workflows", () => {
       await expect(more).toBeVisible();
       await more.tap();
       await expect(messageActionsRoot(page)).toBeVisible();
-    } else if (await more.isVisible()) await more.tap();
+    }
+    // Desktop keeps these actions in the toolbar; its More menu holds only overflow (Translate).
   }
 
   // Storyboard 1: Read & Browse Inbox
@@ -95,7 +96,7 @@ test.describe("Top 20 Email Workflows", () => {
     await setupInboxPage(page);
 
     // Tap Compose button (in mobile nav bar or sidebar)
-    const composeBtn = page.locator('button:has-text("Compose"):visible').first();
+    const composeBtn = page.locator('button[aria-label="Compose email"]:visible, button:has-text("Compose"):visible').first(); // phone nav shows only "+".
     await expect(composeBtn).toBeVisible();
     await composeBtn.tap();
 
@@ -444,7 +445,7 @@ test.describe("Top 20 Email Workflows", () => {
     await setupInboxPage(page);
 
     // Open composer
-    const composeBtn = page.locator('button:has-text("Compose"):visible').first();
+    const composeBtn = page.locator('button[aria-label="Compose email"]:visible, button:has-text("Compose"):visible').first(); // phone nav shows only "+".
     await composeBtn.tap();
 
     // Enter recipient and subject

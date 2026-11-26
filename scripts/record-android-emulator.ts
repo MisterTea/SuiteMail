@@ -6,7 +6,11 @@ import os from 'node:os';
 const sdk = process.env.ANDROID_HOME || path.join(os.homedir(),'Library/Android/sdk');
 const adb = path.join(sdk,'platform-tools',process.platform === 'win32' ? 'adb.exe' : 'adb');
 const serial = process.env.ANDROID_SERIAL || 'emulator-5554';
-const apk = path.resolve('dist-android/SuiteMail-0.1.0-android-debug.apk');
+// build:android names the APK after package.json's version, so don't hard-code it.
+const apkName = fs.readdirSync('dist-android').filter((name) => name.endsWith('-android-debug.apk'))
+  .sort((a,b) => fs.statSync(path.join('dist-android',b)).mtimeMs - fs.statSync(path.join('dist-android',a)).mtimeMs)[0];
+if (!apkName) throw new Error('No debug APK in dist-android. Run npm run build:android first.');
+const apk = path.resolve('dist-android',apkName);
 execFileSync(adb,['-s',serial,'wait-for-device']);
 execFileSync(adb,['-s',serial,'install','-r',apk],{stdio:'inherit'});
 fs.mkdirSync('recordings/android',{recursive:true});

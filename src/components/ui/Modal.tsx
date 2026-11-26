@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { type ReactNode, useEffect, useRef, useId } from "react";
 import { createPortal } from "react-dom";
 import { CSSTransition } from "react-transition-group";
@@ -27,7 +27,7 @@ export function Modal({
   panelClassName,
   renderHeader,
 }: ModalProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const titleId = useId();
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -36,7 +36,8 @@ export function Modal({
   useEffect(() => {
     if (!isOpen) return;
     const previousFocus = document.activeElement as HTMLElement | null;
-    const focusTimer = androidMobile ? setTimeout(() => nodeRef.current?.querySelector<HTMLButtonElement>("button")?.focus(), 0) : null;
+    const focusTimer = androidMobile ? // Move focus into the sheet for assistive tech without drawing the keyboard focus ring after a tap.
+    setTimeout(() => nodeRef.current?.querySelector<HTMLButtonElement>("button")?.focus({ focusVisible: false } as FocusOptions), 0) : null;
     const handleKeyDown = (e: KeyboardEvent) => {
       const dialogs = [...document.querySelectorAll('[role="dialog"]')];
       if (androidMobile && dialogs[dialogs.length-1] !== nodeRef.current) return;
@@ -64,7 +65,7 @@ export function Modal({
         aria-modal="true"
         aria-label={title}
         aria-labelledby={renderHeader === undefined ? titleId : undefined}
-        style={androidMobile ? {top:"var(--safe-area-inset-top, 0px)",bottom:"auto",height:"calc(var(--android-viewport-height, 100dvh) - var(--safe-area-inset-top, 0px))"} : undefined}
+        style={androidMobile ? {top:"var(--safe-area-inset-top, 0px)",bottom:"auto",height:"calc(var(--mobile-viewport-height, 100dvh) - var(--safe-area-inset-top, 0px))"} : undefined}
         className={`fixed inset-0 ${zIndex} flex items-end sm:items-center justify-center p-0 sm:p-4`}
         onContextMenu={(e) => e.stopPropagation()}
       >

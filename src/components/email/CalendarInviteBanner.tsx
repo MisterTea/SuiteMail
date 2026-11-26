@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useEffect, useCallback } from "react";
 import { Calendar, MapPin, User, Check, X, Clock, ExternalLink, AlertCircle } from "lucide-react";
 import type { InviteDetails, InviteResponseStatus } from "@/services/calendar/types";
@@ -13,7 +13,7 @@ interface CalendarInviteBannerProps {
 }
 
 export function CalendarInviteBanner({ message, invite }: CalendarInviteBannerProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const activeAccount = useAccountStore((s) =>
     s.accounts.find((a) => a.id === message.account_id) ?? s.accounts[0],
   );

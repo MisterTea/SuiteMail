@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { Download, Eye, ExternalLink } from "lucide-react";
 import { formatFileSize, canPreview, getFileTypeMeta } from "@/utils/fileTypeHelpers";
 import { FileTypeIcon } from "./FileTypeIcon";
@@ -21,7 +21,7 @@ function formatShortDate(timestamp: number | null): string {
 }
 
 export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpToEmail }: AttachmentListItemProps) {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const previewable = canPreview(attachment.mime_type, attachment.filename);
   const senderName = attachment.from_name || attachment.from_address || "Unknown";
   const meta = getFileTypeMeta(attachment.mime_type, attachment.filename);

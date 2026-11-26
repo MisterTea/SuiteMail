@@ -7,7 +7,7 @@ import { isAndroidAiRuntime, isAndroidEmulator, resolveOllamaServerUrl } from "@
 import { SandboxAccountSettings } from "./SandboxAccountSettings";
 import { AiCoreSettings } from "./AiCoreSettings";
 import { AndroidBackgroundSyncSettings } from "./AndroidBackgroundSyncSettings";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { Capacitor } from "@capacitor/core";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "@tanstack/react-router";
@@ -17,7 +17,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
 import { DEFAULT_PI_SERVER_URL, loadPiServerUrl, piServerPort } from "@/services/ai/llamaServer";
-import { deleteAccount } from "@/services/db/accounts";
+import { deleteAccount, getAllAccounts } from "@/services/db/accounts";
 import { removeClient, reauthorizeAccount, getEnvGmailCredentials } from "@/services/gmail/tokenManager";
 import { triggerSync, forceFullSync, resyncAccount } from "@/services/gmail/syncManager";
 import {
@@ -90,8 +90,9 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
 ];
 
 export function SettingsPage() {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const android = Capacitor.getPlatform() === "android";
+  const ios = Capacitor.getPlatform() === "ios";
   const theme = useUIStore((s) => s.theme);
   const setTheme = useUIStore((s) => s.setTheme);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
@@ -117,8 +118,22 @@ export function SettingsPage() {
   const { tab } = useParams({ strict: false }) as { tab?: string };
   const activeTab = (tab && tabs.some((t) => t.id === tab) ? tab : "general") as SettingsTab;
   const settingsGroup = getSettingsGroup(activeTab);
-  const visibleTabs = tabs.filter((item) => getSettingsGroup(item.id) === settingsGroup);
+  const visibleTabs = tabs.filter((item) => getSettingsGroup(item.id) === settingsGroup && (!ios || item.id !== "ai"));
   const setActiveTab = (t: SettingsTab) => navigateToSettings(t);
+  const [lastSync, setLastSync] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    if (!ios || activeTab !== "accounts") return;
+    let revision = 0;
+    const refresh = () => {
+      const request = ++revision;
+      void getAllAccounts().then((rows) => {
+        if (revision === request) setLastSync(Object.fromEntries(rows.map((account) => [account.id, account.last_sync_at])));
+      }).catch(() => {});
+    };
+    refresh();
+    window.addEventListener("suitemail-sync-done", refresh);
+    return () => { revision++; window.removeEventListener("suitemail-sync-done", refresh); };
+  }, [ios, activeTab, accounts]);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notificationPermissionMessage, setNotificationPermissionMessage] = useState("");
   const activeAccountId = useAccountStore((state) => state.activeAccountId);
@@ -371,6 +386,7 @@ export function SettingsPage() {
       setReauthStatus((prev) => ({ ...prev, [accountId]: "authorizing" }));
       try {
         await reauthorizeAccount(accountId, email);
+        if (ios) void triggerSync([accountId]);
         setReauthStatus((prev) => ({ ...prev, [accountId]: "done" }));
         setTimeout(() => {
           setReauthStatus((prev) => ({ ...prev, [accountId]: "idle" }));
@@ -383,7 +399,7 @@ export function SettingsPage() {
         }, 3000);
       }
     },
-    [],
+    [ios],
   );
 
   const handleResyncAccount = useCallback(
@@ -945,12 +961,12 @@ export function SettingsPage() {
                     <SubscriptionManager />
                   </Section>
 
-                  <Section title="Address Book Sync (Google & CardDAV)">
+                  {!ios && <Section title="Address Book Sync (Google & CardDAV)">
                     <p className="text-xs text-text-tertiary mb-3">
                       Synchronize your address book from Google Contacts (People API) or CardDAV servers (iCloud, Fastmail, Nextcloud) to keep recipient auto-complete up to date.
                     </p>
                     <ContactsSyncSection />
-                  </Section>
+                  </Section>}
                 </>
               )}
 
@@ -970,7 +986,7 @@ export function SettingsPage() {
                           return (
                             <div
                               key={account.id}
-                              className="flex items-center justify-between py-2.5 px-4 bg-bg-secondary rounded-lg"
+                              className={`flex justify-between py-2.5 px-4 bg-bg-secondary rounded-lg ${ios ? "flex-wrap gap-x-3" : "items-center"}`}
                             >
                               <div>
                                 <div className="text-sm font-medium text-text-primary flex items-center gap-2">
@@ -982,9 +998,12 @@ export function SettingsPage() {
                                 <div className="text-xs text-text-tertiary">
                                   {account.email}
                                 </div>
+                                {ios && account.provider !== "sandbox" && <p className="text-xs text-text-secondary mt-1">
+                                  {lastSync[account.id] ? `Last synced ${new Date(lastSync[account.id]! * 1000).toLocaleString()}` : "Waiting for first sync"}
+                                </p>}
                               </div>
                               <div className="flex items-center gap-3">
-                                <button
+                                {(!ios || account.provider === "gmail_api") && <button
                                   onClick={() => handleReauthorizeAccount(account.id, account.email)}
                                   disabled={reauthStatus[account.id] === "authorizing"}
                                   className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
@@ -992,8 +1011,8 @@ export function SettingsPage() {
                                   {reauthStatus[account.id] === "authorizing" && "Waiting..."}
                                   {reauthStatus[account.id] === "done" && "Done!"}
                                   {reauthStatus[account.id] === "error" && "Failed"}
-                                  {(!reauthStatus[account.id] || reauthStatus[account.id] === "idle") && "Re-authorize"}
-                                </button>
+                                  {(!reauthStatus[account.id] || reauthStatus[account.id] === "idle") && (ios ? "Reconnect" : "Re-authorize")}
+                                </button>}
                                 <button
                                   onClick={() => handleResyncAccount(account.id)}
                                   disabled={resyncStatus[account.id] === "syncing"}
@@ -1059,6 +1078,7 @@ export function SettingsPage() {
                     </Section>
                   )}
 
+                  {!ios && <>
                   <SendAsAliasesSection />
 
                   <ImapCalDavSection />
@@ -1095,11 +1115,14 @@ export function SettingsPage() {
                     </div>
                   </Section>
 
+                  </>}
+
                   <Section title="Sync">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-text-secondary">
-                        Check for new mail
-                      </span>
+                      <div>
+                        <span className="text-sm text-text-secondary">Check for new mail</span>
+                        {ios && <p className="text-xs text-text-tertiary">iOS checks Gmail in the background when it grants refresh time.</p>}
+                      </div>
                       <Button
                         variant="primary"
                         size="md"

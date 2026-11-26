@@ -62,6 +62,8 @@ describe("EmailList focused and other empty states", () => {
       isLoadingMore: false,
       unreadCounts: {},
       selectedThreadIds: new Set(),
+      searchQuery: "",
+      searchThreadIds: null,
     });
     vi.mocked(useSelectedThreadId).mockReturnValue(null);
     vi.mocked(useActiveCategory).mockReturnValue("All");
@@ -136,5 +138,18 @@ describe("EmailList focused and other empty states", () => {
     vi.mocked(useActiveLabel).mockReturnValue("inbox");
     render(<EmailList />);
     await waitFor(() => expect(navigateToLabel).toHaveBeenCalledWith("focused"));
+  });
+
+  it("does not present the unfiltered list as search results while a search is pending", async () => {
+    vi.mocked(useActiveLabel).mockReturnValue("inbox");
+    render(<EmailList />);
+    await screen.findByText("0 conversations");
+    act(() => useThreadStore.getState().setSearch("Roadmap", null));
+    expect(await screen.findByTestId("search-results-badge")).toHaveTextContent("Searching…");
+    expect(screen.queryByText(/matching conversations?$/)).not.toBeInTheDocument();
+
+    act(() => useThreadStore.getState().setSearch("Roadmap", new Set()));
+    expect(screen.getByTestId("search-results-badge")).toHaveTextContent("0 results");
+    expect(screen.getByText("0 matching conversations")).toBeInTheDocument();
   });
 });
