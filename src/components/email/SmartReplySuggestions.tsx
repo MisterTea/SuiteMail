@@ -17,15 +17,16 @@ export function SmartReplySuggestions({ threadId, accountId, messages, noReply }
   const [replies, setReplies] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [available, setAvailable] = useState(false);
-  const checkedRef = useRef(false);
   const loadingRef = useRef(false);
   const openComposer = useComposerStore((s) => s.openComposer);
 
   useEffect(() => {
-    if (checkedRef.current) return;
-    checkedRef.current = true;
-    isAiAvailable().then(setAvailable);
-  }, []);
+    let active = true;
+    isAiAvailable(accountId).then((avail) => {
+      if (active) setAvailable(avail);
+    });
+    return () => { active = false; };
+  }, [accountId]);
 
   const loadReplies = useCallback(async () => {
     if (loadingRef.current) return;

@@ -50,7 +50,7 @@ for (const width of android ? [undefined] : [320, 1024]) {
     const categories = page.getByRole("navigation", { name: "Settings categories" });
     await general.click();
     await expect(page.getByRole("heading", { name: "General settings", exact: true })).toBeVisible();
-    await expect(categories.getByRole("button")).toHaveText(["General", "Accounts", "Shortcuts", "About"]);
+    await expect(categories.getByRole("button")).toHaveText(["General", "Accounts", "Shortcuts", "AI", "About"]);
     await expect(page.getByText("Launch at login", { exact: true })).toHaveCount(android ? 0 : 1);
 
     if (android) await folders.click();

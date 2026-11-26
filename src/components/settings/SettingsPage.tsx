@@ -15,6 +15,12 @@ import { useUIStore } from "@/stores/uiStore";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
+import {
+  loadMailboxAiSettings,
+  setMailboxAiBoolean,
+  setMailboxAutoArchiveCategories,
+  type MailboxAiSettings as MailboxAiSettingsState,
+} from "@/services/ai/mailboxAiSettings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
 import { DEFAULT_PI_SERVER_URL, loadPiServerUrl, piServerPort } from "@/services/ai/llamaServer";
 import { deleteAccount, getAllAccounts } from "@/services/db/accounts";
@@ -75,7 +81,7 @@ import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import appIcon from "@/assets/icon.png";
 
-type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "shortcuts" | "ai" | "about";
+type SettingsTab = "general" | "notifications" | "composing" | "mail-rules" | "people" | "accounts" | "shortcuts" | "ai" | "mailbox-ai" | "about";
 
 const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "general", label: "General", icon: Settings },
@@ -86,6 +92,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "accounts", label: "Accounts", icon: UserCircle },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "ai", label: "AI", icon: Sparkles },
+  { id: "mailbox-ai", label: "AI", icon: Sparkles },
   { id: "about", label: "About", icon: Info },
 ];
 
@@ -118,7 +125,7 @@ export function SettingsPage() {
   const { tab } = useParams({ strict: false }) as { tab?: string };
   const activeTab = (tab && tabs.some((t) => t.id === tab) ? tab : "general") as SettingsTab;
   const settingsGroup = getSettingsGroup(activeTab);
-  const visibleTabs = tabs.filter((item) => getSettingsGroup(item.id) === settingsGroup && (!ios || item.id !== "ai"));
+  const visibleTabs = tabs.filter((item) => getSettingsGroup(item.id) === settingsGroup && (!ios || (item.id !== "ai" && item.id !== "mailbox-ai")));
   const setActiveTab = (t: SettingsTab) => navigateToSettings(t);
   const [lastSync, setLastSync] = useState<Record<string, number | null>>({});
   useEffect(() => {
@@ -166,23 +173,15 @@ export function SettingsPage() {
   const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
   const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
   const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
-  const [aiEnabled, setAiEnabled] = useState(true);
-  const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
-  const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
   const [aiKeySaved, setAiKeySaved] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<"success" | "fail" | null>(null);
-  const [aiAutoDraftEnabled, setAiAutoDraftEnabled] = useState(true);
-  const [aiWritingStyleEnabled, setAiWritingStyleEnabled] = useState(true);
-  const [styleAnalyzing, setStyleAnalyzing] = useState(false);
-  const [styleAnalyzeDone, setStyleAnalyzeDone] = useState(false);
   const [cacheMaxMb, setCacheMaxMb] = useState("500");
   const [cacheSizeMb, setCacheSizeMb] = useState<number | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
   const [reauthStatus, setReauthStatus] = useState<Record<string, "idle" | "authorizing" | "done" | "error">>({});
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
   const [exportStatus, setExportStatus] = useState<Record<string, "idle" | "exporting" | "done" | "error">>({});
-  const [autoArchiveCategories, setAutoArchiveCategories] = useState<Set<string>>(() => new Set());
   const [smartNotifications, setSmartNotifications] = useState(true);
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
   const [pgpIdentity, setPgpIdentity] = useState<{ publicKey: string; fingerprint: string } | null>(null);
@@ -259,22 +258,6 @@ export function SettingsPage() {
       setCopilotApiKey(copKey ?? "");
       const copilotModelVal = await getSetting("copilot_model");
       if (copilotModelVal) setCopilotModel(copilotModelVal);
-      const aiEn = await getSetting("ai_enabled");
-      setAiEnabled(aiEn !== "false");
-      const aiCat = await getSetting("ai_auto_categorize");
-      setAiAutoCategorize(aiCat !== "false");
-      const aiSum = await getSetting("ai_auto_summarize");
-      setAiAutoSummarize(aiSum !== "false");
-      const aiDraft = await getSetting("ai_auto_draft_enabled");
-      setAiAutoDraftEnabled(aiDraft !== "false");
-      const aiStyle = await getSetting("ai_writing_style_enabled");
-      setAiWritingStyleEnabled(aiStyle !== "false");
-
-      // Load auto-archive categories
-      const autoArchive = await getSetting("auto_archive_categories");
-      if (autoArchive) {
-        setAutoArchiveCategories(new Set(autoArchive.split(",").map((s) => s.trim()).filter(Boolean)));
-      }
 
       // Load smart notification settings
       const smartNotif = await getSetting("smart_notifications");
@@ -1518,136 +1501,11 @@ export function SettingsPage() {
                       </div>
                     </Section>
                   )}
-
-                  <Section title="Features">
-                    <ToggleRow
-                      label="Enable AI features"
-                      description="Master toggle for all AI functionality"
-                      checked={aiEnabled}
-                      onToggle={async () => {
-                        const newVal = !aiEnabled;
-                        setAiEnabled(newVal);
-                        await setSetting("ai_enabled", newVal ? "true" : "false");
-                      }}
-                    />
-                    <ToggleRow
-                      label="Auto-categorize inbox"
-                      description="Use AI to refine rule-based categorization"
-                      checked={aiAutoCategorize}
-                      onToggle={async () => {
-                        const newVal = !aiAutoCategorize;
-                        setAiAutoCategorize(newVal);
-                        await setSetting("ai_auto_categorize", newVal ? "true" : "false");
-                      }}
-                    />
-                    <ToggleRow
-                      label="Auto-summarize threads"
-                      description="Generate short previews for inbox conversations"
-                      checked={aiAutoSummarize}
-                      onToggle={async () => {
-                        const newVal = !aiAutoSummarize;
-                        setAiAutoSummarize(newVal);
-                        await setSetting("ai_auto_summarize", newVal ? "true" : "false");
-                      }}
-                    />
-                  </Section>
-
-                  <Section title="Auto-Draft Replies">
-                    <ToggleRow
-                      label="Auto-draft replies"
-                      description="Pre-populate the reply editor with an AI-generated draft"
-                      checked={aiAutoDraftEnabled}
-                      onToggle={async () => {
-                        const newVal = !aiAutoDraftEnabled;
-                        setAiAutoDraftEnabled(newVal);
-                        await setSetting("ai_auto_draft_enabled", newVal ? "true" : "false");
-                      }}
-                    />
-                    <ToggleRow
-                      label="Learn writing style"
-                      description="Analyze your sent emails to match your tone and voice"
-                      checked={aiWritingStyleEnabled}
-                      onToggle={async () => {
-                        const newVal = !aiWritingStyleEnabled;
-                        setAiWritingStyleEnabled(newVal);
-                        await setSetting("ai_writing_style_enabled", newVal ? "true" : "false");
-                      }}
-                    />
-                    {aiWritingStyleEnabled && (
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-sm text-text-secondary">Writing style profile</span>
-                          <p className="text-xs text-text-tertiary mt-0.5">
-                            Reanalyze your writing style from recent sent emails
-                          </p>
-                        </div>
-                        <Button
-                          variant="secondary"
-                          size="md"
-                          onClick={async () => {
-                            setStyleAnalyzing(true);
-                            setStyleAnalyzeDone(false);
-                            try {
-                              const activeId = accounts.find((a) => a.isActive)?.id;
-                              if (activeId) {
-                                const { refreshWritingStyle } = await import("@/services/ai/writingStyleService");
-                                await refreshWritingStyle(activeId);
-                                setStyleAnalyzeDone(true);
-                                setTimeout(() => setStyleAnalyzeDone(false), 3000);
-                              }
-                            } catch (err) {
-                              console.error("Style analysis failed:", err);
-                            } finally {
-                              setStyleAnalyzing(false);
-                            }
-                          }}
-                          disabled={styleAnalyzing}
-                          className="bg-bg-tertiary text-text-primary border border-border-primary"
-                        >
-                          {styleAnalyzing ? "Analyzing..." : styleAnalyzeDone ? "Done!" : "Reanalyze"}
-                        </Button>
-                      </div>
-                    )}
-                  </Section>
-
-                  <Section title="Categories">
-                    <p className="text-xs text-text-tertiary mb-1">
-                      Incoming emails are automatically sorted using rule-based heuristics (Gmail labels, sender domain, headers). When AI is enabled, it refines results for better accuracy.
-                    </p>
-                    <p className="text-xs text-text-tertiary mb-3">
-                      Enable auto-archive to skip the inbox for specific categories.
-                    </p>
-                    {(["Updates", "Promotions", "Social", "Newsletters"] as const).map((cat) => (
-                      <ToggleRow
-                        key={cat}
-                        label={`Auto-archive ${cat}`}
-                        description={`Skip inbox for ${cat.toLowerCase()} emails`}
-                        checked={autoArchiveCategories.has(cat)}
-                        onToggle={async () => {
-                          const next = new Set(autoArchiveCategories);
-                          if (next.has(cat)) next.delete(cat);
-                          else next.add(cat);
-                          setAutoArchiveCategories(next);
-                          await setSetting("auto_archive_categories", [...next].join(","));
-                        }}
-                      />
-                    ))}
-                  </Section>
-
-                  <Section title="Bundling & Delivery Schedules">
-                    <p className="text-xs text-text-tertiary mb-3">
-                      Collapse categories into a single row in the inbox. Optionally set a delivery schedule to batch emails.
-                    </p>
-                    <BundleSettings />
-                  </Section>
-
-                  <Section title="Vector Database & Semantic Search">
-                    <p className="text-xs text-text-tertiary mb-3">
-                      SuperMail indexes email text into dense 384-dimensional vector embeddings, enabling natural language synonym search and agentic queries in Ask Inbox.
-                    </p>
-                    <VectorDatabaseSettings />
-                  </Section>
                 </>
+              )}
+
+              {activeTab === "mailbox-ai" && (
+                <MailboxAiSettings accounts={accounts} activeAccountId={activeAccountId} />
               )}
 
               {activeTab === "about" && (
@@ -2411,17 +2269,199 @@ function SettingRow({
   );
 }
 
+function MailboxAiSettings({
+  accounts,
+  activeAccountId,
+}: {
+  accounts: { id: string; email: string; provider?: string }[];
+  activeAccountId: string | null;
+}) {
+  const mailAccounts = accounts.filter((account) => account.provider !== "caldav");
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const accountId = mailAccounts.find((account) => account.id === (selectedAccountId ?? activeAccountId))?.id ?? mailAccounts[0]?.id ?? null;
+  const [loaded, setLoaded] = useState<{ accountId: string; value: MailboxAiSettingsState } | null>(null);
+  const [styleAnalyzing, setStyleAnalyzing] = useState(false);
+  const [styleAnalyzeDone, setStyleAnalyzeDone] = useState(false);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let active = true;
+    setStyleAnalyzeDone(false);
+    loadMailboxAiSettings(accountId)
+      .then((value) => {
+        if (active) setLoaded({ accountId, value });
+      })
+      .catch((err) => {
+        console.error("Failed to load mailbox AI settings:", err);
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountId]);
+
+  if (!accountId) {
+    return (
+      <p className="text-sm text-text-tertiary">
+        No mail accounts connected
+      </p>
+    );
+  }
+
+  const settings = loaded?.accountId === accountId ? loaded.value : null;
+
+  const updateBoolean = async (
+    key: "ai_enabled" | "ai_auto_categorize" | "ai_auto_summarize" | "ai_auto_draft_enabled" | "ai_writing_style_enabled",
+    field: "aiEnabled" | "aiAutoCategorize" | "aiAutoSummarize" | "aiAutoDraftEnabled" | "aiWritingStyleEnabled",
+  ) => {
+    if (!settings) return;
+    const newVal = !settings[field];
+    setLoaded({ accountId, value: { ...settings, [field]: newVal } });
+    await setMailboxAiBoolean(accountId, key, newVal);
+  };
+
+  return (
+    <>
+      <Section title="Mailbox">
+        <SettingRow label="Account">
+          <select
+            aria-label="Mailbox account"
+            value={accountId}
+            onChange={(e) => setSelectedAccountId(e.target.value)}
+            className="w-64 max-w-full bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+          >
+            {mailAccounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.email}
+              </option>
+            ))}
+          </select>
+        </SettingRow>
+      </Section>
+
+      {settings && (
+        <>
+          <Section title="Features">
+            <ToggleRow
+              label="Enable AI features"
+              description="Master toggle for all AI functionality in this mailbox"
+              checked={settings.aiEnabled}
+              onToggle={() => void updateBoolean("ai_enabled", "aiEnabled")}
+            />
+            <ToggleRow
+              label="Auto-categorize inbox"
+              description="Use AI to refine rule-based categorization"
+              checked={settings.aiAutoCategorize}
+              onToggle={() => void updateBoolean("ai_auto_categorize", "aiAutoCategorize")}
+            />
+            <ToggleRow
+              label="Auto-summarize threads"
+              description="Generate short previews for inbox conversations"
+              checked={settings.aiAutoSummarize}
+              onToggle={() => void updateBoolean("ai_auto_summarize", "aiAutoSummarize")}
+            />
+          </Section>
+
+          <Section title="Auto-Draft Replies">
+            <ToggleRow
+              label="Auto-draft replies"
+              description="Pre-populate the reply editor with an AI-generated draft"
+              checked={settings.aiAutoDraftEnabled}
+              onToggle={() => void updateBoolean("ai_auto_draft_enabled", "aiAutoDraftEnabled")}
+            />
+            <ToggleRow
+              label="Learn writing style"
+              description="Analyze your sent emails to match your tone and voice"
+              checked={settings.aiWritingStyleEnabled}
+              onToggle={() => void updateBoolean("ai_writing_style_enabled", "aiWritingStyleEnabled")}
+            />
+            {settings.aiWritingStyleEnabled && (
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-sm text-text-secondary">Writing style profile</span>
+                  <p className="text-xs text-text-tertiary mt-0.5">
+                    Reanalyze your writing style from recent sent emails
+                  </p>
+                </div>
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={async () => {
+                    setStyleAnalyzing(true);
+                    setStyleAnalyzeDone(false);
+                    try {
+                      const { refreshWritingStyle } = await import("@/services/ai/writingStyleService");
+                      await refreshWritingStyle(accountId);
+                      setStyleAnalyzeDone(true);
+                      setTimeout(() => setStyleAnalyzeDone(false), 3000);
+                    } catch (err) {
+                      console.error("Style analysis failed:", err);
+                    } finally {
+                      setStyleAnalyzing(false);
+                    }
+                  }}
+                  disabled={styleAnalyzing}
+                  className="bg-bg-tertiary text-text-primary border border-border-primary"
+                >
+                  {styleAnalyzing ? "Analyzing..." : styleAnalyzeDone ? "Done!" : "Reanalyze"}
+                </Button>
+              </div>
+            )}
+          </Section>
+
+          <Section title="Categories">
+            <p className="text-xs text-text-tertiary mb-1">
+              Incoming emails are automatically sorted using rule-based heuristics (Gmail labels, sender domain, headers). When AI is enabled, it refines results for better accuracy.
+            </p>
+            <p className="text-xs text-text-tertiary mb-3">
+              Enable auto-archive to skip the inbox for specific categories.
+            </p>
+            {(["Updates", "Promotions", "Social", "Newsletters"] as const).map((cat) => (
+              <ToggleRow
+                key={cat}
+                label={`Auto-archive ${cat}`}
+                description={`Skip inbox for ${cat.toLowerCase()} emails`}
+                checked={settings.autoArchiveCategories.has(cat)}
+                onToggle={async () => {
+                  const next = new Set(settings.autoArchiveCategories);
+                  if (next.has(cat)) next.delete(cat);
+                  else next.add(cat);
+                  setLoaded({ accountId, value: { ...settings, autoArchiveCategories: next } });
+                  await setMailboxAutoArchiveCategories(accountId, next);
+                }}
+              />
+            ))}
+          </Section>
+        </>
+      )}
+
+      <Section title="Bundling & Delivery Schedules">
+        <p className="text-xs text-text-tertiary mb-3">
+          Collapse categories into a single row in the inbox. Optionally set a delivery schedule to batch emails.
+        </p>
+        <BundleSettings accountId={accountId} />
+      </Section>
+
+      <Section title="Vector Database & Semantic Search">
+        <p className="text-xs text-text-tertiary mb-3">
+          SuperMail indexes email text into dense 384-dimensional vector embeddings, enabling natural language synonym search and agentic queries in Ask Inbox.
+        </p>
+        <VectorDatabaseSettings accountId={accountId} />
+      </Section>
+    </>
+  );
+}
+
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function BundleSettings() {
-  const accounts = useAccountStore((s) => s.accounts);
-  const activeAccountId = accounts.find((a) => a.isActive)?.id;
+function BundleSettings({ accountId }: { accountId: string }) {
   const [rules, setRules] = useState<Record<string, { bundled: boolean; delivery: boolean; days: number[]; hour: number; minute: number }>>({});
 
   useEffect(() => {
-    if (!activeAccountId) return;
+    if (!accountId) return;
+    let active = true;
     import("@/services/db/bundleRules").then(async ({ getBundleRules }) => {
-      const dbRules = await getBundleRules(activeAccountId);
+      const dbRules = await getBundleRules(accountId);
+      if (!active) return;
       const map: typeof rules = {};
       for (const r of dbRules) {
         let schedule = { days: [6], hour: 9, minute: 0 };
@@ -2438,16 +2478,19 @@ function BundleSettings() {
       }
       setRules(map);
     });
-  }, [activeAccountId]);
+    return () => {
+      active = false;
+    };
+  }, [accountId]);
 
   const saveRule = async (category: string, update: Partial<typeof rules[string]>) => {
-    if (!activeAccountId) return;
+    if (!accountId) return;
     const current = rules[category] ?? { bundled: false, delivery: false, days: [6], hour: 9, minute: 0 };
     const merged = { ...current, ...update };
     setRules((prev) => ({ ...prev, [category]: merged }));
     const { setBundleRule } = await import("@/services/db/bundleRules");
     await setBundleRule(
-      activeAccountId,
+      accountId,
       category,
       merged.bundled,
       merged.delivery,
@@ -2568,9 +2611,7 @@ function ToggleRow({
   );
 }
 
-function VectorDatabaseSettings() {
-  const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.isActive);
+function VectorDatabaseSettings({ accountId }: { accountId: string }) {
   const [stats, setStats] = useState<{ totalMessages: number; embeddedCount: number } | null>(null);
   const [statusText, setStatusText] = useState<string>("idle");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -2578,24 +2619,24 @@ function VectorDatabaseSettings() {
   const loadStats = useCallback(async () => {
     try {
       const { getEmbeddingStats } = await import("@/services/db/embeddings");
-      const res = await getEmbeddingStats(activeAccount?.id);
+      const res = await getEmbeddingStats(accountId);
       setStats(res);
     } catch (err) {
       console.error("Failed to load embedding stats:", err);
     }
-  }, [activeAccount?.id]);
+  }, [accountId]);
 
   useEffect(() => {
     loadStats();
   }, [loadStats]);
 
   const handleIndexUnembedded = async () => {
-    if (!activeAccount) return;
+    if (!accountId) return;
     setIsProcessing(true);
     setStatusText("Indexing...");
     try {
       const { indexAllForAccount } = await import("@/services/ai/embeddingIndexer");
-      await indexAllForAccount(activeAccount.id, (indexed) => {
+      await indexAllForAccount(accountId, (indexed) => {
         setStatusText(`Indexed ${indexed} messages...`);
       });
       await loadStats();
@@ -2610,15 +2651,15 @@ function VectorDatabaseSettings() {
   };
 
   const handleReindexAll = async () => {
-    if (!activeAccount) return;
+    if (!accountId) return;
     setIsProcessing(true);
     setStatusText("Clearing index...");
     try {
       const { clearAllEmbeddings } = await import("@/services/db/embeddings");
-      await clearAllEmbeddings(activeAccount.id);
+      await clearAllEmbeddings(accountId);
       setStatusText("Re-indexing...");
       const { indexAllForAccount } = await import("@/services/ai/embeddingIndexer");
-      await indexAllForAccount(activeAccount.id, (indexed) => {
+      await indexAllForAccount(accountId, (indexed) => {
         setStatusText(`Indexed ${indexed} messages...`);
       });
       await loadStats();
@@ -2664,7 +2705,7 @@ function VectorDatabaseSettings() {
           variant="secondary"
           size="sm"
           onClick={handleIndexUnembedded}
-          disabled={isProcessing || !activeAccount || (stats !== null && stats.embeddedCount >= stats.totalMessages)}
+          disabled={isProcessing || !accountId || (stats !== null && stats.embeddedCount >= stats.totalMessages)}
           className="bg-bg-tertiary text-text-primary border border-border-primary"
         >
           {statusText.startsWith("Indexing") ? statusText : "Index Unembedded"}
@@ -2673,7 +2714,7 @@ function VectorDatabaseSettings() {
           variant="secondary"
           size="sm"
           onClick={handleReindexAll}
-          disabled={isProcessing || !activeAccount}
+          disabled={isProcessing || !accountId}
           className="bg-bg-tertiary text-text-primary border border-border-primary"
         >
           {statusText.startsWith("Re-indexing") ? statusText : "Re-index All"}

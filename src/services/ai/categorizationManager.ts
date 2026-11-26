@@ -1,6 +1,6 @@
 import { isAiAvailable } from "./providerManager";
 import { categorizeThreads } from "./aiService";
-import { getSetting } from "@/services/db/settings";
+import { getMailboxAiBoolean } from "./mailboxAiSettings";
 import {
   getRecentRuleCategorizedThreadIds,
   setThreadCategoriesBatch,
@@ -8,12 +8,12 @@ import {
 
 export async function categorizeNewThreads(accountId: string): Promise<void> {
   try {
-    // Check if AI and auto-categorize are enabled
-    const aiAvail = await isAiAvailable();
+    // Check if AI and auto-categorize are enabled for this mailbox
+    const aiAvail = await isAiAvailable(accountId);
     if (!aiAvail) return;
 
-    const autoCat = await getSetting("ai_auto_categorize");
-    if (autoCat === "false") return;
+    const autoCat = await getMailboxAiBoolean("ai_auto_categorize", accountId);
+    if (!autoCat) return;
 
     // Get recently rule-categorized inbox threads (AI refines, not replaces)
     const threads = await getRecentRuleCategorizedThreadIds(accountId, 20);

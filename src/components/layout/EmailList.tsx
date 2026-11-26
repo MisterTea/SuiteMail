@@ -26,7 +26,7 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
-import { addSettingChangeListener, getSetting } from "@/services/db/settings";
+import { addSettingChangeListener } from "@/services/db/settings";
 import { AICORE_READY_EVENT } from "@/services/ai/providers/aicoreProvider";
 import { triggerSync } from "@/services/gmail/syncManager";
 import { archiveThread, trashThread, permanentDeleteThread, spamThread, markThreadRead, starThread } from "@/services/emailActions";
@@ -102,9 +102,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       const current = ++check;
       setInboxSummariesEnabled(false);
       try {
-        if ((await getSetting("ai_auto_summarize")) === "false" || current !== check) return;
+        const { getMailboxAiBoolean } = await import("@/services/ai/mailboxAiSettings");
+        if (!(await getMailboxAiBoolean("ai_auto_summarize", activeAccountId)) || current !== check) return;
         const { isAiAvailable } = await import("@/services/ai/providerManager");
-        const available = await isAiAvailable();
+        const available = await isAiAvailable(activeAccountId);
         if (current === check) setInboxSummariesEnabled(available);
       } catch {
         // Keep the message preview if AI settings are unavailable.
@@ -112,7 +113,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     };
     void update();
     const unsubscribe = addSettingChangeListener(({ key }) => {
-      if (["ai_enabled", "ai_auto_summarize", "ai_provider", "pi_server_url", "ollama_server_url"].includes(key) || key.endsWith("_api_key")) {
+      if (
+        key === "ai_enabled" ||
+        key === `ai_enabled:${activeAccountId}` ||
+        key === "ai_auto_summarize" ||
+        key === `ai_auto_summarize:${activeAccountId}` ||
+        ["ai_provider", "pi_server_url", "ollama_server_url"].includes(key) ||
+        key.endsWith("_api_key")
+      ) {
         void update();
       }
     });

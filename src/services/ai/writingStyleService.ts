@@ -8,7 +8,7 @@ import {
 } from "@/services/db/writingStyleProfiles";
 import { getRecentSentMessages, type DbMessage } from "@/services/db/messages";
 import { getAccount } from "@/services/db/accounts";
-import { getSetting } from "@/services/db/settings";
+import { getMailboxAiBoolean } from "./mailboxAiSettings";
 import { WRITING_STYLE_ANALYSIS_PROMPT, AUTO_DRAFT_REPLY_PROMPT } from "./prompts";
 
 async function callAi(systemPrompt: string, userContent: string): Promise<string> {
@@ -46,8 +46,8 @@ export async function analyzeWritingStyle(samples: DbMessage[]): Promise<string>
  * Get existing style profile or create one by analyzing recent sent emails.
  */
 export async function getOrCreateStyleProfile(accountId: string): Promise<string | null> {
-  const styleEnabled = await getSetting("ai_writing_style_enabled");
-  if (styleEnabled === "false") return null;
+  const styleEnabled = await getMailboxAiBoolean("ai_writing_style_enabled", accountId);
+  if (!styleEnabled) return null;
 
   // Check for cached profile
   const existing = await getWritingStyleProfile(accountId);
@@ -149,9 +149,11 @@ export async function regenerateAutoDraft(
 /**
  * Check if auto-draft is available (AI configured + setting enabled).
  */
-export async function isAutoDraftEnabled(): Promise<boolean> {
-  const enabled = await getSetting("ai_auto_draft_enabled");
-  if (enabled === "false") return false;
+export async function isAutoDraftEnabled(accountId?: string | null): Promise<boolean> {
+  const aiEnabled = await getMailboxAiBoolean("ai_enabled", accountId);
+  if (!aiEnabled) return false;
+  const enabled = await getMailboxAiBoolean("ai_auto_draft_enabled", accountId);
+  if (!enabled) return false;
 
   try {
     const provider = await getActiveProvider();

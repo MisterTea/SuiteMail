@@ -852,7 +852,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "Drafts are cached — re-opening the same reply is instant." },
           { text: "Click Reanalyze in Settings to refresh your writing style profile." },
         ],
-        relatedSettingsTab: "ai",
+        relatedSettingsTab: "mailbox-ai",
       },
       {
         id: "ask-inbox",

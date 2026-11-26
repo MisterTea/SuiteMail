@@ -16,14 +16,15 @@ export function ThreadSummary({ threadId, accountId, messages }: ThreadSummaryPr
   const [loading, setLoading] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [available, setAvailable] = useState(false);
-  const checkedRef = useRef(false);
 
   useEffect(() => {
-    if (checkedRef.current) return;
-    checkedRef.current = true;
     if (messages.length < 2) return;
-    isAiAvailable().then(setAvailable);
-  }, [messages.length]);
+    let active = true;
+    isAiAvailable(accountId).then((avail) => {
+      if (active) setAvailable(avail);
+    });
+    return () => { active = false; };
+  }, [accountId, messages.length]);
 
   const loadingRef = useRef(false);
   const loadSummary = useCallback(async () => {

@@ -21,12 +21,17 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [available, setAvailable] = useState<boolean | null>(null);
+  const accountId = useComposerStore((s) => s.accountId);
   const setBodyHtml = useComposerStore((s) => s.setBodyHtml);
 
-  // Check availability on mount
+  // Check availability on mount and when account changes
   useEffect(() => {
-    isAiAvailable().then(setAvailable);
-  }, []);
+    let active = true;
+    isAiAvailable(accountId).then((avail) => {
+      if (active) setAvailable(avail);
+    });
+    return () => { active = false; };
+  }, [accountId]);
 
   if (available === null) return null;
   if (!available) return null;

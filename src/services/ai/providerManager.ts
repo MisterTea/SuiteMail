@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { getSetting, getSecureSetting } from "@/services/db/settings";
+import { getMailboxAiBoolean } from "./mailboxAiSettings";
 import { AiError } from "./errors";
 import type { AiProvider, AiProviderClient } from "./types";
 import { DEFAULT_MODELS, MODEL_SETTINGS } from "./types";
@@ -119,11 +120,11 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
   return client;
 }
 
-export async function isAiAvailable(): Promise<boolean> {
+export async function isAiAvailable(accountId?: string | null): Promise<boolean> {
   if (Capacitor.getPlatform() === "ios") return false;
   try {
-    const enabled = await getSetting("ai_enabled");
-    if (enabled === "false") return false;
+    const enabled = await getMailboxAiBoolean("ai_enabled", accountId);
+    if (!enabled) return false;
     const providerName = await getActiveProviderName();
 
     if (providerName === "ollama") {

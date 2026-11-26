@@ -9,6 +9,7 @@ import { deleteEmbeddingsForMessages } from "../db/embeddings";
 import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
 import { applyFiltersToMessages, isEmailFiltered, markEmailFiltered } from "../filters/filterEngine";
 import { getSetting, setSetting } from "../db/settings";
+import { getMailboxAutoArchiveCategories } from "../ai/mailboxAiSettings";
 import { getMutedThreadIds } from "../db/threads";
 import { getThreadCategory } from "../db/threadCategories";
 import { getVipSenders } from "../db/notificationVips";
@@ -19,10 +20,8 @@ const LIST_PAGE_SIZE = 500;
 /** Download bodies for mail newer than this first; older bodies follow at low priority or when opened. */
 export const BODY_PREFETCH_DAYS = 30;
 
-async function loadAutoArchiveCategories(): Promise<Set<string>> {
-  const raw = await getSetting("auto_archive_categories");
-  if (!raw) return new Set();
-  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+async function loadAutoArchiveCategories(accountId: string): Promise<Set<string>> {
+  return getMailboxAutoArchiveCategories(accountId);
 }
 
 export interface SyncProgress {
@@ -260,7 +259,7 @@ export async function initialSync(
   await save();
   onProgress?.({phase:"labels",current:0,total:1});
   await syncLabels(client, accountId);
-  const autoArchiveCategories = await loadAutoArchiveCategories();
+  const autoArchiveCategories = await loadAutoArchiveCategories(accountId);
   while (true) {
     if (shouldStop(options) || downloaded >= maxThreads) return;
     const response = await client.listThreads({maxResults:LIST_PAGE_SIZE,pageToken:checkpoint.pageToken,q:checkpoint.query});
@@ -315,7 +314,7 @@ export async function initialSync(
  */
 export async function storeThreadBodies(client: GmailClient, accountId: string, threadIds: string[]): Promise<number> {
   if (!threadIds.length) return 0;
-  const autoArchiveCategories = await loadAutoArchiveCategories();
+  const autoArchiveCategories = await loadAutoArchiveCategories(accountId);
   const threads = await client.getThreads(threadIds, "full");
   let updated = 0;
   for (const threadId of threadIds) {
@@ -453,7 +452,7 @@ export async function deltaSync(
     }
 
     // Load settings once for the whole sync cycle
-    const autoArchiveCategories = await loadAutoArchiveCategories();
+    const autoArchiveCategories = await loadAutoArchiveCategories(accountId);
     const mutedThreadIds = await getMutedThreadIds(accountId);
     const smartNotifications = (await getSetting("smart_notifications")) !== "false";
     const notifyCategories = new Set(

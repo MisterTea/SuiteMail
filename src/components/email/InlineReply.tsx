@@ -93,7 +93,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     autoDraftAbortRef.current = false;
     setAutoDraftLoading(true);
     try {
-      const enabled = await isAutoDraftEnabled();
+      const enabled = await isAutoDraftEnabled(accountId);
       if (!enabled || autoDraftAbortRef.current) return;
 
       const draft = await generateAutoDraft(thread.id, accountId, messages, draftMode);

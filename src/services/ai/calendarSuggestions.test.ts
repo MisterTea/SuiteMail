@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { webcrypto } from "node:crypto";
 import type { DbMessage } from "@/services/db/messages";
-import { getCalendarSuggestions, parseCalendarSuggestions } from "./calendarSuggestions";
+import { getCalendarSuggestions, parseCalendarSuggestions, parseHasClearEvent } from "./calendarSuggestions";
 
 const mocks = vi.hoisted(() => ({ available: vi.fn(), complete: vi.fn(), getCache: vi.fn(), setCache: vi.fn() }));
 vi.mock("./providerManager", () => ({ isAiAvailable: mocks.available, getActiveProvider: async () => ({ complete: mocks.complete }) }));
@@ -11,6 +11,7 @@ const message = { id: "event-message", account_id: "a", thread_id: "t", from_add
 const event = { title: "Design review", startTime: "2030-01-02T15:00:00-06:00", endTime: null, timeZone: "America/Chicago", isAllDay: false,
   timeZoneExplicit: true, attendees: ["bob@example.com", "BOB@example.com", "me@example.com", "invented@example.com"], evidence: "Let's meet tomorrow at 3pm", missingDetails: [] };
 const raw = (events: unknown[]) => JSON.stringify({ events });
+const clearEvent = (hasClearEvent: boolean) => JSON.stringify({ hasClearEvent });
 
 describe("calendar suggestion extraction", () => {
   beforeEach(() => {
@@ -21,7 +22,9 @@ describe("calendar suggestion extraction", () => {
     mocks.available.mockResolvedValue(true);
     mocks.getCache.mockResolvedValue(null);
     mocks.setCache.mockResolvedValue(undefined);
-    mocks.complete.mockResolvedValue(raw([event]));
+    mocks.complete.mockImplementation(async (request: { systemPrompt: string }) =>
+      request.systemPrompt.includes("hasClearEvent") ? clearEvent(true) : raw([event]),
+    );
   });
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
@@ -67,29 +70,52 @@ describe("calendar suggestion extraction", () => {
     expect(results).toHaveLength(3);
   });
 
+  it("parses clear-event check responses and rejects malformed values", () => {
+    expect(parseHasClearEvent(clearEvent(true))).toBe(true);
+    expect(parseHasClearEvent("```json\n" + clearEvent(false) + "\n```")).toBe(false);
+    expect(() => parseHasClearEvent("nonsense")).toThrow();
+    expect(() => parseHasClearEvent('{"hasClearEvent":"yes"}')).toThrow();
+  });
+
+  it("asks if there is a clear event first and skips extraction when false", async () => {
+    mocks.complete.mockResolvedValue(clearEvent(false));
+    expect(await getCalendarSuggestions(message, [], "me@example.com")).toEqual([]);
+    expect(mocks.complete).toHaveBeenCalledTimes(1);
+    expect(mocks.complete.mock.calls[0]![0].systemPrompt).toContain("hasClearEvent");
+    expect(mocks.complete.mock.calls[0]![0].systemPrompt).toContain("newsletters");
+    mocks.getCache.mockResolvedValue(mocks.setCache.mock.calls[0]![3]);
+    expect(await getCalendarSuggestions(message, [], "me@example.com")).toEqual([]);
+    expect(mocks.complete).toHaveBeenCalledTimes(1);
+  });
+
   it("deduplicates simultaneous analyses and uses the content fingerprint cache", async () => {
     const [first, second] = await Promise.all([getCalendarSuggestions(message, [], "me@example.com"), getCalendarSuggestions(message, [], "me@example.com")]);
     expect(first).toEqual(second);
-    expect(mocks.complete).toHaveBeenCalledTimes(1);
+    expect(mocks.complete).toHaveBeenCalledTimes(2);
+    expect(mocks.complete.mock.calls[0]![0].systemPrompt).toContain("hasClearEvent");
+    expect(mocks.complete.mock.calls[1]![0].systemPrompt).toContain("Extract calendar suggestions");
     const cache = mocks.setCache.mock.calls[0]![3];
     mocks.getCache.mockResolvedValue(cache);
     await getCalendarSuggestions(message, [], "me@example.com");
-    expect(mocks.complete).toHaveBeenCalledTimes(1);
-    await getCalendarSuggestions({ ...message, body_text: message.body_text + " New details" }, [], "me@example.com");
     expect(mocks.complete).toHaveBeenCalledTimes(2);
+    await getCalendarSuggestions({ ...message, body_text: message.body_text + " New details" }, [], "me@example.com");
+    expect(mocks.complete).toHaveBeenCalledTimes(4);
     expect(mocks.complete.mock.calls[0]![0].userContent).toContain("2030-01-01T12:00:00.000Z");
     expect(mocks.complete.mock.calls[0]![0].systemPrompt).toContain("untrusted data");
+    expect(mocks.complete.mock.calls[1]![0].systemPrompt).toContain("untrusted data");
   });
 
   it("caches negative results and does nothing when AI is disabled", async () => {
-    mocks.complete.mockResolvedValue(raw([]));
+    mocks.complete.mockImplementation(async (request: { systemPrompt: string }) =>
+      request.systemPrompt.includes("hasClearEvent") ? clearEvent(true) : raw([]),
+    );
     expect(await getCalendarSuggestions(message, [], "me@example.com")).toEqual([]);
     mocks.getCache.mockResolvedValue(mocks.setCache.mock.calls[0]![3]);
     await getCalendarSuggestions(message, [], "me@example.com");
-    expect(mocks.complete).toHaveBeenCalledTimes(1);
+    expect(mocks.complete).toHaveBeenCalledTimes(2);
     mocks.available.mockResolvedValue(false);
     expect(await getCalendarSuggestions(message, [], "me@example.com")).toEqual([]);
-    expect(mocks.complete).toHaveBeenCalledTimes(1);
+    expect(mocks.complete).toHaveBeenCalledTimes(2);
   });
 
   it("skips AI extraction when an .ics attachment is present", async () => {
@@ -101,6 +127,13 @@ describe("calendar suggestion extraction", () => {
   it("does not cache failed provider calls and allows a later retry", async () => {
     mocks.complete.mockRejectedValueOnce(new Error("offline"));
     await expect(getCalendarSuggestions(message, [], "me@example.com")).rejects.toThrow("offline");
+    expect(mocks.setCache).not.toHaveBeenCalled();
+    expect(await getCalendarSuggestions(message, [], "me@example.com")).toHaveLength(1);
+  });
+
+  it("does not cache malformed clear-event check responses and allows retry", async () => {
+    mocks.complete.mockResolvedValueOnce("not json");
+    await expect(getCalendarSuggestions(message, [], "me@example.com")).rejects.toThrow();
     expect(mocks.setCache).not.toHaveBeenCalled();
     expect(await getCalendarSuggestions(message, [], "me@example.com")).toHaveLength(1);
   });

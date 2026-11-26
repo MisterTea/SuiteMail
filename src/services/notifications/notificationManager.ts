@@ -89,9 +89,10 @@ export async function requestMailNotificationPermission(): Promise<boolean> {
 }
 
 async function getNotificationSummary(accountId: string, threadId: string, signal: AbortSignal): Promise<string | null> {
-  if ((await getSetting("ai_auto_summarize")) === "false" || signal.aborted) return null;
+  const { getMailboxAiBoolean } = await import("../ai/mailboxAiSettings");
+  if (!(await getMailboxAiBoolean("ai_auto_summarize", accountId)) || signal.aborted) return null;
   const { isAiAvailable } = await import("../ai/providerManager");
-  const available = !signal.aborted && await isAiAvailable();
+  const available = !signal.aborted && await isAiAvailable(accountId);
   if (!available || signal.aborted) return null;
   const thread = await getThreadById(accountId, threadId);
   if (!thread || signal.aborted) return null;
@@ -137,7 +138,7 @@ async function getNotificationSmartReplies(context?: NotificationContext): Promi
   try {
     const fetchReplies = async (): Promise<string[]> => {
       const { isAiAvailable } = await import("../ai/providerManager");
-      if (!(await isAiAvailable())) return [];
+      if (!(await isAiAvailable(context.accountId))) return [];
       const aiService = await import("../ai/aiService");
       if (typeof aiService.generateSmartReplies !== "function") return [];
       const messages = await getMessagesForThread(context.accountId!, context.threadId!);
