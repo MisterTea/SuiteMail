@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { hideRecipientSuggestion, searchContacts, type DbContact } from "@/services/db/contacts";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { X } from "lucide-react";
 
 interface AddressInputProps {
@@ -54,7 +54,7 @@ export function AddressInput({
   autoFocus = false,
   isForwardMode = false,
 }: AddressInputProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const [error, setError] = useState("");
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<DbContact[]>([]);
@@ -63,6 +63,15 @@ export function AddressInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped whenever a pending/in-flight contact search becomes stale, so late
+  // results can't reopen the suggestion popup after the address was committed.
+  const searchSeqRef = useRef(0);
+
+  const cancelPendingSearch = useCallback(() => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = null;
+    searchSeqRef.current += 1;
+  }, []);
 
   useEffect(() => {
     if (autoFocus && addresses.length === 0) {
@@ -73,19 +82,22 @@ export function AddressInput({
   useEffect(() => {
     return () => {
       if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      cancelPendingSearch();
     };
-  }, []);
+  }, [cancelPendingSearch]);
 
   const handleInputChange = useCallback(
     (value: string) => {
       setInputValue(value);
       setError("");
       inputRef.current?.setCustomValidity("");
-      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      cancelPendingSearch();
       if (value.length >= 2) {
+        const seq = searchSeqRef.current;
         searchTimerRef.current = setTimeout(async () => {
+          searchTimerRef.current = null;
           const results = await searchContacts(value, 5);
+          if (seq !== searchSeqRef.current) return;
           setSuggestions(results);
           setShowSuggestions(results.length > 0);
           setSelectedIdx(-1);
@@ -95,7 +107,7 @@ export function AddressInput({
         setShowSuggestions(false);
       }
     },
-    [],
+    [cancelPendingSearch],
   );
 
   const addAddress = useCallback(
@@ -111,12 +123,13 @@ export function AddressInput({
       if (trimmed && !addresses.some((a) => a.toLowerCase() === trimmed.toLowerCase())) {
         onChange([...addresses, trimmed]);
       }
+      cancelPendingSearch();
       setInputValue("");
       setSuggestions([]);
       setShowSuggestions(false);
       if (refocus) inputRef.current?.focus();
     },
-    [addresses, onChange],
+    [addresses, onChange, cancelPendingSearch],
   );
 
   const removeAddress = useCallback(
@@ -144,6 +157,7 @@ export function AddressInput({
       e.preventDefault();
       setSelectedIdx((prev) => Math.max(prev - 1, 0));
     } else if (e.key === "Escape") {
+      cancelPendingSearch();
       setShowSuggestions(false);
     }
   };

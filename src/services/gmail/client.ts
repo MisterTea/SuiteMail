@@ -1,3 +1,4 @@
+import { iosBytes, iosNative, isIOS } from "@/platform/ios";
 import { gmailRequestCost, waitForGmailQuota, pauseGmailQuota, isGmailRateLimit, retryAfterMs } from "./quota";
 import { refreshAccessToken, type TokenResponse } from "./auth";
 import { getDb } from "../db/connection";
@@ -59,6 +60,7 @@ export class GmailClient {
     if (this.tokenProvider) {
       const token = await this.tokenProvider(invalidToken);
       this.tokenInfo = {...this.tokenInfo, ...token};
+      if (isIOS()) return; // The native token provider persists authorization in Keychain.
       const db = await getDb();
       await db.execute(
         "UPDATE accounts SET access_token = $1, token_expires_at = $2, updated_at = unixepoch() WHERE id = $3",
@@ -89,6 +91,19 @@ export class GmailClient {
     );
   }
 
+  private async fetch(url: string, options: RequestInit): Promise<Response> {
+    if (!isIOS()) return fetch(url, options);
+    const response = await iosNative.googleRequest({
+      account: this.accountId,
+      url,
+      method: options.method,
+      headers: Object.fromEntries(new Headers(options.headers)),
+      body: typeof options.body === "string" ? options.body : undefined,
+    });
+    return new Response(response.status === 204 || response.status === 205 || response.status === 304
+      ? null : iosBytes(response.body), { status: response.status, headers: response.headers });
+  }
+
   /**
    * Pace requests and retry both Gmail quota 403s and HTTP 429 responses.
    * Uses Retry-After header when available, otherwise exponential backoff.
@@ -100,7 +115,7 @@ export class GmailClient {
     let lastResponse: Response | undefined;
     for (let attempt = 0; attempt < MAX_RETRY_ATTEMPTS; attempt++) {
       await waitForGmailQuota(this.accountId, gmailRequestCost(url, options.method || "GET"));
-      const response = await fetch(url, options);
+      const response = await this.fetch(url, options);
       if (!(await isGmailRateLimit(response))) return response;
 
       lastResponse = response;
@@ -255,7 +270,7 @@ export class GmailClient {
   async deleteLabel(labelId: string): Promise<void> {
     const token = await this.getValidToken();
     const url = `${GMAIL_API_BASE}/users/me/labels/${labelId}`;
-    const response = await fetch(url, {
+    const response = await this.fetch(url, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -271,7 +286,7 @@ export class GmailClient {
   async deleteThread(threadId: string): Promise<void> {
     const token = await this.getValidToken();
     const url = `${GMAIL_API_BASE}/users/me/threads/${threadId}`;
-    const response = await fetch(url, {
+    const response = await this.fetch(url, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });

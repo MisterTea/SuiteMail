@@ -18,8 +18,9 @@ export function AttachmentPicker() {
   const totalSize = attachments.reduce((sum, a) => sum + a.size, 0);
 
   const handleFiles = async (files: FileList) => {
+    let selectedSize = totalSize;
     for (const file of Array.from(files)) {
-      if (totalSize + file.size > MAX_TOTAL_SIZE) {
+      if (selectedSize + file.size > MAX_TOTAL_SIZE) {
         console.warn("Attachment size limit exceeded (24MB)");
         break;
       }
@@ -33,6 +34,7 @@ export function AttachmentPicker() {
         content,
       };
       addAttachment(attachment);
+      selectedSize += file.size;
     }
     // Reset input so re-selecting the same file works
     if (inputRef.current) inputRef.current.value = "";

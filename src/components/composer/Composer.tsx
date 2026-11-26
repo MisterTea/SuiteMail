@@ -1,4 +1,8 @@
+import { isIOSLocalDraft } from "@/services/draft/iosDrafts";
+import { isIOS } from "@/platform/ios";
 import { useSendChecks } from "./SendChecks";
+import { deleteStoredDraft } from "@/services/draft/openThreadDraft";
+import { buildScheduledRawMime } from "@/services/snooze/scheduledSendManager";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useEditor, EditorContent } from "@tiptap/react";
@@ -22,7 +26,7 @@ import { SnippetSuggestionPopup } from "./SnippetSuggestionPopup";
 import { FromSelector } from "./FromSelector";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { Modal } from "@/components/ui/Modal";
 import { useToastStore } from "@/stores/toastStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -42,8 +46,8 @@ import { sanitizeHtml } from "@/utils/sanitize";
 import { appendSealedContract } from "@/services/contracts/contractCrypto";
 
 export function Composer() {
-  const androidMobile = useAndroidMobile();
-  const [showFormatting, setShowFormatting] = useState(true);
+  const androidMobile = useNativePhone();
+  const [showFormatting, setShowFormatting] = useState(() => !isIOS());
   const [showMore, setShowMore] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [closing, setClosing] = useState(false);
@@ -274,7 +278,7 @@ export function Composer() {
       const store = useComposerStore.getState();
 
       // Signature
-      if (sig) {
+      if (sig && !isIOSLocalDraft(store.draftId)) {
         store.setSignatureHtml(sig.body_html);
         store.setSignatureId(sig.id);
       }
@@ -303,7 +307,14 @@ export function Composer() {
   useEffect(() => {
     if (!isOpen || !activeAccountId) return;
     startAutoSave(activeAccountId);
-    return () => { stopAutoSave(); };
+    const saveWhenHidden = () => {
+      if (document.hidden) void flushAutoSave().catch(() => {});
+    };
+    if (isIOS()) document.addEventListener("visibilitychange", saveWhenHidden);
+    return () => {
+      document.removeEventListener("visibilitychange", saveWhenHidden);
+      stopAutoSave();
+    };
   }, [isOpen, activeAccountId]);
 
   // For forwards, expand the quoted email header card by default so user can review what is being forwarded
@@ -360,7 +371,7 @@ export function Composer() {
 
   useEffect(() => {
     if (!isOpen) return;
-    setShowFormatting(true);
+    setShowFormatting(!isIOS());
     setShowMore(false);
     setSaveError("");
     const onError = () => setSaveError("Couldn't save draft. Please retry Save & close.");
@@ -538,7 +549,7 @@ export function Composer() {
       } catch (err) {
         console.error("Failed to send email:", err);
         useToastStore.getState().showToast({
-          message: "Couldn't send. Your draft is available to retry.",
+          message: isIOS() && err instanceof Error ? err.message : "Couldn't send. Your draft is available to retry.",
           duration: 0,
           action: { label: "Recover draft", onClick: restoreDraft },
         });
@@ -589,7 +600,7 @@ export function Composer() {
         })))
       : null;
 
-    const scheduledId = await insertScheduledEmail({
+    const scheduled = {
       accountId: activeAccountId,
       fromAddress: state.fromEmail ?? activeAccount.email,
       toAddresses: state.to.join(", "),
@@ -603,7 +614,9 @@ export function Composer() {
       signatureId: null,
       attachmentPaths: attachmentData,
       recurrenceRule: recurrenceRule ?? null,
-    });
+    };
+    // Android and iOS send from a native background job, which needs the finished MIME.
+    const scheduledId = await insertScheduledEmail({ ...scheduled, rawMime: buildScheduledRawMime(scheduled, activeAccount.email) });
 
     stopAutoSave();
     // Delete the draft if exists
@@ -651,6 +664,10 @@ export function Composer() {
       if (currentDraftId && activeAccountId) {
         const result = await deleteDraftAction(activeAccountId, currentDraftId);
         if (!result.success) throw new Error(result.error || "Could not delete draft");
+      }
+      const draftAccountId = state.accountId ?? activeAccountId;
+      if (state.draftMessageId && state.threadId && draftAccountId) {
+        await deleteStoredDraft(draftAccountId, state.threadId, state.draftMessageId);
       }
     } catch {
       setSaveError("Couldn't discard draft. Your changes are still here.");
@@ -708,7 +725,7 @@ export function Composer() {
 
   return (
     <CSSTransition nodeRef={overlayRef} in={isOpen} timeout={200} classNames="slide-up" unmountOnExit>
-    <div ref={overlayRef} style={androidMobile ? { height: "var(--android-viewport-height, 100dvh)", bottom: "auto" } : undefined} className={`fixed inset-0 z-[60] flex ${isFullpage ? "items-stretch justify-center p-0 sm:p-4" : "items-end justify-center pb-0 sm:pb-4"} pointer-events-none`}>
+    <div ref={overlayRef} style={androidMobile ? { height: "var(--mobile-viewport-height, 100dvh)", bottom: "auto" } : undefined} className={`fixed inset-0 z-[60] flex ${isFullpage ? "items-stretch justify-center p-0 sm:p-4" : "items-end justify-center pb-0 sm:pb-4"} pointer-events-none`}>
       {/* Backdrop */}
       <div
         className="absolute inset-0 pointer-events-auto backdrop-animate"
@@ -841,7 +858,8 @@ export function Composer() {
         </div>
 
         {androidMobile && <div role="status" aria-live="polite" className="shrink-0 px-4 py-1 text-xs text-text-secondary">{saveError || (isSaving || closing ? "Saving…" : lastSavedAt ? "Saved to Drafts" : "Unsaved changes")}</div>}
-        <div className={androidMobile ? "min-h-0 flex-1 flex flex-col [&>*]:shrink-0 overflow-y-auto overscroll-contain" : "contents"}>
+        {/* Phone-width windows scroll the whole body like the native phone layout; otherwise long recipient lists squeeze the editor to nothing. */}
+        <div className={androidMobile ? "min-h-0 flex-1 flex flex-col [&>*]:shrink-0 overflow-y-auto overscroll-contain" : "contents max-sm:flex max-sm:min-h-0 max-sm:flex-1 max-sm:flex-col max-sm:[&>*]:shrink-0 max-sm:overflow-y-auto max-sm:overscroll-contain"}>
         {/* Address fields */}
         <div className="px-4 py-2 border-b border-border-secondary/60 bg-bg-primary/50 transition-all">
           <FromSelector
@@ -893,7 +911,7 @@ export function Composer() {
                     label="To"
                     addresses={to}
                     onChange={setTo}
-                    autoFocus={mode === "forward" || (mode === "new" && to.length === 0)}
+                    autoFocus={!isIOS() && (mode === "forward" || (mode === "new" && to.length === 0))}
                     placeholder={mode === "forward" ? "Enter recipient to forward to..." : "Add recipients..."}
                     isForwardMode={mode === "forward"}
                   />
@@ -1003,12 +1021,12 @@ export function Composer() {
         )}
 
         {/* Editor toolbar */}
-        <div className="px-4 py-1 border-b border-border-secondary">
+        {!isIOS() && <div className="px-4 py-1 border-b border-border-secondary">
           <Button type="button" disabled={!editor} aria-haspopup="dialog" aria-expanded={showMeetingTimes}
             className="min-h-[40px] sm:min-h-0" onClick={() => setShowMeetingTimes(true)}>
             Suggest meeting times
           </Button>
-        </div>
+        </div>}
         {(!androidMobile || showFormatting) && <EditorToolbar
           editor={editor}
           onToggleAiAssist={() => setShowAiAssist(!showAiAssist)}
@@ -1024,7 +1042,7 @@ export function Composer() {
         )}
 
         {/* Editor */}
-        <div className={androidMobile ? "relative flex-1 min-h-[160px]" : "relative flex-1 overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth"}>
+        <div className={androidMobile ? "relative flex-1 min-h-[160px]" : "relative flex-1 max-sm:min-h-[160px] overflow-y-auto overscroll-contain touch-pan-y -webkit-overflow-scrolling-touch scroll-smooth"}>
           {snippetSuggestions.length > 0 && (
             <SnippetSuggestionPopup
               suggestions={snippetSuggestions}
@@ -1113,15 +1131,15 @@ export function Composer() {
         </div>}
 
         </div>
-        {androidMobile && <div className="shrink-0 border-t border-border-secondary"><AttachmentPicker /></div>}
-        {androidMobile && <div className="shrink-0 flex flex-wrap items-center gap-2 px-4 border-t border-border-secondary">
+        {androidMobile && <div data-composer-accessories className="shrink-0 border-t border-border-secondary"><AttachmentPicker /></div>}
+        {androidMobile && <div data-composer-accessories className="shrink-0 flex flex-wrap items-center gap-2 px-4 border-t border-border-secondary">
           <button type="button" className="min-h-[48px] px-3 text-sm" aria-expanded={showFormatting} onClick={() => setShowFormatting(!showFormatting)}>Format</button>
           <button type="button" className="min-h-[48px] px-3 text-sm" aria-expanded={showMore} onClick={() => setShowMore(!showMore)}>More</button>
           <button type="button" className="min-h-[48px] px-3 text-sm text-accent" disabled={!to.length} onClick={() => setShowSchedule(true)}>Send later</button>
           {showMore && <div className="flex flex-wrap items-center gap-2 w-full"><SignatureSelector /><TemplatePicker editor={editor} /><button type="button" className="min-h-[48px] px-3 text-sm text-danger" onClick={() => setConfirmDiscard(true)}>Discard draft</button></div>}
         </div>}
         {/* Footer */}
-        <div className="shrink-0 flex items-center justify-between px-4 py-2.5 sm:py-2.5 border-t border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md sm:rounded-b-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div data-composer-footer className="shrink-0 flex items-center justify-between px-4 py-2.5 sm:py-2.5 border-t border-border-primary/60 bg-bg-secondary/70 dark:bg-bg-secondary/80 backdrop-blur-md sm:rounded-b-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div className={androidMobile ? "hidden" : "flex items-center gap-2 sm:gap-3 min-w-0"}>
             <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-bg-tertiary/50 border border-border-primary/40 text-xs text-text-secondary font-medium min-w-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0"></span>

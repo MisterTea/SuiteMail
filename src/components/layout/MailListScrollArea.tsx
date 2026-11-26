@@ -19,7 +19,7 @@ export function MailListScrollArea({ scrollRef, unified = false, className = "",
   const canRefresh = useAccountStore((s) => s.accounts.some((account) =>
     account.provider !== "caldav" && (unified ? account.isActive : account.id === activeAccountId),
   ));
-  const enabled = Capacitor.getPlatform() === "android" && canRefresh;
+  const enabled = ["android", "ios"].includes(Capacitor.getPlatform()) && canRefresh;
   const refreshing = useRef(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);

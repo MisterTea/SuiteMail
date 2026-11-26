@@ -1,6 +1,6 @@
 import { searchAttachmentText } from "@/services/attachments/attachmentIndex";
 import { readAttachmentBytes } from "@/services/attachments/readAttachmentBytes";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { platformSaveFile } from "@/platform";
 import { Paperclip, Search, LayoutGrid, List, Menu } from "lucide-react";
@@ -87,7 +87,7 @@ function matchesSize(att: AttachmentWithContext, filter: SizeFilter): boolean {
 }
 
 export function AttachmentLibrary() {
-  const android = useAndroidMobile();
+  const android = useNativePhone();
   const [error, setError] = useState<string | null>(null);
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -204,6 +204,20 @@ export function AttachmentLibrary() {
     } catch (err) {
       console.error("Download failed:", err);
       setError("Couldn’t download the attachment. Try Download again.");
+    }
+  }, []);
+
+  const handlePreview = useCallback(async (att: AttachmentWithContext) => {
+    if (!window.supermail?.presentFile) {
+      setPreviewAttachment(att);
+      return;
+    }
+    try {
+      const bytes = await readAttachmentBytes(att);
+      if (!bytes) throw new Error("Attachment is unavailable");
+      await window.supermail.presentFile(att.filename ?? "attachment", bytes, true);
+    } catch {
+      setError("Couldn’t open the attachment. Try Open again.");
     }
   }, []);
 
@@ -340,7 +354,7 @@ export function AttachmentLibrary() {
               <AttachmentGridItem
                 key={att.id}
                 attachment={att}
-                onPreview={() => setPreviewAttachment(att)}
+                onPreview={() => void handlePreview(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
               />
@@ -352,7 +366,7 @@ export function AttachmentLibrary() {
               <AttachmentListItem
                 key={att.id}
                 attachment={att}
-                onPreview={() => setPreviewAttachment(att)}
+                onPreview={() => void handlePreview(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
               />

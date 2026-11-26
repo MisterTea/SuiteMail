@@ -1,5 +1,5 @@
 import { useSendChecks } from "../composer/SendChecks";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useToastStore } from "@/stores/toastStore";
 import { sanitizeHtml, escapeHtml } from "@/utils/sanitize";
 import { buildForwardQuote } from "@/utils/forwardQuoteBuilder";
@@ -38,7 +38,7 @@ interface InlineReplyProps {
 }
 
 export function InlineReply({ thread, messages, accountId, noReply, onSent }: InlineReplyProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const [mode, setMode] = useState<ReplyMode | null>(null);
   const { approveSend, sendReviewDialog } = useSendChecks(mode !== null);
   const [sending, setSending] = useState(false);

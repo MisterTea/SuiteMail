@@ -26,6 +26,20 @@ fn dispatch(command: &str, args: Value) -> Result<Value, String> {
                 supermail_core::db::db_execute(query, params)
             }
         }
+        "db_transaction" => {
+            let statements = args["statements"]
+                .as_array()
+                .ok_or("Missing statements")?
+                .iter()
+                .map(|statement| {
+                    Ok((
+                        statement["query"].as_str().ok_or("Missing query")?.to_string(),
+                        statement["params"].as_array().cloned().unwrap_or_default(),
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            supermail_core::db::db_transaction(statements)
+        }
         "aicore_is_available" => Ok(json!({"available": false, "supported_models": []})),
         "aicore_generate" => Err(
             "On-device AI is not implemented. Configure a cloud AI provider in Settings.".into(),

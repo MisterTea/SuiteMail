@@ -2,5 +2,6 @@
 members = [
     "crates/supermail-core",
     "crates/supermail-android",
+    "crates/supermail-ios",
 ]
 resolver = "2"

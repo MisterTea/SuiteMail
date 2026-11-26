@@ -1,3 +1,5 @@
+import { isIOSLocalDraft, removeIOSDraft } from "@/services/draft/iosDrafts";
+import { isIOS } from "@/platform/ios";
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useToastStore } from "@/stores/toastStore";
@@ -333,7 +335,9 @@ export async function executeEmailAction(
   }
 
   // 3. If offline, queue
+  const iosSend = action.type === "sendMessage" && isIOS();
   if (!useUIStore.getState().isOnline) {
+    if (iosSend) return { success: false, error: "You’re offline. Your message is saved in Drafts." };
     await enqueuePendingOperation(
       accountId,
       action.type,
@@ -351,6 +355,7 @@ export async function executeEmailAction(
     const classified = classifyError(err);
 
     if (classified.isRetryable) {
+      if (iosSend) return { success: false, error: "Delivery couldn’t be confirmed. Check Sent before trying again. Your draft is saved." };
       // Queue for retry
       await enqueuePendingOperation(
         accountId,
@@ -653,5 +658,8 @@ export function deleteDraft(
   accountId: string,
   draftId: string,
 ): Promise<ActionResult> {
+  if (isIOS() && isIOSLocalDraft(draftId)) {
+    return removeIOSDraft(accountId, draftId).then(() => ({ success: true }));
+  }
   return executeEmailAction(accountId, { type: "deleteDraft", draftId });
 }

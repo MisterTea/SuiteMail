@@ -1,5 +1,8 @@
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { Modal } from "./Modal";
+
+const nativePhone = vi.hoisted(() => ({ value: false }));
+vi.mock("@/hooks/useNativePhone", () => ({ useNativePhone: () => nativePhone.value }));
 
 describe("Modal", () => {
   it("renders title and children when open", () => {
@@ -112,5 +115,22 @@ describe("Modal", () => {
     expect(screen.getByText("Custom Header")).toBeInTheDocument();
     // Default header title should NOT be rendered
     expect(screen.queryByText("Ignored")).not.toBeInTheDocument();
+  });
+
+  it("moves focus into a phone sheet without showing the keyboard focus ring", async () => {
+    nativePhone.value = true;
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    try {
+      render(
+        <Modal isOpen={true} onClose={() => {}} title="Message actions">
+          <p>Content</p>
+        </Modal>,
+      );
+      await waitFor(() => expect(focus).toHaveBeenCalledWith({ focusVisible: false }));
+      expect(document.activeElement).toBe(screen.getAllByRole("button")[0]);
+    } finally {
+      nativePhone.value = false;
+      focus.mockRestore();
+    }
   });
 });

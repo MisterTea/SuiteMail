@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { Trash2, Pencil, Sparkles } from "lucide-react";
 import { AiFilterSuggestModal } from "./AiFilterSuggestModal";
@@ -17,7 +17,7 @@ import {
 } from "@/services/db/filters";
 
 export function FilterEditor() {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [filters, setFilters] = useState<DbFilterRule[]>([]);
   const [labels, setLabels] = useState<DbLabel[]>([]);

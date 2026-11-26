@@ -36,7 +36,19 @@ describe("attachments DB service", () => {
       expect(sql).toContain("filename IS NOT NULL");
       expect(sql).toContain("ORDER BY m.date DESC");
       expect(params).toEqual(["acc-1", 200, 0]);
-      expect(result).toEqual(mockData);
+      expect(result).toEqual([{ ...mockData[0], date: 1_000_000 }]);
+    });
+
+    it("returns message dates in milliseconds", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        { id: "att-s", date: 1_700_000_000 },
+        { id: "att-ms", date: 1_700_000_000_000 },
+        { id: "att-none", date: null },
+      ]);
+
+      const result = await getAttachmentsForAccount("acc-1");
+
+      expect(result.map((row) => row.date)).toEqual([1_700_000_000_000, 1_700_000_000_000, null]);
     });
 
     it("supports custom limit and offset", async () => {

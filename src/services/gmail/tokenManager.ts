@@ -1,3 +1,4 @@
+import { iosNative, isIOS } from "@/platform/ios";
 import { authorizeAndroidGoogle, getAndroidGoogleToken, isAndroidGoogle } from "./androidGoogleAuth";
 import { GmailClient } from "./client";
 import { startOAuthFlow } from "./auth";
@@ -10,6 +11,11 @@ function androidClient(account: {id: string; email: string}): GmailClient {
   // Reconfirm device authorization after restart, even when an imported token is still cached in SQLite.
   return new GmailClient(account.id, "", {accessToken:"",refreshToken:"",expiresAt:0}, undefined,
     invalidToken => getAndroidGoogleToken(account.email, invalidToken));
+}
+
+function iosClient(account: {id: string; email: string}): GmailClient {
+  return new GmailClient(account.id, "", { accessToken: "", refreshToken: "", expiresAt: 0 }, undefined,
+    invalidToken => iosNative.googleToken({ email: account.email, invalidToken }));
 }
 
 // In-memory cache of active GmailClient instances per account
@@ -28,8 +34,8 @@ export async function getGmailClient(
   const account = accounts.find((a) => a.id === accountId);
 
   if (!account) throw new Error(`Account ${accountId} not found`);
-  if (isAndroidGoogle()) {
-    const client = androidClient(account);
+  if (isAndroidGoogle() || isIOS()) {
+    const client = isIOS() ? iosClient(account) : androidClient(account);
     clients.set(accountId, client);
     return client;
   }
@@ -145,9 +151,9 @@ export async function getClientSecret(): Promise<string | undefined> {
  */
 export async function initializeClients(): Promise<void> {
   const accounts = await getAllAccounts();
-  if (isAndroidGoogle()) {
+  if (isAndroidGoogle() || isIOS()) {
     for (const account of accounts) {
-      if (account.is_active && account.provider === "gmail_api") clients.set(account.id, androidClient(account));
+      if (account.is_active && account.provider === "gmail_api") clients.set(account.id, isIOS() ? iosClient(account) : androidClient(account));
     }
     return;
   }
@@ -186,6 +192,12 @@ export async function reauthorizeAccount(
 ): Promise<void> {
   const account = await getAccount(accountId);
   if (!account) throw new Error(`Account ${accountId} not found`);
+
+  if (isIOS()) {
+    await iosNative.authorizeGoogle({ email: account.email });
+    clients.set(accountId, iosClient(account));
+    return;
+  }
 
   const android = isAndroidGoogle();
   const clientId = android ? "" : await getClientId();

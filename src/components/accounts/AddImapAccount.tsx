@@ -133,6 +133,7 @@ export function AddImapAccount({
   onSuccess,
   onBack,
 }: AddImapAccountProps) {
+  const ios = Capacitor.getPlatform() === "ios";
   const androidPreview = Capacitor.getPlatform() === "android";
   const [currentStep, setCurrentStep] = useState<Step>("basic");
   const [form, setForm] = useState<FormState>(initialFormState);
@@ -164,7 +165,7 @@ export function AddImapAccount({
       let oauthClientId = form.oauthClientId;
       let oauthClientSecret = form.oauthClientSecret;
 
-      if (result.oauthProviderId === "google" && !oauthClientId && !androidPreview) {
+      if (result.oauthProviderId === "google" && !oauthClientId && !androidPreview && !ios) {
         try {
           const creds = await resolveGoogleClientCredentials();
           if (creds.clientId) oauthClientId = creds.clientId;
@@ -178,13 +179,13 @@ export function AddImapAccount({
         ...prev,
         imapHost: result.settings.imapHost,
         imapPort: result.settings.imapPort,
-        imapSecurity: result.settings.imapSecurity,
+        imapSecurity: ios && result.settings.imapSecurity === "none" ? "ssl" : result.settings.imapSecurity,
         smtpHost: result.settings.smtpHost,
         smtpPort: result.settings.smtpPort,
-        smtpSecurity: result.settings.smtpSecurity,
-        acceptInvalidCerts: result.acceptInvalidCerts ?? false,
+        smtpSecurity: ios && result.settings.smtpSecurity === "none" ? "ssl" : result.settings.smtpSecurity,
+        acceptInvalidCerts: !ios && (result.acceptInvalidCerts ?? false),
         // Prefer app passwords on Android where supported; desktop retains provider OAuth defaults.
-        authMode: androidPreview && result.authMethods.includes("password")
+        authMode: ios || (androidPreview && result.authMethods.includes("password"))
           ? "password"
           : result.authMethods[0] === "oauth2" ? "oauth2" : prev.authMode,
         oauthProvider: result.oauthProviderId ?? null,
@@ -195,7 +196,7 @@ export function AddImapAccount({
       setDetectedOAuthProviderId(result.oauthProviderId ?? null);
       setDiscoveryApplied(true);
     }
-  }, [form.email, form.imapHost, form.smtpHost, form.oauthClientId, form.oauthClientSecret, discoveryApplied, androidPreview]);
+  }, [form.email, form.imapHost, form.smtpHost, form.oauthClientId, form.oauthClientSecret, discoveryApplied, androidPreview, ios]);
 
   const handleImapSecurityChange = useCallback(
     (security: SecurityType) => {
@@ -673,7 +674,7 @@ export function AddImapAccount({
         />
       </div>
 
-      {renderAuthModeSelector()}
+      {!ios && renderAuthModeSelector()}
 
       {isOAuth ? (
         renderOAuthSection()
@@ -799,10 +800,11 @@ export function AddImapAccount({
           >
             <option value="ssl">SSL/TLS</option>
             <option value="starttls">STARTTLS</option>
-            <option value="none">None</option>
+            {!ios && <option value="none">None</option>}
           </select>
         </div>
       </div>
+      {!ios && <>
       <div className="flex items-center gap-2">
         <input
           id="accept-invalid-certs"
@@ -821,6 +823,7 @@ export function AddImapAccount({
       <p className="text-xs text-text-tertiary -mt-2 ml-6">
         Enable for local mail bridges like ProtonMail Bridge
       </p>
+      </>}
     </div>
   );
 
@@ -874,7 +877,7 @@ export function AddImapAccount({
           >
             <option value="ssl">SSL/TLS</option>
             <option value="starttls">STARTTLS</option>
-            <option value="none">None</option>
+            {!ios && <option value="none">None</option>}
           </select>
         </div>
       </div>

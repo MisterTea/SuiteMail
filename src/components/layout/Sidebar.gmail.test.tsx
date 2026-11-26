@@ -20,7 +20,7 @@ vi.mock("@/hooks/useRouteNavigation", () => ({
   useActiveSettingsTab: () => undefined,
 }));
 
-vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: () => false }));
+vi.mock("@/hooks/useNativePhone", () => ({ useNativePhone: () => false }));
 
 vi.mock("@/services/db/threads", () => ({
   getDraftCountForAccount: vi.fn(async () => 0),

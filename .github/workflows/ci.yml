@@ -168,3 +168,54 @@ jobs:
         with:
           name: wayland-${{ matrix.desktop }}-${{ matrix.image == 'ubuntu:26.04' && '26' || '24' }}
           path: /tmp/suitemail-reports/
+
+  ios:
+    name: iOS simulator build
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Build web bundle, sync Capacitor, and compile Rust core
+        run: npm run build:ios
+
+      - name: Build iOS app for the simulator
+        run: |
+          xcodebuild \
+            -project ios/App/App.xcodeproj \
+            -scheme App \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            -derivedDataPath ios/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            EXCLUDED_ARCHS=x86_64 \
+            build
+
+      - name: Upload Xcode diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-diagnostics
+          path: ios/DerivedData/Logs
+          retention-days: 7

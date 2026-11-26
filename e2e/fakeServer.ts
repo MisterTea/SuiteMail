@@ -96,6 +96,9 @@ export class FakeServer {
       INSERT OR REPLACE INTO settings (key, value) VALUES ('undo_send_delay_seconds', '0');
       INSERT OR REPLACE INTO settings (key, value) VALUES ('mark_as_read_behavior', 'instant');
       INSERT OR REPLACE INTO settings (key, value) VALUES ('block_remote_images', 'false');
+      -- The app's one-time IMAP attachment repair deletes seeded attachments on the first load
+      -- served by this fixture, which made Storyboard 16 depend on test order and retries.
+      INSERT OR REPLACE INTO settings (key, value) VALUES ('imap_attachment_repair_v1', '1');
     `);
 
     // 3. System & User Labels

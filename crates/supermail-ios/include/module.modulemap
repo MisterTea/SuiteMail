@@ -1,0 +1,4 @@
+module SuiteMailCore {
+    header "SuiteMailCore.h"
+    export *
+}

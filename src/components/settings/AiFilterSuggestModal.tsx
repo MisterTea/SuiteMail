@@ -1,4 +1,4 @@
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -56,7 +56,7 @@ export function AiFilterSuggestModal({
   initialMode = "ai",
   onFilterAdded,
 }: AiFilterSuggestModalProps) {
-  const androidMobile = useAndroidMobile();
+  const androidMobile = useNativePhone();
   const saveInFlight = useRef(false);
   const [previewReady, setPreviewReady] = useState(false);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -362,7 +362,7 @@ export function AiFilterSuggestModal({
       aria-modal="true"
       aria-labelledby="filter-modal-title"
       className={`fixed inset-0 z-[70] flex items-center justify-center ${androidMobile ? "p-0" : "p-4"}`}
-      style={androidMobile ? { height: "var(--android-viewport-height, 100dvh)", bottom: "auto" } : undefined}
+      style={androidMobile ? { height: "var(--mobile-viewport-height, 100dvh)", bottom: "auto" } : undefined}
     >
       {/* Backdrop */}
       <div

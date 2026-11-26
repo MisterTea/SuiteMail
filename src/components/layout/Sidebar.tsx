@@ -306,7 +306,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, [sidebarNavConfig]);
 
   const displayedNavItems = useMemo(() => {
-    let items = visibleNavItems;
+    let items = Capacitor.getPlatform() === "ios" ? visibleNavItems.filter((item) => item.id !== "calendar") : visibleNavItems;
     if (isEwsAccount) {
       items = items.flatMap((item) => {
         if (item.id === "inbox") {

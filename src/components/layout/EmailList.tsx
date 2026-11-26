@@ -1,3 +1,5 @@
+import { isIOS } from "@/platform/ios";
+import { IOSDrafts, useIOSDrafts } from "./IOSDrafts";
 import { openThreadDraft } from "@/services/draft/openThreadDraft";
 import { mapDbThread } from "@/services/db/mapThread";
 import { useToastStore } from "@/stores/toastStore";
@@ -89,6 +91,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     }
   };
   const activeLabel = useActiveLabel();
+  const deviceDrafts = useIOSDrafts(activeAccountId ?? "", isIOS() && activeLabel === "drafts");
   const isInboxView = activeLabel === "inbox" || activeLabel === "focused" || activeLabel === "other";
   const [inboxSummariesEnabled, setInboxSummariesEnabled] = useState(false);
 
@@ -255,6 +258,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
   const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
   const searchQuery = useThreadStore((s) => s.searchQuery);
+  // Until the first results arrive the list is still unfiltered, so its length is not a result count.
+  const searchPending = searchQuery.trim().length >= 2 && searchThreadIds === null;
 
   const filteredThreads = useMemo(() => {
     let filtered = threads.filter((t) => t.isFiltered !== false);
@@ -614,7 +619,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
               <>
                 <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                 <span className="font-medium text-text-secondary">
-                  {filteredThreads.length} {filteredThreads.length === 1 ? "matching conversation" : "matching conversations"}
+                  {searchPending ? "Searching…" : `${filteredThreads.length} ${filteredThreads.length === 1 ? "matching conversation" : "matching conversations"}`}
                 </span>
               </>
             ) : (
@@ -684,7 +689,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
               data-testid="search-results-badge"
               className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-bg-secondary text-text-secondary border border-border-secondary/80 shrink-0 shadow-2xs"
             >
-              {filteredThreads.length} {filteredThreads.length === 1 ? "result" : "results"}
+              {searchPending ? "Searching…" : `${filteredThreads.length} ${filteredThreads.length === 1 ? "result" : "results"}`}
             </span>
           </div>
           <button
@@ -706,10 +711,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         data-email-scroll
         className={multiSelectCount > 0 ? "pb-20" : undefined}
       >
-        {isLoading && threads.length === 0 ? (
+        <IOSDrafts drafts={deviceDrafts} />
+        {isLoading && threads.length === 0 && deviceDrafts.length === 0 ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
-          <EmptyStateForContext
+          deviceDrafts.length === 0 && <EmptyStateForContext
             searchQuery={searchQuery}
             activeAccountId={activeAccountId}
             activeLabel={activeLabel}

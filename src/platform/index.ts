@@ -34,6 +34,7 @@ export interface PlatformWindow {
 }
 
 export interface PlatformBridge {
+  presentFile?: (filename: string, bytes: Uint8Array, preview: boolean) => Promise<void>;
   captureScreenshot?: () => Promise<string>;
   db?: SqlDatabase;
   invoke?: <T = unknown>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -164,6 +165,10 @@ export async function platformOpenUrl(url: string): Promise<void> {
 }
 
 export async function platformSaveFile(filename: string, bytes: Uint8Array): Promise<void> {
+  if (typeof window !== "undefined" && window.supermail?.presentFile) {
+    await window.supermail.presentFile(filename, bytes, false);
+    return;
+  }
   if (typeof window !== "undefined" && window.supermail?.dialog?.save && window.supermail?.fs?.writeFile) {
     const filePath = await window.supermail.dialog.save({ defaultPath: filename });
     if (filePath) {

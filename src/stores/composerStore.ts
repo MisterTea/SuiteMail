@@ -45,6 +45,8 @@ export interface ComposerState {
   inReplyToMessageId: string | null;
   showCcBcc: boolean;
   draftId: string | null;
+  /** Local message row of a stored draft opened from the Drafts list. */
+  draftMessageId: string | null;
   undoSendTimer: ReturnType<typeof setTimeout> | null;
   undoSendVisible: boolean;
   undoSendRestore: (() => void) | null;
@@ -71,6 +73,7 @@ export interface ComposerState {
     threadId?: string | null;
     inReplyToMessageId?: string | null;
     draftId?: string | null;
+    draftMessageId?: string | null;
     attachments?: ComposerAttachment[];
     quotedHtml?: string | null;
     contractActive?: boolean;
@@ -115,6 +118,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
   inReplyToMessageId: null,
   showCcBcc: false,
   draftId: null,
+  draftMessageId: null,
   undoSendTimer: null,
   undoSendVisible: false,
   undoSendRestore: null,
@@ -144,6 +148,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
       inReplyToMessageId: opts?.inReplyToMessageId ?? null,
       showCcBcc: (opts?.cc?.length ?? 0) > 0 || (opts?.bcc?.length ?? 0) > 0,
       draftId: opts?.draftId ?? null,
+      draftMessageId: opts?.draftMessageId ?? null,
       viewMode: "modal",
       fromEmail: null,
       attachments: opts?.attachments ?? [],
@@ -169,6 +174,7 @@ export const useComposerStore = create<ComposerState>((set) => ({
       inReplyToMessageId: null,
       showCcBcc: false,
       draftId: null,
+      draftMessageId: null,
       attachments: [],
       viewMode: "modal",
       fromEmail: null,

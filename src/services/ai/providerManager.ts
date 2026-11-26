@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { getSetting, getSecureSetting } from "@/services/db/settings";
 import { AiError } from "./errors";
 import type { AiProvider, AiProviderClient } from "./types";
@@ -119,6 +120,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
 }
 
 export async function isAiAvailable(): Promise<boolean> {
+  if (Capacitor.getPlatform() === "ios") return false;
   try {
     const enabled = await getSetting("ai_enabled");
     if (enabled === "false") return false;

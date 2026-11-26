@@ -997,6 +997,14 @@ export const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 38,
+    description: "Store the ready-to-send MIME and claim time for scheduled emails so native background jobs can send them",
+    sql: `
+      ALTER TABLE scheduled_emails ADD COLUMN raw_mime TEXT;
+      ALTER TABLE scheduled_emails ADD COLUMN claimed_at INTEGER;
+    `,
+  },
 ];
 
 /**

@@ -8,8 +8,8 @@ const mockNavigateToSettings = vi.fn();
 const mockOpenComposer = vi.fn();
 const mockRoute = vi.hoisted(() => ({ label: "inbox", android: false, threadId: null as string | null, composerOpen: false }));
 
-vi.mock("@/hooks/useAndroidMobile", () => ({
-  useAndroidMobile: () => mockRoute.android,
+vi.mock("@/hooks/useNativePhone", () => ({
+  useNativePhone: () => mockRoute.android,
 }));
 
 vi.mock("@/router/navigate", () => ({

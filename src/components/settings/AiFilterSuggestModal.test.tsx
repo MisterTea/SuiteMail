@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AiFilterSuggestModal } from "./AiFilterSuggestModal";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 
-vi.mock("@/hooks/useAndroidMobile", () => ({ useAndroidMobile: vi.fn(() => false) }));
+vi.mock("@/hooks/useNativePhone", () => ({ useNativePhone: vi.fn(() => false) }));
 
 import { useAccountStore } from "@/stores/accountStore";
 
@@ -43,7 +43,7 @@ describe("AiFilterSuggestModal", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useAndroidMobile).mockReturnValue(false);
+    vi.mocked(useNativePhone).mockReturnValue(false);
     useAccountStore.setState({ activeAccountId: "test-acc-1" });
   });
 
@@ -441,9 +441,9 @@ describe("AiFilterSuggestModal", () => {
     });
   });
   it("uses a readable Android sheet and labeled fields with native Back dismissal", async () => {
-    vi.mocked(useAndroidMobile).mockReturnValue(true);
+    vi.mocked(useNativePhone).mockReturnValue(true);
     render(<AiFilterSuggestModal isOpen onClose={onClose} initialMode="manual" />);
-    expect(screen.getByRole("dialog")).toHaveStyle({ height: "var(--android-viewport-height, 100dvh)" });
+    expect(screen.getByRole("dialog")).toHaveStyle({ height: "var(--mobile-viewport-height, 100dvh)" });
     await screen.findByRole("option", { name: "Work" });
     expect(screen.getByLabelText("From contains")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Manual" })).toHaveAttribute("aria-pressed", "true");

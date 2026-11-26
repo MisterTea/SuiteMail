@@ -1,3 +1,4 @@
+import { iosNative } from "@/platform/ios";
 import { getDb, selectFirstBy } from "./connection";
 import { Capacitor } from "@capacitor/core";
 import { platformInvoke } from "@/platform";
@@ -253,6 +254,13 @@ export async function updateAccountAllTokens(
 }
 
 export async function deleteAccount(id: string): Promise<void> {
+  if (Capacitor.getPlatform() === "ios") {
+    const account = await getAccount(id);
+    if (account?.provider === "gmail_api") {
+      await iosNative.googleToken({ email: account.email, remove: true });
+      await iosNative.backgroundMail({ action: "discard", account: id });
+    }
+  }
   if (Capacitor.getPlatform() === "android") {
     const account = await getAccount(id);
     if (account?.imap_host === ANDROID_PROTON_HOST) {

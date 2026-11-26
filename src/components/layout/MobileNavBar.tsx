@@ -1,5 +1,5 @@
 import { useThreadStore } from "@/stores/threadStore";
-import { useAndroidMobile } from "@/hooks/useAndroidMobile";
+import { useNativePhone } from "@/hooks/useNativePhone";
 import { Capacitor } from "@capacitor/core";
 import { Mail, Star, Calendar, ListTodo, Plus, Settings, Menu } from "lucide-react";
 import { FeedbackButton } from "../feedback/FeedbackButton";
@@ -11,7 +11,8 @@ import { useTaskStore } from "@/stores/taskStore";
 import { useUIStore } from "@/stores/uiStore";
 
 export function MobileNavBar() {
-  const androidMobile = useAndroidMobile();
+  const ios = Capacitor.getPlatform() === "ios";
+  const androidMobile = useNativePhone();
   const selectedThreadId = useSelectedThreadId();
   const selectedCount = useThreadStore((s)=>s.selectedThreadIds.size);
   const activeLabel = useActiveLabel();
@@ -22,7 +23,7 @@ export function MobileNavBar() {
   const toggleMobileSidebar = useUIStore((s) => s.toggleMobileSidebar);
   const setMobileSidebarOpen = useUIStore((s) => s.setMobileSidebarOpen);
   const showFloatingCompose = androidMobile && !composerOpen && activeLabel !== "settings" && activeLabel !== "calendar" && !selectedThreadId && !selectedCount;
-  const floatingFeedback = (androidMobile || Capacitor.getPlatform() === "android") && (
+  const floatingFeedback = !ios && (androidMobile || Capacitor.getPlatform() === "android") && (
     <div
       data-android-feedback
       data-bulk-selected={androidMobile && selectedCount > 0 ? "true" : undefined}
@@ -37,7 +38,7 @@ export function MobileNavBar() {
     const destinations = [
       {label:"Inbox", id:"inbox", icon:Mail},
       {label:"Starred", id:"starred", icon:Star},
-      {label:"Calendar", id:"calendar", icon:Calendar},
+      ios ? {label:"Settings", id:"settings", icon:Settings} : {label:"Calendar", id:"calendar", icon:Calendar},
       {label:"Folders", id:"folders", icon:Menu},
     ];
     return <>
@@ -45,13 +46,13 @@ export function MobileNavBar() {
       <nav data-mobile-nav aria-label="Mobile navigation" className="fixed bottom-0 inset-x-0 z-30 grid grid-cols-4 border-t border-border-primary bg-bg-primary px-2 pt-1">
         {destinations.map(({label,id,icon:Icon}) => <button key={id} data-testid={id === "folders" ? "mobile-nav-menu" : undefined}
           aria-label={id === "folders" ? "Open folders menu" : label} aria-current={activeLabel === id ? "page" : undefined}
-          onClick={()=>{if(id === "folders") toggleMobileSidebar();else {setMobileSidebarOpen(false);navigateToLabel(id);}}}
+          onClick={()=>{if(id === "folders") toggleMobileSidebar();else if(id === "settings") { setMobileSidebarOpen(false); navigateToSettings("general"); } else {setMobileSidebarOpen(false);navigateToLabel(id);}}}
           className={`flex min-h-16 flex-col items-center justify-center gap-1 rounded-xl text-xs font-medium ${activeLabel === id ? "text-accent bg-accent/10" : "text-text-secondary"}`}>
           <Icon size={24} /><span>{label}</span>
         </button>)}
       </nav>
       {showFloatingCompose && <button data-mobile-nav data-android-compose title="Compose Email" aria-label="Compose email" onClick={()=>{setMobileSidebarOpen(false);openComposer({mode:"new"});}}
-        className="fixed right-20 z-30 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg active:bg-accent-hover">
+        className={`fixed ${ios ? "right-4" : "right-20"} z-30 flex size-14 items-center justify-center rounded-2xl bg-accent text-white shadow-lg active:bg-accent-hover`}>
         <Plus size={24} aria-hidden="true" />
       </button>}
     </>;

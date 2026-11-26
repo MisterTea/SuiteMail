@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import type { CalendarProvider } from "./types";
 import { GoogleCalendarProvider } from "./googleCalendarProvider";
 import { CalDAVProvider } from "./caldavProvider";
@@ -45,6 +46,7 @@ export async function getCalendarProvider(accountId: string): Promise<CalendarPr
  * Check if an account has calendar support configured.
  */
 export async function hasCalendarSupport(accountId: string): Promise<boolean> {
+  if (Capacitor.getPlatform() === "ios") return false;
   const account = await getAccount(accountId);
   if (!account) return false;
 
