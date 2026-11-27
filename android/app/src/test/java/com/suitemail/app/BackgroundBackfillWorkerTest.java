@@ -124,4 +124,10 @@ public class BackgroundBackfillWorkerTest {
         assertEquals("m1", orphanDelete[3]);
         assertEquals("m2", orphanDelete[4]);
     }
+
+    @Test public void buildsValidExpeditedBackfillWorkRequest() {
+        androidx.work.OneTimeWorkRequest req = BackgroundMailScheduler.buildBackfillRequest();
+        assertNotNull(req);
+        assertTrue(req.getTags().contains(BackgroundMailScheduler.BACKFILL_TAG));
+    }
 }

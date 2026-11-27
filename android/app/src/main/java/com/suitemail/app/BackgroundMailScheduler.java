@@ -33,15 +33,21 @@ public final class BackgroundMailScheduler {
             .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build();
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(SCHEDULED_SEND,ExistingPeriodicWorkPolicy.KEEP,work);
     }
-    static void scheduleBackfill(Context context) {
-        if (!enabled(context)) return;
-        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(BackgroundBackfillWorker.class)
-            .setConstraints(constraints())
+    static Constraints backfillConstraints() {
+        // Expedited WorkRequests only support network and storage constraints (not battery-not-low).
+        return new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build();
+    }
+    static OneTimeWorkRequest buildBackfillRequest() {
+        return new OneTimeWorkRequest.Builder(BackgroundBackfillWorker.class)
+            .setConstraints(backfillConstraints())
             .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
             .addTag(BACKFILL_TAG)
             .build();
-        WorkManager.getInstance(context).enqueueUniqueWork(BACKFILL_NAME, ExistingWorkPolicy.KEEP, work);
+    }
+    static void scheduleBackfill(Context context) {
+        if (!enabled(context)) return;
+        WorkManager.getInstance(context).enqueueUniqueWork(BACKFILL_NAME, ExistingWorkPolicy.KEEP, buildBackfillRequest());
     }
     static void setEnabled(Context context, boolean enabled) {
         prefs(context).edit().putBoolean("enabled",enabled).commit();
