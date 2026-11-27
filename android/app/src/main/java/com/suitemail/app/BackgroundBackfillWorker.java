@@ -55,6 +55,7 @@ public class BackgroundBackfillWorker extends Worker {
     private final SharedPreferences prefs;
     private long nextRequest = 0;
     private long msPerUnit = 30L;
+    private boolean foregroundPromoted = false;
     private String currentAccount = "";
     private String token = "";
     private String email = "";
@@ -80,10 +81,18 @@ public class BackgroundBackfillWorker extends Worker {
     }
 
     @NonNull @Override public ForegroundInfo getForegroundInfo() {
-        return createForegroundInfo();
+        return createForegroundInfo(0, 0);
     }
 
-    private ForegroundInfo createForegroundInfo() {
+    static String formatProgressText(int completed, int total) {
+        if (completed <= 0) return "Syncing older mail…";
+        if (total > 0 && completed <= total) {
+            return String.format(Locale.getDefault(), "Syncing older mail… %,d / %,d", completed, total);
+        }
+        return String.format(Locale.getDefault(), "Syncing older mail… %,d synced", completed);
+    }
+
+    private Notification buildProgressNotification(int completed, int total) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationManager manager = context.getSystemService(NotificationManager.class);
             if (manager != null && manager.getNotificationChannel(SYNC_CHANNEL_ID) == null) {
@@ -97,14 +106,25 @@ public class BackgroundBackfillWorker extends Worker {
                 manager.createNotificationChannel(channel);
             }
         }
-        Notification notification = new NotificationCompat.Builder(context, SYNC_CHANNEL_ID)
+        boolean determinate = total > 0 && completed > 0 && completed <= total;
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(context, SYNC_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("SuiteMail")
-            .setContentText("Syncing older mail…")
+            .setContentText(formatProgressText(completed, total))
             .setOngoing(true)
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build();
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW);
+        if (determinate) {
+            builder.setProgress(total, completed, false);
+        } else {
+            builder.setProgress(0, 0, true);
+        }
+        return builder.build();
+    }
+
+    private ForegroundInfo createForegroundInfo(int completed, int total) {
+        Notification notification = buildProgressNotification(completed, total);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             return new ForegroundInfo(FOREGROUND_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
         }
@@ -113,10 +133,21 @@ public class BackgroundBackfillWorker extends Worker {
 
     private void promoteToForeground() {
         try {
-            setForegroundAsync(createForegroundInfo()).get(5, TimeUnit.SECONDS);
+            setForegroundAsync(createForegroundInfo(0, 0)).get(5, TimeUnit.SECONDS);
+            foregroundPromoted = true;
         } catch (Exception e) {
             Log.w(TAG, "Could not promote backfill worker to foreground service: " + e.getClass().getSimpleName() + ": " + e.getMessage());
         }
+    }
+
+    private void updateProgressNotification(int completed, int total) {
+        if (!foregroundPromoted) return;
+        try {
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.notify(FOREGROUND_NOTIFICATION_ID, buildProgressNotification(completed, total));
+            }
+        } catch (Exception ignored) {}
     }
 
     private void check() throws Paused {
@@ -716,7 +747,9 @@ public class BackgroundBackfillWorker extends Worker {
                     checkpoint.toString(),
                 });
                 AppDatabase.transaction(context, txStatements.toArray(new Object[0][]));
-                Log.i(TAG, "Backfill stored " + chunk.size() + " threads for " + accountId + " (" + completed + "/" + checkpoint.optInt("total", 0) + ")");
+                int total = checkpoint.optInt("total", 0);
+                updateProgressNotification(completed, total);
+                Log.i(TAG, "Backfill stored " + chunk.size() + " threads for " + accountId + " (" + completed + "/" + total + ")");
             }
 
             String nextPageToken = listResponse.optString("nextPageToken", "");

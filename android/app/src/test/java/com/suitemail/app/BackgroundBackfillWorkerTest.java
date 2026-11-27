@@ -130,4 +130,11 @@ public class BackgroundBackfillWorkerTest {
         assertNotNull(req);
         assertTrue(req.getTags().contains(BackgroundMailScheduler.BACKFILL_TAG));
     }
+
+    @Test public void formatsBackfillNotificationProgressText() {
+        assertEquals("Syncing older mail…", BackgroundBackfillWorker.formatProgressText(0, 0));
+        assertTrue(BackgroundBackfillWorker.formatProgressText(4610, 4860).contains("4,610"));
+        assertTrue(BackgroundBackfillWorker.formatProgressText(4610, 4860).contains("4,860"));
+        assertTrue(BackgroundBackfillWorker.formatProgressText(500, 0).contains("500"));
+    }
 }
