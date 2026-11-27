@@ -35,8 +35,11 @@ import java.util.stream.Collectors;
  */
 public class BackgroundBackfillWorker extends Worker {
     static final int LIST_PAGE_SIZE = 500;
-    static final int CHUNK_SIZE = 25;
+    /** 10 metadata threads = 100 quota units per burst (gentle on Gmail's per-user sliding window). */
+    static final int CHUNK_SIZE = 10;
     static final int DEFAULT_SYNC_DAYS = 365;
+    private static final int MAX_BATCH_RATE_LIMIT_RETRIES = 3;
+    private static final long[] RATE_LIMIT_BACKOFF_MS = {5_000L, 15_000L, 30_000L};
     /** Stay safely under WorkManager's 10-minute per-run execution window. */
     static final long RUN_BUDGET_MS = 8 * 60_000L;
     private static final String TAG = "SuiteMailBackfill";
@@ -51,6 +54,7 @@ public class BackgroundBackfillWorker extends Worker {
     private final Context context;
     private final SharedPreferences prefs;
     private long nextRequest = 0;
+    private long msPerUnit = 30L;
     private String currentAccount = "";
     private String token = "";
     private String email = "";
@@ -145,13 +149,20 @@ public class BackgroundBackfillWorker extends Worker {
     private void pace(int cost) throws Exception {
         check();
         long until = Math.max(nextRequest, prefs.getLong("cooldown:" + currentAccount, 0));
-        if (until - System.currentTimeMillis() > 15_000) throw new RateLimited();
+        if (until - System.currentTimeMillis() > 45_000) throw new RateLimited();
         while (System.currentTimeMillis() < until) {
             check();
             Thread.sleep(Math.max(1, Math.min(250, until - System.currentTimeMillis())));
         }
-        // 4,500 units/minute (75 units/sec), matching foreground & BackgroundMailWorker quota budget.
-        nextRequest = System.currentTimeMillis() + cost * 40L / 3;
+        nextRequest = System.currentTimeMillis() + cost * msPerUnit;
+    }
+
+    private void interruptibleSleep(long ms) throws Exception {
+        long target = System.currentTimeMillis() + ms;
+        while (System.currentTimeMillis() < target) {
+            check();
+            Thread.sleep(Math.max(1, Math.min(250, target - System.currentTimeMillis())));
+        }
     }
 
     private static boolean isRateLimit(int status, String body) {
@@ -225,72 +236,101 @@ public class BackgroundBackfillWorker extends Worker {
             return out;
         }
 
-        pace(threadIds.size() * 10);
-        String boundary = "suitemail_backfill_" + UUID.randomUUID().toString().replace("-", "");
-        byte[] payload = buildBatchBody(boundary, threadIds).getBytes(StandardCharsets.UTF_8);
-        HttpURLConnection connection = (HttpURLConnection) new URL(GMAIL_BATCH_URL).openConnection();
-        connection.setRequestMethod("POST");
-        connection.setDoOutput(true);
-        connection.setFixedLengthStreamingMode(payload.length);
-        connection.setConnectTimeout(15_000);
-        connection.setReadTimeout(45_000);
-        connection.setRequestProperty("Authorization", "Bearer " + token);
-        connection.setRequestProperty("Content-Type", "multipart/mixed; boundary=" + boundary);
-        connection.setInstanceFollowRedirects(false);
-        int status;
-        String contentType;
-        String body;
-        try {
-            try (OutputStream out = connection.getOutputStream()) {
-                out.write(payload);
+        Map<String, JSONObject> threads = new LinkedHashMap<>();
+        List<String> pendingIds = new ArrayList<>(threadIds);
+        int rateLimitAttempt = 0;
+        boolean refreshedAuth = retried;
+
+        while (!pendingIds.isEmpty()) {
+            pace(pendingIds.size() * 10);
+            String boundary = "suitemail_backfill_" + UUID.randomUUID().toString().replace("-", "");
+            byte[] payload = buildBatchBody(boundary, pendingIds).getBytes(StandardCharsets.UTF_8);
+            HttpURLConnection connection = (HttpURLConnection) new URL(GMAIL_BATCH_URL).openConnection();
+            connection.setRequestMethod("POST");
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(payload.length);
+            connection.setConnectTimeout(15_000);
+            connection.setReadTimeout(45_000);
+            connection.setRequestProperty("Authorization", "Bearer " + token);
+            connection.setRequestProperty("Content-Type", "multipart/mixed; boundary=" + boundary);
+            connection.setInstanceFollowRedirects(false);
+            int status;
+            String contentType;
+            String body;
+            try {
+                try (OutputStream out = connection.getOutputStream()) {
+                    out.write(payload);
+                }
+                status = connection.getResponseCode();
+                contentType = connection.getContentType() != null ? connection.getContentType() : "";
+                body = readBody(connection, status);
+            } finally {
+                connection.disconnect();
             }
-            status = connection.getResponseCode();
-            contentType = connection.getContentType() != null ? connection.getContentType() : "";
-            body = readBody(connection, status);
             if (isRateLimit(status, body)) {
+                if (rateLimitAttempt < MAX_BATCH_RATE_LIMIT_RETRIES) {
+                    long backoffMs = RATE_LIMIT_BACKOFF_MS[rateLimitAttempt];
+                    rateLimitAttempt++;
+                    msPerUnit = Math.min(80L, msPerUnit + 15L);
+                    Log.w(TAG, "Batch HTTP " + status + " rate-limited, backing off " + backoffMs + "ms (attempt " + rateLimitAttempt + ", msPerUnit=" + msPerUnit + ")");
+                    interruptibleSleep(backoffMs);
+                    continue;
+                }
                 recordCooldown(connection);
                 throw new RateLimited();
             }
-        } finally {
-            connection.disconnect();
-        }
-        if (status == 401 && !retried) {
-            Tasks.await(Identity.getAuthorizationClient(context)
-                .clearToken(ClearTokenRequest.builder().setToken(token).build()), 20, TimeUnit.SECONDS);
-            authorize();
-            return fetchMetadataBatch(threadIds, true);
-        }
-        if (status < 200 || status >= 300) {
-            Log.w(TAG, "Batch HTTP " + status + " body=" + body.substring(0, Math.min(200, body.length())));
-            throw new HttpError(status);
-        }
+            if (status == 401 && !refreshedAuth) {
+                refreshedAuth = true;
+                Tasks.await(Identity.getAuthorizationClient(context)
+                    .clearToken(ClearTokenRequest.builder().setToken(token).build()), 20, TimeUnit.SECONDS);
+                authorize();
+                continue;
+            }
+            if (status < 200 || status >= 300) {
+                Log.w(TAG, "Batch HTTP " + status + " body=" + body.substring(0, Math.min(200, body.length())));
+                throw new HttpError(status);
+            }
 
-        Map<String, BatchPart> parts = parseBatchResponse(contentType, body);
-        Map<String, JSONObject> threads = new LinkedHashMap<>();
-        boolean sawUnauthorized = false;
-        for (int i = 0; i < threadIds.size(); i++) {
-            String id = threadIds.get(i);
-            BatchPart part = parts.get(String.valueOf(i));
-            if (part == null) {
-                Log.w(TAG, "Batch missing part " + i + " (parsed=" + parts.size() + ", ct=" + contentType + ")");
-                throw new HttpError(502);
+            Map<String, BatchPart> parts = parseBatchResponse(contentType, body);
+            List<String> retryIds = new ArrayList<>();
+            boolean sawUnauthorized = false;
+            boolean sawRateLimit = false;
+            for (int i = 0; i < pendingIds.size(); i++) {
+                String id = pendingIds.get(i);
+                BatchPart part = parts.get(String.valueOf(i));
+                if (part == null) {
+                    Log.w(TAG, "Batch missing part " + i + " (parsed=" + parts.size() + ", ct=" + contentType + ")");
+                    throw new HttpError(502);
+                }
+                if (part.status == 404) continue;
+                if (part.status == 401) { sawUnauthorized = true; retryIds.add(id); continue; }
+                if (isRateLimit(part.status, part.body)) { sawRateLimit = true; retryIds.add(id); continue; }
+                if (part.status < 200 || part.status >= 300) throw new HttpError(part.status);
+                if (!part.body.isEmpty()) threads.put(id, new JSONObject(part.body));
             }
-            if (part.status == 404) continue;
-            if (part.status == 401) { sawUnauthorized = true; continue; }
-            if (isRateLimit(part.status, part.body)) {
-                prefs.edit().putLong("cooldown:" + currentAccount, System.currentTimeMillis() + 60_000L).commit();
-                throw new RateLimited();
+            if (retryIds.isEmpty()) break;
+            if (sawUnauthorized) {
+                if (refreshedAuth) throw new HttpError(401);
+                refreshedAuth = true;
+                Tasks.await(Identity.getAuthorizationClient(context)
+                    .clearToken(ClearTokenRequest.builder().setToken(token).build()), 20, TimeUnit.SECONDS);
+                authorize();
             }
-            if (part.status < 200 || part.status >= 300) throw new HttpError(part.status);
-            if (!part.body.isEmpty()) threads.put(id, new JSONObject(part.body));
+            if (sawRateLimit) {
+                if (rateLimitAttempt >= MAX_BATCH_RATE_LIMIT_RETRIES) {
+                    prefs.edit().putLong("cooldown:" + currentAccount, System.currentTimeMillis() + 30_000L).commit();
+                    throw new RateLimited();
+                }
+                long backoffMs = RATE_LIMIT_BACKOFF_MS[rateLimitAttempt];
+                rateLimitAttempt++;
+                msPerUnit = Math.min(80L, msPerUnit + 15L);
+                Log.w(TAG, "Batch had " + retryIds.size() + " rate-limited sub-request(s), backing off " + backoffMs + "ms (attempt " + rateLimitAttempt + ", msPerUnit=" + msPerUnit + ")");
+                interruptibleSleep(backoffMs);
+            }
+            pendingIds = retryIds;
         }
-        if (sawUnauthorized && !retried) {
-            Tasks.await(Identity.getAuthorizationClient(context)
-                .clearToken(ClearTokenRequest.builder().setToken(token).build()), 20, TimeUnit.SECONDS);
-            authorize();
-            return fetchMetadataBatch(threadIds, true);
-        }
-        if (sawUnauthorized) throw new HttpError(401);
+        // Always ensure a full spacing gap after a batch (especially after a small retry) before the next batch.
+        nextRequest = Math.max(nextRequest, System.currentTimeMillis() + threadIds.size() * 10L * msPerUnit);
         return threads;
     }
 

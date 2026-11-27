@@ -14,7 +14,8 @@ final class BackgroundMail {
     private let identifier = "com.suitemail.app.gmail-refresh"
     private let backfillIdentifier = "com.suitemail.app.gmail-backfill"
     private static let backfillPageSize = 500
-    private static let backfillChunkSize = 25
+    /// 10 metadata threads = 100 quota units per burst (gentle on Gmail's per-user sliding window).
+    private static let backfillChunkSize = 10
     private static let defaultSyncDays = 365
     private static let backfillBatchURL = URL(string: "https://www.googleapis.com/batch/gmail/v1")!
     private var foreground = false
@@ -685,8 +686,8 @@ final class BackgroundMail {
             try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
             try checkBackgroundActive()
         }
-        // 4,500 units/minute (75 units/sec), matching foreground & Android quota budget.
-        nextBackfillRequest = Date().addingTimeInterval(Double(cost) * 0.04 / 3.0)
+        // 2,000 units/minute (33 units/sec) to avoid Gmail 429 bursts when other clients are active.
+        nextBackfillRequest = Date().addingTimeInterval(Double(cost) * 0.03)
     }
 
     private static func isRateLimit(status: Int, body: String) -> Bool {
