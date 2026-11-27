@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.11 (2026-11-27)
+
+* Promote Android background Gmail backfill to an expedited `dataSync` foreground service with diagnostic logging so devices like Samsung One UI don't freeze or cut off network mid-backfill.
+* Add an **Allow unrestricted battery** prompt in Android Background Gmail sync settings when battery optimization is active.
+
 ## 0.1.10 (2026-11-27)
 
 * Run historical Gmail metadata backfill in the background on Android (via WorkManager) and iOS (via `BGProcessingTask` and `BGAppRefreshTask`) using the shared `gmail_initial_sync` checkpoint, so mailboxes finish catching up even after leaving the app.
