@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.10 (2026-11-27)
+
+* Run historical Gmail metadata backfill in the background on Android (via WorkManager) and iOS (via `BGProcessingTask` and `BGAppRefreshTask`) using the shared `gmail_initial_sync` checkpoint, so mailboxes finish catching up even after leaving the app.
+* Gate calendar event suggestions on a clear event check and add per-mailbox AI settings.
+
 ## 0.1.9 (2026-11-26)
 
 * Add Android notification actions (**Archive**, **Mark as read**, and inline **Reply** with free-form typing and AI-generated quick replies).
