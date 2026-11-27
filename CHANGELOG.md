@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 (2026-11-27)
+
+* Fix a crash when backgrounding SuiteMail on Android caused by combining `setExpedited` with `setRequiresBatteryNotLow` on the backfill `WorkRequest`.
+
 ## 0.1.11 (2026-11-27)
 
 * Promote Android background Gmail backfill to an expedited `dataSync` foreground service with diagnostic logging so devices like Samsung One UI don't freeze or cut off network mid-backfill.
