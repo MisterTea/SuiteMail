@@ -1,9 +1,16 @@
 package com.suitemail.app;
 
 import android.accounts.Account;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.ServiceInfo;
+import android.os.Build;
+import android.util.Log;
 import androidx.annotation.NonNull;
+import androidx.core.app.NotificationCompat;
 import androidx.work.*;
 import com.google.android.gms.auth.api.identity.*;
 import com.google.android.gms.common.api.ApiException;
@@ -32,6 +39,9 @@ public class BackgroundBackfillWorker extends Worker {
     static final int DEFAULT_SYNC_DAYS = 365;
     /** Stay safely under WorkManager's 10-minute per-run execution window. */
     static final long RUN_BUDGET_MS = 8 * 60_000L;
+    private static final String TAG = "SuiteMailBackfill";
+    private static final String SYNC_CHANNEL_ID = "background_sync";
+    private static final int FOREGROUND_NOTIFICATION_ID = 0x534D4246; // "SMBF"
     private static final String GMAIL_URL = "https://gmail.googleapis.com/gmail/v1/users/me";
     private static final String GMAIL_BATCH_URL = "https://www.googleapis.com/batch/gmail/v1";
     private static final Pattern BOUNDARY_PATTERN = Pattern.compile("boundary=(?:\"([^\"]+)\"|([^;\\s]+))", Pattern.CASE_INSENSITIVE);
@@ -63,6 +73,46 @@ public class BackgroundBackfillWorker extends Worker {
         super(context, parameters);
         this.context = context;
         this.prefs = BackgroundMailScheduler.prefs(context);
+    }
+
+    @NonNull @Override public ForegroundInfo getForegroundInfo() {
+        return createForegroundInfo();
+    }
+
+    private ForegroundInfo createForegroundInfo() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationManager manager = context.getSystemService(NotificationManager.class);
+            if (manager != null && manager.getNotificationChannel(SYNC_CHANNEL_ID) == null) {
+                NotificationChannel channel = new NotificationChannel(
+                    SYNC_CHANNEL_ID,
+                    "Background sync",
+                    NotificationManager.IMPORTANCE_LOW
+                );
+                channel.setDescription("Progress while SuiteMail finishes syncing older mail");
+                channel.setShowBadge(false);
+                manager.createNotificationChannel(channel);
+            }
+        }
+        Notification notification = new NotificationCompat.Builder(context, SYNC_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("SuiteMail")
+            .setContentText("Syncing older mail…")
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            return new ForegroundInfo(FOREGROUND_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+        }
+        return new ForegroundInfo(FOREGROUND_NOTIFICATION_ID, notification);
+    }
+
+    private void promoteToForeground() {
+        try {
+            setForegroundAsync(createForegroundInfo()).get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            Log.w(TAG, "Could not promote backfill worker to foreground service: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        }
     }
 
     private void check() throws Paused {
@@ -181,6 +231,7 @@ public class BackgroundBackfillWorker extends Worker {
         HttpURLConnection connection = (HttpURLConnection) new URL(GMAIL_BATCH_URL).openConnection();
         connection.setRequestMethod("POST");
         connection.setDoOutput(true);
+        connection.setFixedLengthStreamingMode(payload.length);
         connection.setConnectTimeout(15_000);
         connection.setReadTimeout(45_000);
         connection.setRequestProperty("Authorization", "Bearer " + token);
@@ -209,7 +260,10 @@ public class BackgroundBackfillWorker extends Worker {
             authorize();
             return fetchMetadataBatch(threadIds, true);
         }
-        if (status < 200 || status >= 300) throw new HttpError(status);
+        if (status < 200 || status >= 300) {
+            Log.w(TAG, "Batch HTTP " + status + " body=" + body.substring(0, Math.min(200, body.length())));
+            throw new HttpError(status);
+        }
 
         Map<String, BatchPart> parts = parseBatchResponse(contentType, body);
         Map<String, JSONObject> threads = new LinkedHashMap<>();
@@ -217,7 +271,10 @@ public class BackgroundBackfillWorker extends Worker {
         for (int i = 0; i < threadIds.size(); i++) {
             String id = threadIds.get(i);
             BatchPart part = parts.get(String.valueOf(i));
-            if (part == null) throw new HttpError(502);
+            if (part == null) {
+                Log.w(TAG, "Batch missing part " + i + " (parsed=" + parts.size() + ", ct=" + contentType + ")");
+                throw new HttpError(502);
+            }
             if (part.status == 404) continue;
             if (part.status == 401) { sawUnauthorized = true; continue; }
             if (isRateLimit(part.status, part.body)) {
@@ -619,6 +676,7 @@ public class BackgroundBackfillWorker extends Worker {
                     checkpoint.toString(),
                 });
                 AppDatabase.transaction(context, txStatements.toArray(new Object[0][]));
+                Log.i(TAG, "Backfill stored " + chunk.size() + " threads for " + accountId + " (" + completed + "/" + checkpoint.optInt("total", 0) + ")");
             }
 
             String nextPageToken = listResponse.optString("nextPageToken", "");
@@ -652,26 +710,45 @@ public class BackgroundBackfillWorker extends Worker {
 
         long deadline = System.currentTimeMillis() + RUN_BUDGET_MS;
         boolean needRetry = false;
+        String lastError = "";
         try {
             JSONArray accounts = AppDatabase.select(context,
                 "SELECT id, email FROM accounts WHERE is_active = 1 AND provider = 'gmail_api' AND (history_id IS NULL OR history_id = '') ORDER BY id");
-            if (accounts.length() == 0) return Result.success();
+            if (accounts.length() == 0) {
+                Log.i(TAG, "All active Gmail accounts are caught up");
+                prefs.edit().putString("backfill_last_error", "").commit();
+                return Result.success();
+            }
 
+            promoteToForeground();
             int daysBack = readSyncPeriodDays();
+            Log.i(TAG, "Starting background backfill for " + accounts.length() + " account(s), daysBack=" + daysBack);
             for (int i = 0; i < accounts.length(); i++) {
                 JSONObject account = accounts.getJSONObject(i);
                 String id = AppDatabase.string(account, "id");
                 String accountEmail = AppDatabase.string(account, "email");
                 if (id == null || accountEmail == null) continue;
                 try {
-                    if (!backfillAccount(id, accountEmail, daysBack, deadline)) needRetry = true;
+                    if (!backfillAccount(id, accountEmail, daysBack, deadline)) {
+                        Log.i(TAG, "Backfill hit budget deadline for " + id + ", will retry");
+                        needRetry = true;
+                    } else {
+                        Log.i(TAG, "Backfill completed for " + id);
+                        prefs.edit().putLong("backfill_last_success", System.currentTimeMillis()).commit();
+                    }
                 } catch (Paused e) {
+                    Log.i(TAG, "Backfill paused (foreground or stopped) for " + id);
                     return Result.success();
                 } catch (Reconnect e) {
-                    // Don't spin WorkManager retries when user action is needed to re-authenticate.
+                    Log.w(TAG, "Backfill needs account reconnection for " + id);
+                    lastError = "reconnect";
                 } catch (RateLimited e) {
+                    Log.w(TAG, "Backfill rate-limited for " + id + ", scheduling retry");
+                    lastError = "rate_limited";
                     needRetry = true;
                 } catch (Exception e) {
+                    Log.w(TAG, "Backfill failed for " + id + ": " + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
+                    lastError = e.getClass().getSimpleName() + ": " + (e.getMessage() == null ? "" : e.getMessage());
                     Throwable cause = e.getCause();
                     ApiException api = e instanceof ApiException ? (ApiException) e : cause instanceof ApiException ? (ApiException) cause : null;
                     int code = api == null ? -1 : api.getStatusCode();
@@ -680,8 +757,11 @@ public class BackgroundBackfillWorker extends Worker {
                     if (!authFailure) needRetry = true;
                 }
             }
+            prefs.edit().putString("backfill_last_error", lastError).commit();
             return needRetry ? Result.retry() : Result.success();
         } catch (Exception e) {
+            Log.w(TAG, "Backfill worker failed at top level: " + e.getClass().getSimpleName() + ": " + e.getMessage(), e);
+            prefs.edit().putString("backfill_last_error", e.getClass().getSimpleName() + ": " + e.getMessage()).commit();
             return Result.retry();
         }
     }

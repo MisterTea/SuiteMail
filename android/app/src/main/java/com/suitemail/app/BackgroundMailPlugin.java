@@ -1,8 +1,13 @@
 package com.suitemail.app;
 
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.Build;
+import android.os.PowerManager;
+import android.provider.Settings;
 import com.getcapacitor.*;
 import com.getcapacitor.annotation.CapacitorPlugin;
-import android.content.SharedPreferences;
 
 @CapacitorPlugin(name="BackgroundMail")
 public class BackgroundMailPlugin extends Plugin {
@@ -26,10 +31,34 @@ public class BackgroundMailPlugin extends Plugin {
     }
     @PluginMethod public void status(PluginCall call) {
         SharedPreferences prefs=BackgroundMailScheduler.prefs(getContext());
+        PowerManager pm=(PowerManager)getContext().getSystemService(android.content.Context.POWER_SERVICE);
+        boolean batteryIgnored=Build.VERSION.SDK_INT<Build.VERSION_CODES.M
+            || (pm!=null && pm.isIgnoringBatteryOptimizations(getContext().getPackageName()));
         JSObject data=new JSObject();data.put("enabled",BackgroundMailScheduler.enabled(getContext()));
         data.put("intervalMinutes",BackgroundMailScheduler.INTERVAL_MINUTES);data.put("lastAttempt",prefs.getLong("last_attempt",0));
         data.put("lastSuccess",prefs.getLong("last_success",0));data.put("lastError",prefs.getString("last_error",""));
-        data.put("queuedThreads",store.count());call.resolve(data);
+        data.put("queuedThreads",store.count());data.put("batteryOptimizationIgnored",batteryIgnored);
+        data.put("backfillLastSuccess",prefs.getLong("backfill_last_success",0));
+        data.put("backfillLastError",prefs.getString("backfill_last_error",""));
+        call.resolve(data);
+    }
+    @PluginMethod public void requestUnrestrictedBattery(PluginCall call) {
+        try {
+            Intent intent=new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                Uri.parse("package:"+getContext().getPackageName()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (Exception e) {
+            try {
+                Intent fallback=new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS);
+                fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(fallback);
+                call.resolve();
+            } catch (Exception err) {
+                call.reject("Cannot open battery optimization settings",err);
+            }
+        }
     }
     @PluginMethod public void pending(PluginCall call) {
         try {JSObject data=new JSObject();data.put("entries",store.list(20));call.resolve(data);}

@@ -6,11 +6,13 @@ import {storeBackgroundGmailThread} from './sync';
 import type {GmailThread} from './client';
 export interface BackgroundMailStatus {
   enabled:boolean; intervalMinutes:number; lastAttempt:number; lastSuccess:number; lastError:string; queuedThreads:number;
+  batteryOptimizationIgnored?:boolean; backfillLastSuccess?:number; backfillLastError?:string;
 }
 interface CachedThread {accountId:string;threadId:string;version:string;thread:GmailThread|null}
 interface BackgroundMailPlugin {
   status():Promise<BackgroundMailStatus>;
   configure(options:{enabled:boolean}):Promise<BackgroundMailStatus>;
+  requestUnrestrictedBattery():Promise<void>;
   pending():Promise<{entries:CachedThread[]}>;
   acknowledge(entry:{accountId:string;threadId:string;version:string}):Promise<{removed:boolean}>;
 }
@@ -18,6 +20,7 @@ const native=registerPlugin<BackgroundMailPlugin>('BackgroundMail');
 export const hasAndroidBackgroundSync=()=>Capacitor.getPlatform()==='android';
 export const getBackgroundMailStatus=()=>native.status();
 export const setBackgroundMailEnabled=(enabled:boolean)=>native.configure({enabled});
+export const requestUnrestrictedBattery=()=>native.requestUnrestrictedBattery();
 let importing:Promise<number>|null=null;
 export async function importBackgroundMail():Promise<number>{
   if(!hasAndroidBackgroundSync())return 0;

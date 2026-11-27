@@ -37,6 +37,7 @@ public final class BackgroundMailScheduler {
         if (!enabled(context)) return;
         OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(BackgroundBackfillWorker.class)
             .setConstraints(constraints())
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
             .addTag(BACKFILL_TAG)
             .build();

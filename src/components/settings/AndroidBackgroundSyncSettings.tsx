@@ -1,10 +1,17 @@
 import {useEffect,useState} from 'react';
-import {getBackgroundMailStatus,setBackgroundMailEnabled,hasAndroidBackgroundSync,type BackgroundMailStatus} from '@/services/gmail/androidBackgroundSync';
+import {getBackgroundMailStatus,setBackgroundMailEnabled,requestUnrestrictedBattery,hasAndroidBackgroundSync,type BackgroundMailStatus} from '@/services/gmail/androidBackgroundSync';
 export function AndroidBackgroundSyncSettings(){
   const [status,setStatus]=useState<BackgroundMailStatus|null>(null);
   const [saving,setSaving]=useState(false);const[error,setError]=useState('');
   const android=hasAndroidBackgroundSync();
-  useEffect(()=>{if(android)getBackgroundMailStatus().then(setStatus).catch(()=>setError('Could not read background sync settings.'));},[android]);
+  useEffect(()=>{
+    if(!android)return;
+    const refresh=()=>{getBackgroundMailStatus().then(setStatus).catch(()=>setError('Could not read background sync settings.'));};
+    refresh();
+    const onVisible=()=>{if(document.visibilityState==='visible')refresh();};
+    document.addEventListener('visibilitychange',onVisible);
+    return ()=>document.removeEventListener('visibilitychange',onVisible);
+  },[android]);
   if(!android)return null;
   return <section className="mb-6 space-y-3">
     <h3 className="font-semibold text-text-primary">Background Gmail sync</h3>
@@ -14,6 +21,14 @@ export function AndroidBackgroundSyncSettings(){
       }}/><span>Check for mail when SuiteMail is closed</span>
     </label>
     <p className="text-sm text-text-secondary">Checks about every {status?.intervalMinutes ?? 30} minutes with an internet connection. Android may delay checks to save battery. Downloaded mail is ready to load when you reopen SuiteMail.</p>
+    {status?.batteryOptimizationIgnored===false&&(
+      <div className="rounded-lg border border-border-primary bg-bg-secondary/60 p-3 space-y-2">
+        <p className="text-sm text-text-secondary">Android battery optimization can block background sync on some devices. Allow unrestricted battery use so SuiteMail can sync reliably in the background.</p>
+        <button type="button" className="px-3 py-1.5 text-xs font-medium rounded-md bg-accent text-white hover:opacity-90" onClick={()=>{void requestUnrestrictedBattery().catch(()=>setError('Could not open battery settings.'));}}>
+          Allow unrestricted battery
+        </button>
+      </div>
+    )}
     {status?.lastSuccess ? <p className="text-sm text-text-secondary">Last background check: {new Date(status.lastSuccess).toLocaleString()}</p>:null}
     {status?.lastError&&<p role="status" className="text-sm text-text-secondary">{status.lastError==='reconnect'?'Reconnect your Google account below to resume background checks.':'The last background check could not finish. It will retry when possible.'}</p>}
     {error&&<p role="alert" className="text-sm text-danger">{error}</p>}
