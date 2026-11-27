@@ -12,20 +12,27 @@ final class BackgroundMail {
     private static let maxNotifiedIDs = 200
     private static let maxIndividualNotifications = 3
     private let identifier = "com.suitemail.app.gmail-refresh"
+    private let backfillIdentifier = "com.suitemail.app.gmail-backfill"
+    private static let backfillPageSize = 500
+    private static let backfillChunkSize = 25
+    private static let defaultSyncDays = 365
+    private static let backfillBatchURL = URL(string: "https://www.googleapis.com/batch/gmail/v1")!
     private var foreground = false
     private var worker: Task<Void, Never>?
+    private var backfillWorker: Task<Void, Never>?
+    private var nextBackfillRequest = Date.distantPast
 
-    private final class RefreshCompletion {
-        private let refresh: BGAppRefreshTask
+    private final class TaskCompletion {
+        private let task: BGTask
         private var completed = false
 
-        init(_ refresh: BGAppRefreshTask) { self.refresh = refresh }
+        init(_ task: BGTask) { self.task = task }
 
         func finish(_ success: Bool) {
             guard !completed else { return }
             completed = true
-            refresh.expirationHandler = nil
-            refresh.setTaskCompleted(success: success)
+            task.expirationHandler = nil
+            task.setTaskCompleted(success: success)
         }
     }
 
@@ -43,23 +50,52 @@ final class BackgroundMail {
             }
             Task { @MainActor in self.run(refresh) }
         }
+        BGTaskScheduler.shared.register(forTaskWithIdentifier: backfillIdentifier, using: nil) { task in
+            guard let processing = task as? BGProcessingTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor in self.runBackfill(processing) }
+        }
     }
 
     func schedule() {
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: Self.refreshInterval)
         try? BGTaskScheduler.shared.submit(request)
+        scheduleBackfillIfNeeded()
+    }
+
+    func scheduleBackfillIfNeeded() {
+        Task { @MainActor in
+            let needsBackfill = (try? await self.accountsNeedingBackfill().isEmpty == false) ?? false
+            if needsBackfill {
+                self.submitBackfillRequest()
+            } else {
+                BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: self.backfillIdentifier)
+            }
+        }
+    }
+
+    private func submitBackfillRequest() {
+        let request = BGProcessingTaskRequest(identifier: backfillIdentifier)
+        request.requiresNetworkConnectivity = true
+        request.requiresExternalPower = false
+        try? BGTaskScheduler.shared.submit(request)
     }
 
     func setForeground(_ active: Bool) {
         foreground = active
-        if active { worker?.cancel() }
+        if active {
+            worker?.cancel()
+            backfillWorker?.cancel()
+        }
     }
 
     private func run(_ refresh: BGAppRefreshTask) {
         schedule()
         guard !foreground, worker == nil else { refresh.setTaskCompleted(success: true); return }
-        let completion = RefreshCompletion(refresh)
+        let completion = TaskCompletion(refresh)
         let task = Task {
             let success: Bool
             do {
@@ -76,12 +112,45 @@ final class BackgroundMail {
         }
     }
 
+    private func runBackfill(_ processing: BGProcessingTask) {
+        guard !foreground, backfillWorker == nil else { processing.setTaskCompleted(success: true); return }
+        let completion = TaskCompletion(processing)
+        let task = Task {
+            var success = true
+            var finishedAll = false
+            do {
+                finishedAll = try await backfillWork(deadline: Date().addingTimeInterval(5 * 60))
+                success = !Task.isCancelled
+            } catch is CancellationError {
+                success = false
+            } catch {
+                success = false
+            }
+            backfillWorker = nil
+            if !finishedAll && !foreground {
+                submitBackfillRequest()
+            }
+            completion.finish(success)
+        }
+        backfillWorker = task
+        processing.expirationHandler = {
+            task.cancel()
+            Task { @MainActor in
+                if !self.foreground { self.submitBackfillRequest() }
+                completion.finish(false)
+            }
+        }
+    }
+
     /// Everything a background refresh does.
     private func refreshWork() async throws {
         // Scheduled mail first: it is the time-sensitive part of the refresh window.
         _ = await sendDueScheduled()
         try Task.checkCancellation()
         try await fetch()
+        try Task.checkCancellation()
+        // Chip away at unfinished historical backfill during short refresh windows too.
+        _ = try? await backfillWork(deadline: Date().addingTimeInterval(15))
     }
 
     #if DEBUG
@@ -546,5 +615,529 @@ final class BackgroundMail {
                                               .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed, .appTransportSecurityRequiresSecureConnection]
             throw neverSent.contains(error.code) ? SendOutcome.notSent : SendOutcome.failed
         }
+    }
+
+    // MARK: - Background historical backfill
+
+    private enum BackfillError: Error {
+        case rateLimited
+        case http(Int)
+    }
+
+    private struct BatchPart {
+        let status: Int
+        let body: String
+    }
+
+    private static func sql(_ value: String?) -> Any {
+        value ?? NSNull()
+    }
+
+    private func accountsNeedingBackfill() async throws -> [[String: Any]] {
+        try await Self.select(
+            "SELECT id, email FROM accounts WHERE is_active = 1 AND provider = 'gmail_api' AND (history_id IS NULL OR history_id = '') ORDER BY id",
+            []
+        )
+    }
+
+    private func readSyncPeriodDays() async -> Int {
+        if let rows = try? await Self.select("SELECT value FROM settings WHERE key = $1", ["sync_period_days"]),
+           let raw = rows.first?["value"] as? String,
+           let parsed = Int(raw), parsed > 0 {
+            return parsed
+        }
+        return Self.defaultSyncDays
+    }
+
+    private func accountStillNeedsBackfill(_ accountId: String) async throws -> Bool {
+        let rows = try await Self.select(
+            "SELECT history_id FROM accounts WHERE id = $1 AND is_active = 1 AND provider = 'gmail_api'",
+            [accountId]
+        )
+        guard let row = rows.first else { return false }
+        let cursor = row["history_id"] as? String ?? ""
+        return cursor.isEmpty
+    }
+
+    private func pendingResourceIDs(accountId: String, threadIDs: [String]) async throws -> Set<String> {
+        guard !threadIDs.isEmpty else { return [] }
+        let placeholders = (0..<threadIDs.count).map { "$\($0 + 2)" }.joined(separator: ",")
+        let params: [Any] = [accountId] + threadIDs
+        let rows = try await Self.select(
+            "SELECT DISTINCT resource_id FROM pending_operations WHERE account_id = $1 AND status = 'pending' AND resource_id IN (\(placeholders))",
+            params
+        )
+        return Set(rows.compactMap { $0["resource_id"] as? String })
+    }
+
+    private func checkBackgroundActive() throws {
+        try Task.checkCancellation()
+        if foreground { throw CancellationError() }
+    }
+
+    private func paceBackfill(accountId: String, cost: Int) async throws {
+        try checkBackgroundActive()
+        let cooldown = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "gmail-backfill-cooldown:" + accountId))
+        let until = max(nextBackfillRequest, cooldown)
+        let wait = until.timeIntervalSinceNow
+        if wait > 15 { throw BackfillError.rateLimited }
+        if wait > 0 {
+            try await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000))
+            try checkBackgroundActive()
+        }
+        // 4,500 units/minute (75 units/sec), matching foreground & Android quota budget.
+        nextBackfillRequest = Date().addingTimeInterval(Double(cost) * 0.04 / 3.0)
+    }
+
+    private static func isRateLimit(status: Int, body: String) -> Bool {
+        status == 429 || (status == 403 && (body.contains("rateLimitExceeded")
+            || body.contains("userRateLimitExceeded") || body.contains("RATE_LIMIT_EXCEEDED")))
+    }
+
+    private func recordBackfillCooldown(accountId: String, http: HTTPURLResponse) {
+        var delay: TimeInterval = 60
+        if let retry = http.value(forHTTPHeaderField: "Retry-After")?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let seconds = TimeInterval(retry) {
+            delay = max(delay, seconds)
+        }
+        UserDefaults.standard.set(Date().addingTimeInterval(delay).timeIntervalSince1970,
+                                  forKey: "gmail-backfill-cooldown:" + accountId)
+    }
+
+    private func backfillGetJSON(accountId: String, email: String, url: URL, cost: Int,
+                                 token: inout String, retried: Bool = false) async throws -> [String: Any] {
+        try await paceBackfill(accountId: accountId, cost: cost)
+        let response = try await GoogleMail.request(url, headers: ["Authorization": "Bearer " + token], timeout: 20)
+        try checkBackgroundActive()
+        let status = response.http.statusCode
+        if status == 401 && !retried {
+            token = try await GoogleMail.shared.token(email, invalid: token).value
+            return try await backfillGetJSON(accountId: accountId, email: email, url: url, cost: cost, token: &token, retried: true)
+        }
+        let text = String(decoding: response.data, as: UTF8.self)
+        if Self.isRateLimit(status: status, body: text) {
+            recordBackfillCooldown(accountId: accountId, http: response.http)
+            throw BackfillError.rateLimited
+        }
+        guard (200..<300).contains(status),
+              let json = try JSONSerialization.jsonObject(with: response.data) as? [String: Any] else {
+            throw BackfillError.http(status)
+        }
+        return json
+    }
+
+    private func fetchBackfillBatch(accountId: String, email: String, threadIDs: [String],
+                                    token: inout String, retried: Bool = false) async throws -> [String: [String: Any]] {
+        try await paceBackfill(accountId: accountId, cost: threadIDs.count * 10)
+        let boundary = "suitemail_backfill_" + UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let body = Self.buildBackfillBatchBody(boundary: boundary, threadIDs: threadIDs)
+        let response = try await GoogleMail.request(
+            Self.backfillBatchURL,
+            method: "POST",
+            headers: [
+                "Authorization": "Bearer " + token,
+                "Content-Type": "multipart/mixed; boundary=" + boundary,
+            ],
+            body: body,
+            timeout: 45
+        )
+        try checkBackgroundActive()
+        let status = response.http.statusCode
+        if status == 401 && !retried {
+            token = try await GoogleMail.shared.token(email, invalid: token).value
+            return try await fetchBackfillBatch(accountId: accountId, email: email, threadIDs: threadIDs, token: &token, retried: true)
+        }
+        let text = String(decoding: response.data, as: UTF8.self)
+        if Self.isRateLimit(status: status, body: text) {
+            recordBackfillCooldown(accountId: accountId, http: response.http)
+            throw BackfillError.rateLimited
+        }
+        guard (200..<300).contains(status) else { throw BackfillError.http(status) }
+
+        let contentType = response.http.value(forHTTPHeaderField: "Content-Type") ?? ""
+        let parts = Self.parseBackfillBatchResponse(contentType: contentType, text: text)
+        var threads: [String: [String: Any]] = [:]
+        var sawUnauthorized = false
+        for (index, id) in threadIDs.enumerated() {
+            guard let part = parts[String(index)] else { throw BackfillError.http(502) }
+            if part.status == 404 { continue }
+            if part.status == 401 { sawUnauthorized = true; continue }
+            if Self.isRateLimit(status: part.status, body: part.body) {
+                UserDefaults.standard.set(Date().addingTimeInterval(60).timeIntervalSince1970,
+                                          forKey: "gmail-backfill-cooldown:" + accountId)
+                throw BackfillError.rateLimited
+            }
+            guard (200..<300).contains(part.status) else { throw BackfillError.http(part.status) }
+            if !part.body.isEmpty,
+               let data = part.body.data(using: .utf8),
+               let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                threads[id] = json
+            }
+        }
+        if sawUnauthorized && !retried {
+            token = try await GoogleMail.shared.token(email, invalid: token).value
+            return try await fetchBackfillBatch(accountId: accountId, email: email, threadIDs: threadIDs, token: &token, retried: true)
+        }
+        if sawUnauthorized { throw BackfillError.http(401) }
+        return threads
+    }
+
+    private static func buildBackfillBatchBody(boundary: String, threadIDs: [String]) -> String {
+        var result = ""
+        for (index, id) in threadIDs.enumerated() {
+            let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+            result += "--\(boundary)\r\nContent-Type: application/http\r\nContent-ID: <\(index)>\r\n\r\n"
+            result += "GET /gmail/v1/users/me/threads/\(encoded)?format=metadata\r\n\r\n"
+        }
+        result += "--\(boundary)--\r\n"
+        return result
+    }
+
+    private static func parseBackfillBatchResponse(contentType: String, text: String) -> [String: BatchPart] {
+        var boundary: String?
+        if let range = contentType.range(of: "boundary=", options: .caseInsensitive) {
+            let tail = contentType[range.upperBound...]
+            if tail.hasPrefix("\"") {
+                let inner = tail.dropFirst()
+                if let end = inner.firstIndex(of: "\"") { boundary = String(inner[..<end]) }
+            } else {
+                let end = tail.firstIndex(where: { $0 == ";" || $0.isWhitespace }) ?? tail.endIndex
+                boundary = String(tail[..<end])
+            }
+        }
+        if boundary == nil, let start = text.range(of: "--") {
+            let tail = text[start.upperBound...]
+            if let end = tail.firstIndex(of: "\n") {
+                boundary = String(tail[..<end]).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        guard let boundary, !boundary.isEmpty else { return [:] }
+        var result: [String: BatchPart] = [:]
+        for raw in text.components(separatedBy: "--" + boundary) {
+            let part = raw.trimmingCharacters(in: CharacterSet(charactersIn: "\r\n"))
+            if part.isEmpty || part.hasPrefix("--") { continue }
+            guard let headerSplit = splitHTTPPart(part) else { continue }
+            guard let id = extractContentID(headerSplit.headers) else { continue }
+            guard let httpSplit = splitHTTPPart(headerSplit.body) else { continue }
+            let statusLine = httpSplit.headers.components(separatedBy: .newlines).first ?? ""
+            let tokens = statusLine.split(separator: " ")
+            guard tokens.count >= 2, let status = Int(tokens[1]) else { continue }
+            result[id] = BatchPart(status: status, body: httpSplit.body.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return result
+    }
+
+    private static func splitHTTPPart(_ text: String) -> (headers: String, body: String)? {
+        if let range = text.range(of: "\r\n\r\n") {
+            return (String(text[..<range.lowerBound]), String(text[range.upperBound...]))
+        }
+        if let range = text.range(of: "\n\n") {
+            return (String(text[..<range.lowerBound]), String(text[range.upperBound...]))
+        }
+        return nil
+    }
+
+    private static func extractContentID(_ headers: String) -> String? {
+        for line in headers.components(separatedBy: .newlines) {
+            guard let range = line.range(of: "Content-ID:", options: .caseInsensitive) else { continue }
+            var value = String(line[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.hasPrefix("<") { value.removeFirst() }
+            if value.hasSuffix(">") { value.removeLast() }
+            if value.hasPrefix("response-") { value = String(value.dropFirst("response-".count)) }
+            if !value.isEmpty { return value }
+        }
+        return nil
+    }
+
+    private static func backfillQuery(daysBack: Int) -> String {
+        let after = Calendar.current.date(byAdding: .day, value: -daysBack, to: Date()) ?? Date()
+        let comps = Calendar.current.dateComponents([.year, .month, .day], from: after)
+        return "after:\(comps.year ?? 2025)/\(comps.month ?? 1)/\(comps.day ?? 1)"
+    }
+
+    private static func parseBackfillCheckpoint(_ raw: String?, daysBack: Int) -> [String: Any]? {
+        guard let raw, !raw.isEmpty, let data = raw.data(using: .utf8),
+              let saved = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        guard (saved["version"] as? Int) == 1,
+              (saved["daysBack"] as? Int) == daysBack,
+              let historyId = saved["historyId"] as? String, !historyId.isEmpty,
+              let query = saved["query"] as? String, !query.isEmpty,
+              saved["completed"] is Int,
+              saved["storedIds"] is [String] else { return nil }
+        return saved
+    }
+
+    private static func headerValue(_ message: [String: Any], _ name: String) -> String? {
+        guard let payload = message["payload"] as? [String: Any],
+              let headers = payload["headers"] as? [[String: Any]] else { return nil }
+        for h in headers {
+            if let key = h["name"] as? String, key.caseInsensitiveCompare(name) == .orderedSame {
+                return h["value"] as? String
+            }
+        }
+        return nil
+    }
+
+    /// Matches parseEmailAddress in src/services/gmail/messageParser.ts.
+    private static func parseEmailAddress(_ raw: String?) -> (name: String?, address: String?) {
+        guard let raw else { return (nil, nil) }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return (nil, nil) }
+        if let lt = trimmed.lastIndex(of: "<"), let gt = trimmed.lastIndex(of: ">"), lt < gt {
+            let addr = trimmed[trimmed.index(after: lt)..<gt].trimmingCharacters(in: .whitespacesAndNewlines)
+            var name = trimmed[..<lt].trimmingCharacters(in: .whitespacesAndNewlines)
+            if name.hasPrefix("\"") && name.hasSuffix("\"") && name.count >= 2 {
+                name = String(name.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let address = addr.isEmpty ? nil : addr
+            let displayName = (name.isEmpty || name == address) ? nil : name
+            return (displayName, address)
+        }
+        return (nil, trimmed)
+    }
+
+    private static func buildThreadStorageStatements(accountId: String, thread: [String: Any]) -> [(String, [Any])] {
+        guard let threadId = thread["id"] as? String, !threadId.isEmpty,
+              let messages = thread["messages"] as? [[String: Any]], !messages.isEmpty else { return [] }
+
+        var allLabels: [String] = []
+        var labelSet = Set<String>()
+        var allRead = true
+        var anyStarred = false
+        var anyAttachments = false
+        var firstSubject: String?
+        var lastSnippet = ""
+        var lastDate: Int64 = 0
+        var messageIDs: [String] = []
+        var messageUpserts: [(String, [Any])] = []
+
+        for (index, msg) in messages.enumerated() {
+            guard let msgId = msg["id"] as? String, !msgId.isEmpty else { continue }
+            messageIDs.append(msgId)
+            let msgLabels = msg["labelIds"] as? [String] ?? []
+            for lid in msgLabels where !lid.isEmpty && labelSet.insert(lid).inserted {
+                allLabels.append(lid)
+            }
+            let isRead = !msgLabels.contains("UNREAD")
+            let isStarred = msgLabels.contains("STARRED")
+            if !isRead { allRead = false }
+            if isStarred { anyStarred = true }
+
+            let payload = msg["payload"] as? [String: Any]
+            let hasAtt = (payload?["mimeType"] as? String) == "multipart/mixed"
+            if hasAtt { anyAttachments = true }
+
+            let from = parseEmailAddress(headerValue(msg, "From"))
+            let subject = headerValue(msg, "Subject")
+            let snippet = msg["snippet"] as? String ?? ""
+            let internalDate = Int64(msg["internalDate"] as? String ?? "0") ?? 0
+            let rawSize = (msg["sizeEstimate"] as? NSNumber)?.intValue ?? 0
+
+            if index == 0 { firstSubject = subject }
+            if index == messages.count - 1 {
+                lastSnippet = snippet
+                lastDate = internalDate
+            }
+
+            let msgSQL = """
+                INSERT INTO messages (id, account_id, thread_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read, is_starred, body_html, body_text, body_cached, raw_size, internal_date, list_unsubscribe, list_unsubscribe_post, auth_results, message_id_header, references_header, in_reply_to_header, imap_uid, imap_folder)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NULL,NULL,0,$15,$16,$17,$18,NULL,NULL,NULL,NULL,NULL,NULL)
+                ON CONFLICT(account_id, id) DO UPDATE SET
+                  from_address=$4, from_name=$5, to_addresses=$6, cc_addresses=$7, bcc_addresses=$8, reply_to=$9,
+                  subject=$10, snippet=$11, date=$12, is_read=$13, is_starred=$14, raw_size=$15, internal_date=$16,
+                  list_unsubscribe=$17, list_unsubscribe_post=$18
+                """
+            messageUpserts.append((msgSQL, [
+                msgId,
+                accountId,
+                threadId,
+                sql(from.address),
+                sql(from.name),
+                sql(headerValue(msg, "To")),
+                sql(headerValue(msg, "Cc")),
+                sql(headerValue(msg, "Bcc")),
+                sql(headerValue(msg, "Reply-To")),
+                sql(subject),
+                snippet,
+                internalDate,
+                isRead ? 1 : 0,
+                isStarred ? 1 : 0,
+                rawSize,
+                internalDate,
+                sql(headerValue(msg, "List-Unsubscribe")),
+                sql(headerValue(msg, "List-Unsubscribe-Post")),
+            ]))
+        }
+
+        guard !messageIDs.isEmpty else { return [] }
+
+        var statements: [(String, [Any])] = []
+        let threadSQL = """
+            INSERT INTO threads (id, account_id, subject, snippet, last_message_at, message_count, is_read, is_starred, is_important, has_attachments, is_filtered)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11, 0))
+            ON CONFLICT(account_id, id) DO UPDATE SET
+              subject=$3, snippet=$4, last_message_at=$5, message_count=$6, is_read=$7, is_starred=$8, is_important=$9, has_attachments=$10,
+              is_filtered=COALESCE($11, threads.is_filtered)
+            """
+        statements.append((threadSQL, [
+            threadId,
+            accountId,
+            sql(firstSubject),
+            lastSnippet,
+            lastDate,
+            messageIDs.count,
+            allRead ? 1 : 0,
+            anyStarred ? 1 : 0,
+            labelSet.contains("IMPORTANT") ? 1 : 0,
+            anyAttachments ? 1 : 0,
+            NSNull(),
+        ]))
+        statements.append(("DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2", [accountId, threadId]))
+        for lid in allLabels {
+            statements.append(("INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
+                               [accountId, threadId, lid]))
+        }
+        statements.append(contentsOf: messageUpserts)
+
+        let placeholders = (0..<messageIDs.count).map { "$\($0 + 3)" }.joined(separator: ",")
+        let deleteParams: [Any] = [accountId, threadId] + messageIDs
+        statements.append(("DELETE FROM messages WHERE account_id = $1 AND thread_id = $2 AND id NOT IN (\(placeholders))", deleteParams))
+        return statements
+    }
+
+    private func encodeCheckpoint(_ checkpoint: [String: Any]) throws -> String {
+        let data = try JSONSerialization.data(withJSONObject: checkpoint)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    private func backfillAccount(id accountId: String, email: String, daysBack: Int, deadline: Date) async throws -> Bool {
+        var token = try await GoogleMail.shared.token(email).value
+        let key = "gmail_initial_sync:" + accountId
+        let savedRows = try await Self.select("SELECT value FROM settings WHERE key = $1", [key])
+        var checkpoint = Self.parseBackfillCheckpoint(savedRows.first?["value"] as? String, daysBack: daysBack) ?? [:]
+
+        if checkpoint.isEmpty {
+            let profileURL = URL(string: GoogleMail.base + "/profile?fields=historyId")!
+            let profile = try await backfillGetJSON(accountId: accountId, email: email, url: profileURL, cost: 1, token: &token)
+            guard let historyId = profile["historyId"] as? String, !historyId.isEmpty else { return false }
+            checkpoint = [
+                "version": 1,
+                "daysBack": daysBack,
+                "query": Self.backfillQuery(daysBack: daysBack),
+                "historyId": historyId,
+                "completed": 0,
+                "total": 0,
+                "storedIds": [String](),
+            ]
+            try checkBackgroundActive()
+            guard try await accountStillNeedsBackfill(accountId) else { return true }
+            _ = try await Self.committed([(
+                "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2",
+                [key, try encodeCheckpoint(checkpoint)]
+            )])
+        }
+
+        while true {
+            try checkBackgroundActive()
+            if Date() >= deadline { return false }
+
+            let query = checkpoint["query"] as? String ?? Self.backfillQuery(daysBack: daysBack)
+            var components = URLComponents(string: GoogleMail.base + "/threads")!
+            var items = [
+                URLQueryItem(name: "maxResults", value: String(Self.backfillPageSize)),
+                URLQueryItem(name: "q", value: query),
+            ]
+            if let pageToken = checkpoint["pageToken"] as? String, !pageToken.isEmpty {
+                items.append(URLQueryItem(name: "pageToken", value: pageToken))
+            }
+            components.queryItems = items
+
+            let listResponse = try await backfillGetJSON(accountId: accountId, email: email, url: components.url!, cost: 5, token: &token)
+            let stubs = listResponse["threads"] as? [[String: Any]] ?? []
+            var completed = checkpoint["completed"] as? Int ?? 0
+            let estimate = listResponse["resultSizeEstimate"] as? Int ?? 0
+            let prevTotal = checkpoint["total"] as? Int ?? 0
+            checkpoint["total"] = max(prevTotal, max(completed + stubs.count, estimate))
+
+            var storedIds = checkpoint["storedIds"] as? [String] ?? []
+            let storedSet = Set(storedIds)
+            let remaining = stubs.compactMap { $0["id"] as? String }.filter { !$0.isEmpty && !storedSet.contains($0) }
+
+            var start = 0
+            while start < remaining.count {
+                try checkBackgroundActive()
+                if Date() >= deadline { return false }
+                let end = min(start + Self.backfillChunkSize, remaining.count)
+                let chunk = Array(remaining[start..<end])
+                start = end
+
+                let fetched = try await fetchBackfillBatch(accountId: accountId, email: email, threadIDs: chunk, token: &token)
+                try checkBackgroundActive()
+                guard try await accountStillNeedsBackfill(accountId) else { return true }
+
+                let pending = try await pendingResourceIDs(accountId: accountId, threadIDs: chunk)
+                var txStatements: [(String, [Any])] = []
+                for id in chunk {
+                    if !pending.contains(id), let thread = fetched[id] {
+                        txStatements.append(contentsOf: Self.buildThreadStorageStatements(accountId: accountId, thread: thread))
+                    }
+                    storedIds.append(id)
+                    completed += 1
+                }
+                checkpoint["storedIds"] = storedIds
+                checkpoint["completed"] = completed
+                txStatements.append((
+                    "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2",
+                    [key, try encodeCheckpoint(checkpoint)]
+                ))
+                _ = try await Self.committed(txStatements)
+            }
+
+            if let nextPageToken = listResponse["nextPageToken"] as? String, !nextPageToken.isEmpty {
+                checkpoint["pageToken"] = nextPageToken
+                checkpoint["storedIds"] = [String]()
+                try checkBackgroundActive()
+                guard try await accountStillNeedsBackfill(accountId) else { return true }
+                _ = try await Self.committed([(
+                    "INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT(key) DO UPDATE SET value = $2",
+                    [key, try encodeCheckpoint(checkpoint)]
+                )])
+            } else {
+                break
+            }
+        }
+
+        try checkBackgroundActive()
+        guard let historyId = checkpoint["historyId"] as? String, !historyId.isEmpty else { return false }
+        _ = try await Self.committed([
+            ("UPDATE accounts SET history_id = $1, last_sync_at = unixepoch(), updated_at = unixepoch() WHERE id = $2", [historyId, accountId]),
+            ("INSERT INTO settings (key, value) VALUES ($1, '') ON CONFLICT(key) DO UPDATE SET value = ''", [key]),
+        ])
+        return true
+    }
+
+    /// Runs historical metadata backfill for any Gmail account that does not yet have a history cursor.
+    /// Returns true when all active Gmail accounts are caught up.
+    private func backfillWork(deadline: Date) async throws -> Bool {
+        let accounts = try await accountsNeedingBackfill()
+        guard !accounts.isEmpty else { return true }
+        let daysBack = await readSyncPeriodDays()
+        var allFinished = true
+        for account in accounts {
+            try checkBackgroundActive()
+            if Date() >= deadline { return false }
+            guard let id = account["id"] as? String, !id.isEmpty,
+                  let email = account["email"] as? String, !email.isEmpty else { continue }
+            do {
+                let done = try await backfillAccount(id: id, email: email, daysBack: daysBack, deadline: deadline)
+                if !done { allFinished = false }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // One rate-limited or revoked account must not starve other accounts.
+                allFinished = false
+            }
+        }
+        return allFinished
     }
 }

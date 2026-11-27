@@ -10,6 +10,7 @@ public class BackgroundMailPlugin extends Plugin {
     private static final java.util.concurrent.ExecutorService scheduledSends=java.util.concurrent.Executors.newSingleThreadExecutor();
     @Override public void load() {
         store=new BackgroundMailStore(getContext());BackgroundMailScheduler.schedule(getContext());
+        BackgroundMailScheduler.scheduleBackfill(getContext());
         BackgroundMailScheduler.scheduleScheduledSend(getContext());
     }
     /** WorkManager doesn't run while the app is open, so the app asks the same native sender to run. */

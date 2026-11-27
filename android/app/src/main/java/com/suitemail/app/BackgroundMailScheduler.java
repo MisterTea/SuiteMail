@@ -8,6 +8,8 @@ import java.util.concurrent.TimeUnit;
 public final class BackgroundMailScheduler {
     static final String NAME = "suitemail-periodic-gmail";
     static final String TAG = "suitemail-background-mail";
+    static final String BACKFILL_NAME = "suitemail-gmail-backfill";
+    static final String BACKFILL_TAG = "suitemail-gmail-backfill";
     static final int INTERVAL_MINUTES = 30;
     static volatile boolean foreground = false;
     static SharedPreferences prefs(Context context) {
@@ -31,9 +33,23 @@ public final class BackgroundMailScheduler {
             .setConstraints(new Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()).build();
         WorkManager.getInstance(context).enqueueUniquePeriodicWork(SCHEDULED_SEND,ExistingPeriodicWorkPolicy.KEEP,work);
     }
+    static void scheduleBackfill(Context context) {
+        if (!enabled(context)) return;
+        OneTimeWorkRequest work = new OneTimeWorkRequest.Builder(BackgroundBackfillWorker.class)
+            .setConstraints(constraints())
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
+            .addTag(BACKFILL_TAG)
+            .build();
+        WorkManager.getInstance(context).enqueueUniqueWork(BACKFILL_NAME, ExistingWorkPolicy.KEEP, work);
+    }
     static void setEnabled(Context context, boolean enabled) {
         prefs(context).edit().putBoolean("enabled",enabled).commit();
-        if (enabled) schedule(context);
-        else WorkManager.getInstance(context).cancelAllWorkByTag(TAG);
+        if (enabled) {
+            schedule(context);
+            scheduleBackfill(context);
+        } else {
+            WorkManager.getInstance(context).cancelAllWorkByTag(TAG);
+            WorkManager.getInstance(context).cancelAllWorkByTag(BACKFILL_TAG);
+        }
     }
 }

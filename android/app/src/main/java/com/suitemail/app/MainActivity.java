@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     }
     @Override public void onPause() {
         BackgroundMailScheduler.foreground = false;
+        BackgroundMailScheduler.scheduleBackfill(this);
         super.onPause();
     }
 }

@@ -48,9 +48,15 @@
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array><string>com.suitemail.app.gmail-refresh</string></array>
+	<array>
+		<string>com.suitemail.app.gmail-refresh</string>
+		<string>com.suitemail.app.gmail-backfill</string>
+	</array>
 	<key>UIBackgroundModes</key>
-	<array><string>fetch</string></array>
+	<array>
+		<string>fetch</string>
+		<string>processing</string>
+	</array>
 	<key>SuiteMailGoogleClientID</key>
 	<string>$(SUITEMAIL_GOOGLE_IOS_CLIENT_ID)</string>
 	<key>CFBundleURLTypes</key>
