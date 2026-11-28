@@ -86,7 +86,8 @@ async function syncGmailAccount(accountId: string): Promise<void> {
   const deadline = Date.now() + accountBudgetMs;
   // A sync requested meanwhile (user refresh or the next timer tick) takes priority over backfill.
   const shouldStop = () => pendingAccountIds !== null;
-  const backfill = () => initialSync(client, accountId, syncDays, undefined, { deadline, shouldStop, onMessagesStored });
+  // Historical backfill runs silently — don't mix older mail into the header's "X messages synced" counter.
+  const backfill = () => initialSync(client, accountId, syncDays, undefined, { deadline, shouldStop });
 
   if (account.history_id) {
     // Delta sync

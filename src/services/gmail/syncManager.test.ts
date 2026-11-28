@@ -128,7 +128,6 @@ describe("syncManager", () => {
       expect(mockInitialSync).toHaveBeenCalledWith(expect.anything(), "a1", 365, undefined, {
         deadline: expect.any(Number),
         shouldStop: expect.any(Function),
-        onMessagesStored: expect.any(Function),
       });
       expect(mockDeltaSync).not.toHaveBeenCalled();
     });
