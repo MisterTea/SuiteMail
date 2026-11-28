@@ -195,19 +195,49 @@ public class SuiteMailPlugin extends Plugin {
                     call.resolve(result);
                     return;
                 }
+                boolean isProtonImap = false;
                 if (command.startsWith("imap_") || command.startsWith("smtp_")) {
                     JSObject config = args.getJSObject("config");
                     if (config != null && ProtonBridge.ACCOUNT_HOST.equals(config.optString("host"))) {
+                        isProtonImap = true;
                         ProtonBridge.configure(getContext(), config, command.startsWith("smtp_"));
                         args.put("config", config);
                     }
                 }
                 JSObject envelope = new JSObject(nativeCall(command, args.toString()));
-                if (envelope.has("error")) call.reject(envelope.getString("error"));
-                else call.resolve(envelope);
+                if (envelope.has("error")) {
+                    String err = envelope.getString("error");
+                    if (command.startsWith("imap_") || command.startsWith("smtp_") || command.startsWith("proton_")) {
+                        android.util.Log.w("SuiteMailImap", command + (isProtonImap ? " [proton]" : "") + " failed: " + err);
+                    }
+                    call.reject(err);
+                } else {
+                    if (isProtonImap) {
+                        String extra = "";
+                        if ("imap_delta_check".equals(command)) {
+                            org.json.JSONArray arr = envelope.optJSONArray("value");
+                            int folders = arr == null ? 0 : arr.length();
+                            int newUids = 0;
+                            if (arr != null) {
+                                for (int i = 0; i < arr.length(); i++) {
+                                    org.json.JSONObject item = arr.optJSONObject(i);
+                                    org.json.JSONArray nu = item == null ? null : item.optJSONArray("new_uids");
+                                    if (nu != null) newUids += nu.length();
+                                }
+                            }
+                            extra = " (folders=" + folders + ", new_uids=" + newUids + ")";
+                        }
+                        android.util.Log.i("SuiteMailImap", command + " [proton] ok" + extra);
+                    }
+                    call.resolve(envelope);
+                }
             } catch (Exception e) {
                 Throwable cause = e.getCause() != null ? e.getCause() : e;
-                call.reject(cause.getMessage() != null ? cause.getMessage() : "Native call failed", e);
+                String msg = cause.getMessage() != null ? cause.getMessage() : "Native call failed";
+                if (command.startsWith("imap_") || command.startsWith("smtp_") || command.startsWith("proton_")) {
+                    android.util.Log.w("SuiteMailImap", command + " threw: " + msg, cause);
+                }
+                call.reject(msg, e);
             }
         });
     }
