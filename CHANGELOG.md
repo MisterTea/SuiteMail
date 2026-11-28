@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.13 (2026-11-27)
+
+* Use adaptive pacing and in-batch 429 retries for background Gmail backfill on Android and iOS so large mailboxes finish cleanly without aborting on burst rate limits.
+* Show a live determinate progress bar and thread counter on Android's background backfill notification.
+* Exclude historical Gmail backfill from the top header's `"X messages synced"` counter so it only reflects new mail.
+
 ## 0.1.12 (2026-11-27)
 
 * Fix a crash when backgrounding SuiteMail on Android caused by combining `setExpedited` with `setRequiresBatteryNotLow` on the backfill `WorkRequest`.
